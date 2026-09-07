@@ -60,18 +60,19 @@ access. Every installer uses their own account and credential. Do not share your
 Mint before starting Docker. A line already held by another agent cannot be used
 by a second agent at the same time.
 
-## 4. Configure the agent identity
+## 4. Agent identity and inference defaults
 
-```sh
-cp .env.example .env
-```
+No `.env` file is required for the standard installation. Compose defaults to
+`AGENT_ID=founder-agent`, so the reporter targets the Founder Agent listing.
+Each installer still needs their own Plow credential from step 3; selecting an
+agent ID alone does not authenticate or confirm a successful report.
 
-Keep `AGENT_ID=founder-agent` when installing this agent. It selects the Agent Index
-identity; it is not an API key. The public Compose file inherits the official
-image defaults for Plow inference using the credential minted in step 3.
+The public Compose file inherits the official image defaults for Plow inference.
 No separate Gemini API key or model configuration is needed.
 
-Both `.env` and `plow-credentials` are excluded from Git and the Docker build context.
+For a fork with its own Index identity, copy `.env.example` to `.env` and change
+`AGENT_ID`. Both `.env` and `plow-credentials` are excluded from Git and the Docker
+build context.
 
 ### Optional local inference override
 
@@ -232,7 +233,6 @@ you intend to permanently discard company memory, session history, and install i
 | Symptom | What to check |
 | --- | --- |
 | Cannot connect to Docker | Start Docker Desktop and retry `docker info` |
-| Compose requires `AGENT_ID` | Copy `.env.example` to `.env` and run from the repository root |
 | Local Gemini override requires `GEMINI_API_KEY` | Add your key to `.env`, or remove the optional override to use Plow inference |
 | Official runner missing | Complete the runner clone in step 2 |
 | Line is already occupied | Choose a free line; do not revoke an unrelated running agent |

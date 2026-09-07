@@ -2,7 +2,7 @@ services:
   agent:
     build: .
     environment:
-      AGENT_ID: ${AGENT_ID:?set the Agent Index id this container reports as}
+      AGENT_ID: ${AGENT_ID:-founder-agent}
       # Inherit the official image defaults for Plow inference.
     volumes:
       # plow-agents mint writes this file with restrictive permissions. The
