@@ -4,7 +4,10 @@ A technical chief of staff for solo technical founders, built on Hermes and Plow
 Founder Agent connects company context with operational evidence, prioritizes work,
 and prepares actions you can review.
 
-**Start here: [Complete installation tutorial](docs/INSTALL.md).**
+**[Watch the 3-minute demo](https://youtu.be/600JeKozBQI)** · **[Install Founder Agent](docs/INSTALL.md)**
+
+[Read three real use cases](docs/USE_CASES.md): company onboarding, a Sentry issue
+taken to a draft PR, and a bounded Founder Shift.
 
 ## One real chore
 

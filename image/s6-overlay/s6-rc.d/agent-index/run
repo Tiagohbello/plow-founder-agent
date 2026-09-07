@@ -14,7 +14,9 @@ if [ -z "$AGENT_ID" ]; then
 fi
 
 while :; do
-  if [ ! -s "$HERMES_HOME/.agent-index/token" ]; then
+  # Preserve both current install identities and valid legacy registrations.
+  # Existing but malformed state must fail in the client, never mint a new ID.
+  if [ ! -e "$HERMES_HOME/.agent-index.json" ] && [ ! -s "$HERMES_HOME/.agent-index/token" ]; then
     /command/s6-setuidgid hermes \
       env HOME="$HERMES_HOME" AGENT_ID="$AGENT_ID" PLOW_AGENT_TOKEN="$PLOW_AGENT_TOKEN" \
       /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py \
