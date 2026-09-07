@@ -6,20 +6,7 @@ FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-c3aad2bacdcf2787067c5caf2770
 # Variant-owned files live outside the persistent home. variant-init verifies
 # and reconciles them into /var/lib/hermes before the gateway starts.
 COPY --chown=0:0 --chmod=0644 runtime/SOUL.md /opt/founder-agent/payload/SOUL.md
-COPY --chown=0:0 founder-profile/ /opt/founder-agent/payload/skills/founder-profile/
-COPY --chown=0:0 founder-memory/ /opt/founder-agent/payload/skills/founder-memory/
-COPY --chown=0:0 founder-brief/ /opt/founder-agent/payload/skills/founder-brief/
-COPY --chown=0:0 founder-observe/ /opt/founder-agent/payload/skills/founder-observe/
-COPY --chown=0:0 founder-queue/ /opt/founder-agent/payload/skills/founder-queue/
-COPY --chown=0:0 founder-focus/ /opt/founder-agent/payload/skills/founder-focus/
-COPY --chown=0:0 engineering-assist/ /opt/founder-agent/payload/skills/engineering-assist/
-COPY --chown=0:0 gmail/ /opt/founder-agent/payload/skills/gmail/
-COPY --chown=0:0 founder-calendar/ /opt/founder-agent/payload/skills/founder-calendar/
-COPY --chown=0:0 product-access/ /opt/founder-agent/payload/skills/product-access/
-COPY --chown=0:0 external-operations/ /opt/founder-agent/payload/skills/external-operations/
-COPY --chown=0:0 founder-shift/ /opt/founder-agent/payload/skills/founder-shift/
-COPY --chown=0:0 founder-onboarding/ /opt/founder-agent/payload/skills/founder-onboarding/
-COPY --chown=0:0 communication/ /opt/founder-agent/payload/skills/communication/
+COPY --chown=0:0 skills/ /opt/founder-agent/payload/skills/
 COPY --chown=0:0 --chmod=0755 runtime/variant_init.py /opt/founder-agent/variant_init.py
 COPY --chown=0:0 --chmod=0755 runtime/doctor.py /opt/founder-agent/doctor.py
 COPY --chown=0:0 --chmod=0644 variant/manifest.json /opt/founder-agent/manifest.json

@@ -77,9 +77,9 @@ verify external accounts or prove that a user workflow completed.
 ## Project layout
 
 - `runtime/`: persona, installation reconciliation, and diagnostics.
-- `founder-*/`: company context, memory, prioritization, onboarding, and Shift skills.
-- `engineering-assist/`, `gmail/`, `founder-calendar/`, `product-access/`: work skills.
-- `communication/`, `external-operations/`: approval and external effect ledgers.
+- `skills/founder-*/`: company context, memory, prioritization, onboarding, and Shift skills.
+- `skills/engineering-assist/`, `skills/gmail/`, `skills/founder-calendar/`, `skills/product-access/`: work skills.
+- `skills/communication/`, `skills/external-operations/`: approval and external effect ledgers.
 - `image/`, `Dockerfile`, `compose.yml`: runtime packaging.
 - `variant/manifest.json`: versioned payload hashes.
 
