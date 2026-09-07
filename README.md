@@ -15,8 +15,7 @@ Calendar, GitHub, Sentry, and your product through Latch.
 
 The first successful run should produce a useful result from your own company:
 a brief with concrete evidence, an approved product operation with a verified
-result, or a tested draft PR. The bundled engineering fixture is for development;
-it is not evidence of a real user task.
+result, or a tested draft PR.
 
 ## Capabilities
 
@@ -64,10 +63,9 @@ references prevent overlapping cycles and duplicate effects. Normal cycles remai
 quiet. Critical signals may interrupt. The final summary groups results as
 `Handled`, `Prepared`, `Needs you`, and `Watching`.
 
-## Development and diagnostics
+## Installation diagnostics
 
 ```sh
-python3 -m unittest discover -s tests -p 'test_*.py' -v
 docker compose exec agent /opt/hermes/.venv/bin/python3 /opt/founder-agent/doctor.py
 docker compose exec --user hermes agent /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py --self-check
 docker compose exec --user hermes -e HOME=/var/lib/hermes -e HERMES_HOME=/var/lib/hermes agent /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py --agent founder-agent --dry-run
@@ -75,16 +73,6 @@ docker compose exec --user hermes -e HOME=/var/lib/hermes -e HERMES_HOME=/var/li
 
 The doctor checks installed payload hashes and store readability. It does not
 verify external accounts or prove that a user workflow completed.
-
-## Known limitations
-
-- macOS, a connected Latch session, Docker Compose, Git, Python 3, a Plow account,
-  an available assistant line, and a working Gemini API key are required for the documented setup.
-- Gmail, Calendar, GitHub, Sentry, and product access depend on your accounts and permissions.
-- Calendar operations unsupported by the CLI may use the browser; a 403 remains blocked.
-- Publishing a branch or PR requires GitHub write access. Otherwise a patch can be prepared locally.
-- Local tests do not simulate Plow, Latch, model inference, or external accounts.
-- Public availability is not proof of successful third-party installation or hackathon verification.
 
 ## Project layout
 
@@ -94,7 +82,6 @@ verify external accounts or prove that a user workflow completed.
 - `communication/`, `external-operations/`: approval and external effect ledgers.
 - `image/`, `Dockerfile`, `compose.yml`: runtime packaging.
 - `variant/manifest.json`: versioned payload hashes.
-- `tests/`: local automated checks.
 
 ## Credits
 

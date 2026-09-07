@@ -41,10 +41,6 @@ deletes data, resets hard, or changes production.
 8. Report evidence: branch, reproduction, likely cause, files changed, tests,
    draft PR URL, and remaining uncertainty. A draft PR is not production resolution.
 
-The bundled `fixture/` contains a deliberately broken, tiny example for
-manual acceptance testing. It must fail before the one-line correction and
-pass after it; it is not production code and is not run by the normal suite.
-
 ## Safety boundary
 
 Never run deploy, merge, `git reset --hard`, `git clean`, destructive deletes,

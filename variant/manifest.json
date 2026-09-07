@@ -1,12 +1,9 @@
 {
-  "version": "3.0.0",
+  "version": "3.0.1",
   "files": {
     "SOUL.md": "7f56747fe3f48bb4d29b744add4076a884b2ad804357e930a5ca86d903c64884",
     "skills/communication/drafts.py": "f6cd9ec06ceea2c6fa07c0c12dc5654fde409d1d80b9861b7bfe6a9835a46f9f",
-    "skills/engineering-assist/SKILL.md": "57a511f9b0217dc9ce19b3ac12fe03fc6fee81ce247f9233c3d3744b4967160d",
-    "skills/engineering-assist/fixture/README.md": "8d8bb6549e29bc821c6521f056230eb85b8a43ba56b7dda5032a55b418a8f2cf",
-    "skills/engineering-assist/fixture/buggy_calculator.py": "a9a924ac82e5a6e71ce8c5faf90248107e23bb3c54139375fec8db4e64041781",
-    "skills/engineering-assist/fixture/reproduce.py": "56e857cfda3d726ddffe7bc47955943a8afe27622003cfccc5a3913a22c463a6",
+    "skills/engineering-assist/SKILL.md": "bb1eb1b537c3083342c3612e253c418d94ec4cc9ed0160707d02225caa461583",
     "skills/external-operations/SKILL.md": "5e273ccf8eb539b937c9b07a4892bd8915b9d8e40020964ecc12579071dea492",
     "skills/external-operations/operations.py": "8a62128aedbcf548b9b5a6a5cbd0672178237932c0034ecb5ce299ad0795fa52",
     "skills/founder-brief/SKILL.md": "31d6c56041f6698b9d4c1d7c3dda4a1a257636694895d858a4628e55056d922e",
@@ -27,6 +24,9 @@
     "skills/product-access/SKILL.md": "4fafad29ce15b2e6e597f4520a9a7660ce1a3a671170b7bb2bc8ae21e3008b58"
   },
   "retired_files": {
-    "skills/whatsapp/SKILL.md": "8496b4a0d9d19d9ee0996f05b1742e7fe434bae8cdde95d55b20a156ccf3ae4a"
+    "skills/whatsapp/SKILL.md": "8496b4a0d9d19d9ee0996f05b1742e7fe434bae8cdde95d55b20a156ccf3ae4a",
+    "skills/engineering-assist/fixture/README.md": "8d8bb6549e29bc821c6521f056230eb85b8a43ba56b7dda5032a55b418a8f2cf",
+    "skills/engineering-assist/fixture/buggy_calculator.py": "a9a924ac82e5a6e71ce8c5faf90248107e23bb3c54139375fec8db4e64041781",
+    "skills/engineering-assist/fixture/reproduce.py": "56e857cfda3d726ddffe7bc47955943a8afe27622003cfccc5a3913a22c463a6"
   }
 }

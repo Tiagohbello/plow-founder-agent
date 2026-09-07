@@ -132,7 +132,7 @@ engineering issue in a repository you authorized:
 
 Success means a verified result: a reproduction, relevant test results, and a
 real draft PR URL, or an explicit blocker with a prepared patch. A summary of the
-README or the bundled fixture is not an end-to-end real-world success.
+README is not an end-to-end real-world success.
 
 Optional: test a bounded Founder Shift after the first interactive task works:
 
