@@ -12,7 +12,6 @@ You need:
 - Docker Desktop running, with Docker Compose available.
 - Git and Python 3 on the host.
 - A Plow account and a free assistant line. The login flow uses your phone.
-- A Gemini API key with access to the model configured in `compose.yml`.
 - A product repository you can safely use for the first task.
 
 Check the local tools:
@@ -24,8 +23,8 @@ docker info
 docker compose version
 ```
 
-`docker info` must connect successfully before continuing. Model inference can
-incur charges under your provider account. Never put keys in chat or commit them.
+`docker info` must connect successfully before continuing. Inference follows your Plow account access and billing.
+Never put credentials in chat or commit them.
 
 ## 2. Download the agent and official runner
 
@@ -61,21 +60,38 @@ access. Every installer uses their own account and credential. Do not share your
 Mint before starting Docker. A line already held by another agent cannot be used
 by a second agent at the same time.
 
-## 4. Configure inference
+## 4. Configure the agent identity
 
 ```sh
 cp .env.example .env
 ```
 
-Open `.env` in your editor and replace the placeholder Gemini key with your own.
 Keep `AGENT_ID=founder-agent` when installing this agent. It selects the Agent Index
-identity; it is not an API key. Both `.env` and `plow-credentials` are excluded
-from Git and the Docker build context.
+identity; it is not an API key. The public Compose file inherits the official
+image defaults for Plow inference using the credential minted in step 3.
+No separate Gemini API key or model configuration is needed.
 
-The shipped provider is `gemini` and model is `gemini-3.8-flash`, as configured in
-`compose.yml`. This guide does not establish model availability for your account.
-If the provider rejects it, check your account's model access and configure a
-supported model before attempting real tasks.
+Both `.env` and `plow-credentials` are excluded from Git and the Docker build context.
+
+### Optional local inference override
+
+To use your own inference provider, create `compose.override.yml` beside
+`compose.yml`. Docker Compose loads this file automatically. For example:
+
+```yaml
+services:
+  agent:
+    environment:
+      HERMES_PROVIDER: gemini
+      HERMES_MODEL: gemini-3.8-flash
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?set GEMINI_API_KEY in .env}
+```
+
+For this override, add your own `GEMINI_API_KEY` to `.env` and confirm the model is
+available to your provider account. The override is excluded from Git and the
+Docker build context, so local settings do not change the public defaults.
+Plow continues to carry messages. To return to Plow inference, remove or rename
+the override and recreate the service with `docker compose up -d`.
 
 ## 5. Build and start
 
@@ -216,7 +232,8 @@ you intend to permanently discard company memory, session history, and install i
 | Symptom | What to check |
 | --- | --- |
 | Cannot connect to Docker | Start Docker Desktop and retry `docker info` |
-| Compose requires `AGENT_ID` or `GEMINI_API_KEY` | Create `.env`, fill the key, and run from the repository root |
+| Compose requires `AGENT_ID` | Copy `.env.example` to `.env` and run from the repository root |
+| Local Gemini override requires `GEMINI_API_KEY` | Add your key to `.env`, or remove the optional override to use Plow inference |
 | Official runner missing | Complete the runner clone in step 2 |
 | Line is already occupied | Choose a free line; do not revoke an unrelated running agent |
 | `plow-credentials` is a directory | Stop with `docker compose down`; remove it with `rmdir plow-credentials` only if empty, then mint before starting |

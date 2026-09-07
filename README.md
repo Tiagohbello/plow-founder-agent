@@ -36,8 +36,8 @@ result, or a tested draft PR.
 
 The Docker image extends the pinned official [Plow Hermes image](https://github.com/plow-pbc/plow-hermes-agent).
 Plow Chat carries messages; [Latch](https://plow.co/latch) connects approved Mac,
-browser, vault, and Google operations. The current Compose configuration uses
-Gemini `gemini-3.8-flash` and requires your own Gemini API key.
+browser, vault, and Google operations. The public Compose configuration inherits
+the official image defaults for Plow inference. No separate Gemini key is required.
 
 The official [Agent Index client](https://github.com/plow-pbc/agent-index-client)
 is pinned by commit and checksum and runs hourly beside the gateway. See the

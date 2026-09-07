@@ -11,3 +11,5 @@ tools/
 !.env.example
 *.pem
 *.key
+
+compose.override.yml

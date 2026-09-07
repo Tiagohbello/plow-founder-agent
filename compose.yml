@@ -3,10 +3,7 @@ services:
     build: .
     environment:
       AGENT_ID: ${AGENT_ID:?set the Agent Index id this container reports as}
-      # Plow remains the messaging transport; Gemini handles inference.
-      HERMES_PROVIDER: gemini
-      HERMES_MODEL: gemini-3.8-flash
-      GEMINI_API_KEY: ${GEMINI_API_KEY:?set GEMINI_API_KEY in .env}
+      # Inherit the official image defaults for Plow inference.
     volumes:
       # plow-agents mint writes this file with restrictive permissions. The
       # image promotes it into the runtime credential path during boot.

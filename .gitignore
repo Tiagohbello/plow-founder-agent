@@ -10,3 +10,5 @@ tools/plow-agents/
 !.env.example
 *.pem
 *.key
+
+compose.override.yml
