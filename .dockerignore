@@ -1,0 +1,13 @@
+.git
+.env
+plow-credentials
+tools/
+**/__pycache__
+**/*.py[co]
+**/.pytest_cache
+
+.DS_Store
+.env.*
+!.env.example
+*.pem
+*.key

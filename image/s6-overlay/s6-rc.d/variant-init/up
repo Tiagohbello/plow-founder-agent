@@ -1,0 +1,1 @@
+/command/with-contenv /opt/hermes/.venv/bin/python /opt/founder-agent/variant_init.py
