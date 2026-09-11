@@ -33,7 +33,7 @@ For `Find the latest email from Acme about SSO`:
 Search Founder Context with the customer and feature terms:
 
 ```sh
-python3 "$HERMES_HOME/skills/founder-memory/memory.py" search "Acme SSO"
+python3 "$HERMES_HOME/skills/founder-context/scripts/memory.py" search "Acme SSO"
 ```
 
 If it matches, state that the email matches the existing record. During
@@ -49,7 +49,7 @@ For `Prepare a reply ...`, create a draft in the durable ledger. Include the
 verified Gmail thread id, exact recipient, subject, and body:
 
 ```sh
-python3 "$HERMES_HOME/skills/communication/drafts.py" prepare \
+python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" prepare \
   --channel gmail --thread-id '<verified-thread-id>' \
   --recipient '<verified-address>' --subject '<subject>' --body '<draft>'
 ```
@@ -66,10 +66,10 @@ claim the send once, click Send once in Gmail, then verify the sent message in
 the same thread and record its message id:
 
 ```sh
-python3 "$HERMES_HOME/skills/communication/drafts.py" approve --id <id> \
+python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" approve --id <id> \
   --approval-ref '<founder-message-id>'
-python3 "$HERMES_HOME/skills/communication/drafts.py" claim-send --id <id>
-python3 "$HERMES_HOME/skills/communication/drafts.py" mark-sent --id <id> --message-id '<verified-id>'
+python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" claim-send --id <id>
+python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" mark-sent --id <id> --message-id '<verified-id>'
 ```
 
 If browser output, network, or verification is uncertain, mark the draft

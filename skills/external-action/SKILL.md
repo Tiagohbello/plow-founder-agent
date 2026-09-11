@@ -18,14 +18,18 @@ forbidden.
 
 All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
-For Gmail, prepare a draft first. Only the founder's explicit approval of its
-exact recipient, thread, subject, and body permits recording approval and
-claiming one send. Record a stable conversation/message reference as
-`--approval-ref`. Editing any field creates a new unapproved draft.
+For Gmail, prepare a draft first with
+`python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" prepare ...`.
+Only the founder's explicit approval of its exact recipient, thread, subject,
+and body permits recording approval and claiming one send. Record a stable
+conversation/message reference as `--approval-ref`. Editing any field creates
+a new unapproved draft.
 
-For calendar and product writes, `operations.py prepare` resolves policy from
-Founder Profile; never pass or invent a policy. Unconfigured operations require
-approval. A concrete founder request approves only that exact prepared action.
+For calendar and product writes,
+`python3 "$HERMES_HOME/skills/external-action/scripts/operations.py" prepare ...`
+resolves policy from Founder Profile; never pass or invent a policy.
+Unconfigured operations require approval. A concrete founder request approves
+only that exact prepared action.
 
 Claim before touching the external system. After observable verification, mark
 the action completed with its external id and evidence. After timeout or an

@@ -1,15 +1,18 @@
 # Founder Agent variant built on the official Plow Hermes image.
 # Keep the base pinned by immutable tag and digest: it contains the Hermes
 # runtime, Plow Chat integration, and Latch configuration.
-FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-c3aad2bacdcf2787067c5caf27707183dbcc71e5@sha256:6e1eaf43474efe62f860ecf1298f8602ea452591298aab52ab40a5fa2dc54ebb
+FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-4747960eaa8a44ac24424bf0cc6c22559af61f43@sha256:fe9b0f428f9ed2da1698ecf0b504c79eceb9e016e770291ff6b3418b9f65449d
 
-# Variant-owned files live outside the persistent home. variant-init verifies
-# and reconciles them into /var/lib/hermes before the gateway starts.
-COPY --chown=0:0 --chmod=0644 runtime/SOUL.md /opt/founder-agent/payload/SOUL.md
-COPY --chown=0:0 skills/ /opt/founder-agent/payload/skills/
-COPY --chown=0:0 --chmod=0755 runtime/variant_init.py /opt/founder-agent/variant_init.py
-COPY --chown=0:0 --chmod=0755 runtime/doctor.py /opt/founder-agent/doctor.py
-COPY --chown=0:0 --chmod=0644 variant/manifest.json /opt/founder-agent/manifest.json
+# plow-init composes the home's SOUL.md from the base persona plus this file
+# on every boot; nothing is COPYed to $HERMES_HOME/SOUL.md directly.
+COPY --chmod=0644 runtime/persona.md /opt/hermes/plow-seed/persona.md
+
+# The gateway's sync_skills() reconciles this into the home at startup: new
+# skills are copied, untouched ones are updated, owner edits/deletes are kept.
+# /opt/hermes/skills already holds the base's own bundled skills; leave their
+# modes alone -- our checkout's own modes are already readable and our
+# helpers run as `python3 <path>`, so nothing here needs the exec bit.
+COPY --chown=0:0 skills/ /opt/hermes/skills/
 
 # Agent Index owns its client. Fetch only the reviewed immutable revision and
 # verify its checksum before placing it in the root-owned service path.
