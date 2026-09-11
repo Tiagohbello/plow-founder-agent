@@ -6,7 +6,7 @@ author: Founder Agent
 metadata:
   hermes:
     tags: [founder, product, admin, browser, latch]
-    related_skills: [founder-profile, founder-memory, external-operations]
+    related_skills: [founder-context, external-action]
 ---
 
 # Product Access
@@ -52,11 +52,11 @@ otherwise global hard prohibitions for merge, deploy, money movement, critical
 credential changes, destructive production deletion, and destructive
 operations still block it. An unconfigured operation defaults to `approval`.
 
-Use `external-operations` before every allowed mutation. A concrete founder
-request approves that exact prepared item but does not create a lasting policy.
+Use `external-action` before every allowed mutation and pass the configured
+access name to `operations.py prepare --access-name`. A concrete founder request
+approves that exact prepared item but does not create a lasting policy.
 An `autonomous` policy permits the operation without another Founder Agent
-question, including during an active Shift. Latch may still show its own
-approval prompt.
+question. Latch may still show its own approval prompt.
 
 Claim once, perform the smallest requested browser action, and verify the final
 state using a stable record or URL. Finish with evidence. A timeout, navigation

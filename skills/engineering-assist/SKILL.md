@@ -6,16 +6,15 @@ author: Founder Agent
 metadata:
   hermes:
     tags: [founder, engineering, debugging, patch, latch]
-    related_skills: [founder-memory, founder-queue]
+    related_skills: [founder-context]
 ---
 
 # Engineering Assist
 
-Use for a direct engineering request or evidence-backed work selected during a
-Founder Shift. This capability investigates, prepares a tested local fix, pushes
-its isolated branch, and opens a draft PR without a separate approval when
-Founder Profile allows `open_draft_pr=autonomous`. It never merges, deploys,
-deletes data, resets hard, or changes production.
+Use for a direct engineering request. This capability investigates, prepares a
+tested local fix, pushes its isolated branch, and opens a draft PR when the
+founder requested it. It never merges, deploys, deletes data, resets hard, or
+changes production.
 
 ## Flow
 
@@ -36,8 +35,8 @@ deletes data, resets hard, or changes production.
 6. Before pushing, search the remote for the branch/source reference. Never
    duplicate a PR after an uncertain result. Push once and create a **draft PR**
    containing problem, evidence, tests, and limitations.
-7. Verify the PR URL, then add/update a `needs_founder` queue item with
-   `artifact_kind=draft_pr`, its URL, and the next decision: review and merge.
+7. Verify the PR URL and record it in Founder Context with the next decision:
+   review and merge.
 8. Report evidence: branch, reproduction, likely cause, files changed, tests,
    draft PR URL, and remaining uncertainty. A draft PR is not production resolution.
 

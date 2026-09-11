@@ -6,7 +6,7 @@ author: Founder Agent
 metadata:
   hermes:
     tags: [founder, gmail, customers, communication, drafts]
-    related_skills: [founder-memory, founder-queue]
+    related_skills: [founder-context, external-action]
 ---
 
 # Gmail
@@ -28,17 +28,17 @@ For `Find the latest email from Acme about SSO`:
 3. Read the relevant thread and return a concise summary plus actionable points.
    Say when access, search, or the thread is unavailable; do not invent content.
 
-## Connect to Company Memory
+## Connect to Founder Context
 
-Search Company Memory with the customer and feature terms:
+Search Founder Context with the customer and feature terms:
 
 ```sh
 python3 "$HERMES_HOME/skills/founder-memory/memory.py" search "Acme SSO"
 ```
 
 If it matches, state that the email matches the existing record. During
-onboarding, a direct read request, or Founder Shift, capture verified durable
-facts automatically using the Gmail message id as `source_ref`. Update the
+onboarding or a direct read request, capture verified durable facts automatically
+using the Gmail message id as `source_ref`. Update the
 existing feature demand rather than duplicating it. Do not change priority
 against an explicit founder decision; a `deferred` implementation stays
 deferred while a reply may still be prepared.
@@ -66,7 +66,8 @@ claim the send once, click Send once in Gmail, then verify the sent message in
 the same thread and record its message id:
 
 ```sh
-python3 "$HERMES_HOME/skills/communication/drafts.py" approve --id <id>
+python3 "$HERMES_HOME/skills/communication/drafts.py" approve --id <id> \
+  --approval-ref '<founder-message-id>'
 python3 "$HERMES_HOME/skills/communication/drafts.py" claim-send --id <id>
 python3 "$HERMES_HOME/skills/communication/drafts.py" mark-sent --id <id> --message-id '<verified-id>'
 ```

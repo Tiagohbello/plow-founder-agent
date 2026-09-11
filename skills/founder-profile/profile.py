@@ -22,12 +22,19 @@ DEFAULT_POLICIES = {
     "prepare_code": "autonomous",
     "open_draft_pr": "autonomous",
     "send_communication": "approval",
-    "calendar_manage": "autonomous",
+    "calendar_manage": "approval",
     "merge": "forbidden",
     "deploy": "forbidden",
     "production_mutation": "forbidden",
     "destructive_operation": "forbidden",
 }
+PERMANENTLY_FORBIDDEN = {
+    "merge",
+    "deploy",
+    "production_mutation",
+    "destructive_operation",
+}
+SCHEMA_VERSION = 1
 
 
 def database_path() -> Path:
@@ -35,7 +42,7 @@ def database_path() -> Path:
     if configured:
         return Path(configured).expanduser()
     home = Path(os.environ.get("HERMES_HOME", "/var/lib/hermes"))
-    return home / "founder-profile" / "profile.db"
+    return home / "founder-agent" / "founder-agent.db"
 
 
 def now() -> str:
@@ -67,12 +74,53 @@ def web_url(value: str | None) -> str:
     return url
 
 
+def migrate_legacy(connection: sqlite3.Connection, path: Path) -> None:
+    """Import the former profile database once when the shared store is empty."""
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS founder_agent_migration "
+        "(component TEXT PRIMARY KEY, migrated_at TEXT NOT NULL)"
+    )
+    if connection.execute(
+        "SELECT 1 FROM founder_agent_migration WHERE component='profile'"
+    ).fetchone():
+        return
+    legacy = Path(os.environ.get("HERMES_HOME", "/var/lib/hermes")) / "founder-profile" / "profile.db"
+    empty = not connection.execute("SELECT 1 FROM company LIMIT 1").fetchone()
+    if legacy.is_file() and legacy.resolve() != path.resolve() and empty:
+        connection.execute("ATTACH DATABASE ? AS legacy_profile", (str(legacy),))
+        tables = {
+            "company": "id,name,product,main_goal,updated_at",
+            "repository": "id,local_path,remote_url,is_primary,updated_at",
+            "source": "kind,status,locator,evidence,checked_at",
+            "permission": "capability,policy,updated_at",
+            "product_access": "id,name,kind,url,environment,credential_item_ref,status,evidence,active,checked_at,updated_at",
+            "calendar_account": "account,calendar_ids,default_calendar,timezone,working_hours,preferences,status,evidence,is_default,active,checked_at,updated_at",
+            "product_access_repository": "access_id,repository_id",
+            "product_access_policy": "access_id,operation,policy,updated_at",
+        }
+        for table, columns in tables.items():
+            connection.execute(
+                f"INSERT OR IGNORE INTO {table} ({columns}) SELECT {columns} FROM legacy_profile.{table}"
+            )
+        connection.commit()
+        connection.execute("DETACH DATABASE legacy_profile")
+    connection.execute(
+        "INSERT INTO founder_agent_migration(component,migrated_at) VALUES ('profile',?)",
+        (now(),),
+    )
+
+
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout = 5000")
     connection.execute("PRAGMA foreign_keys = ON")
+    current_schema = connection.execute("PRAGMA user_version").fetchone()[0]
+    if current_schema > SCHEMA_VERSION:
+        raise sqlite3.Error(
+            f"profile schema {current_schema} is newer than supported {SCHEMA_VERSION}"
+        )
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS company (
@@ -142,6 +190,10 @@ def connect(path: Path) -> sqlite3.Connection:
         );
         """
     )
+    migrate_legacy(connection, path)
+    # Version 1 is the bootstrap schema. Future changes must bump
+    # SCHEMA_VERSION, apply a guarded migration, then update user_version.
+    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     timestamp = now()
     for capability, policy in DEFAULT_POLICIES.items():
         connection.execute(
@@ -249,10 +301,13 @@ def run(args: argparse.Namespace) -> dict:
                 (args.kind, args.status, (args.locator or "").strip(), (args.evidence or "").strip(), timestamp),
             )
         elif args.operation == "set-permission":
+            capability = text(args.capability, "capability")
+            if capability in PERMANENTLY_FORBIDDEN and args.policy != "forbidden":
+                raise ValueError(f"{capability} is permanently forbidden")
             connection.execute(
                 """INSERT INTO permission(capability,policy,updated_at) VALUES (?,?,?)
                    ON CONFLICT(capability) DO UPDATE SET policy=excluded.policy,updated_at=excluded.updated_at""",
-                (text(args.capability, "capability"), args.policy, timestamp),
+                (capability, args.policy, timestamp),
             )
         elif args.operation == "set-access":
             existing = connection.execute(
@@ -347,7 +402,7 @@ def parser() -> argparse.ArgumentParser:
     source.add_argument("--kind", required=True, choices=SOURCE_KINDS); source.add_argument("--status", required=True, choices=SOURCE_STATUSES)
     source.add_argument("--locator"); source.add_argument("--evidence")
     permission = commands.add_parser("set-permission")
-    permission.add_argument("--capability", required=True); permission.add_argument("--policy", required=True, choices=POLICIES)
+    permission.add_argument("--capability", required=True, choices=tuple(DEFAULT_POLICIES)); permission.add_argument("--policy", required=True, choices=POLICIES)
     access = commands.add_parser("set-access")
     access.add_argument("--name", required=True); access.add_argument("--kind", required=True, choices=ACCESS_KINDS)
     access.add_argument("--url", required=True); access.add_argument("--environment", required=True)

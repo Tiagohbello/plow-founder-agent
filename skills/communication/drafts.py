@@ -21,6 +21,7 @@ from pathlib import Path
 ACTIVE_CHANNELS = ("gmail",)
 HISTORICAL_CHANNELS = ("gmail", "whatsapp")
 STATUSES = ("draft", "approved", "sending", "sent", "uncertain", "cancelled")
+SCHEMA_VERSION = 1
 
 
 def default_database_path() -> Path:
@@ -28,7 +29,7 @@ def default_database_path() -> Path:
     if configured:
         return Path(configured).expanduser()
     home = Path(os.environ.get("HERMES_HOME", "/var/lib/hermes"))
-    return home / "communication" / "drafts.db"
+    return home / "founder-agent" / "founder-agent.db"
 
 
 def now() -> str:
@@ -41,6 +42,34 @@ def required_text(value: str, name: str) -> str:
     return value.strip()
 
 
+def migrate_legacy(connection: sqlite3.Connection, path: Path) -> None:
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS founder_agent_migration "
+        "(component TEXT PRIMARY KEY, migrated_at TEXT NOT NULL)"
+    )
+    if connection.execute(
+        "SELECT 1 FROM founder_agent_migration WHERE component='drafts'"
+    ).fetchone():
+        return
+    legacy = Path(os.environ.get("HERMES_HOME", "/var/lib/hermes")) / "communication" / "drafts.db"
+    empty = not connection.execute("SELECT 1 FROM draft LIMIT 1").fetchone()
+    if legacy.is_file() and legacy.resolve() != path.resolve() and empty:
+        columns = (
+            "id,channel,thread_id,recipient,subject,body,status,approval_token,"
+            "idempotency_key,external_message_id,verification_note,created_at,updated_at"
+        )
+        connection.execute("ATTACH DATABASE ? AS legacy_drafts", (str(legacy),))
+        connection.execute(
+            f"INSERT OR IGNORE INTO draft ({columns}) SELECT {columns} FROM legacy_drafts.draft"
+        )
+        connection.commit()
+        connection.execute("DETACH DATABASE legacy_drafts")
+    connection.execute(
+        "INSERT INTO founder_agent_migration(component,migrated_at) VALUES ('drafts',?)",
+        (now(),),
+    )
+
+
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
@@ -50,6 +79,11 @@ def connect(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout = 5000")
+    current_schema = connection.execute("PRAGMA user_version").fetchone()[0]
+    if current_schema > SCHEMA_VERSION:
+        raise sqlite3.Error(
+            f"draft schema {current_schema} is newer than supported {SCHEMA_VERSION}"
+        )
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS draft (
@@ -72,6 +106,13 @@ def connect(path: Path) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS draft_status_idx ON draft(status);
         """
     )
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(draft)")}
+    if "approval_ref" not in columns:
+        connection.execute("ALTER TABLE draft ADD COLUMN approval_ref TEXT NOT NULL DEFAULT ''")
+    migrate_legacy(connection, path)
+    # Version 1 is the bootstrap schema. Future changes must bump
+    # SCHEMA_VERSION, apply a guarded migration, then update user_version.
+    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     try:
         path.chmod(0o600)
     except OSError:
@@ -166,7 +207,7 @@ def resolve(connection: sqlite3.Connection, draft_id: int) -> sqlite3.Row:
     return row
 
 
-def approve_draft(connection: sqlite3.Connection, draft_id: int) -> dict[str, object]:
+def approve_draft(connection: sqlite3.Connection, draft_id: int, approval_ref: str) -> dict[str, object]:
     row = resolve(connection, draft_id)
     if row["channel"] not in ACTIVE_CHANNELS:
         raise ValueError("historical WhatsApp drafts cannot be approved")
@@ -176,8 +217,8 @@ def approve_draft(connection: sqlite3.Connection, draft_id: int) -> dict[str, ob
         raise ValueError(f"draft cannot be approved from status {row['status']}")
     token = secrets.token_urlsafe(18)
     connection.execute(
-        "UPDATE draft SET status = 'approved', approval_token = ?, updated_at = ? WHERE id = ?",
-        (token, now(), draft_id),
+        "UPDATE draft SET status = 'approved', approval_token = ?, approval_ref = ?, updated_at = ? WHERE id = ?",
+        (token, required_text(approval_ref, "approval_ref"), now(), draft_id),
     )
     connection.commit()
     return {"approved": True, "already_approved": False, "draft": as_dict(resolve(connection, draft_id))}
@@ -204,6 +245,9 @@ def claim_send(connection: sqlite3.Connection, draft_id: int) -> dict[str, objec
         if row["status"] != "approved":
             connection.rollback()
             raise ValueError("explicit founder approval is required before sending")
+        if not row["approval_ref"].strip():
+            connection.rollback()
+            raise ValueError("approved draft has no founder approval reference")
         connection.execute(
             "UPDATE draft SET status = 'sending', updated_at = ? WHERE id = ?",
             (now(), draft_id),
@@ -281,6 +325,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     approve = subparsers.add_parser("approve")
     approve.add_argument("--id", required=True, type=int)
+    approve.add_argument("--approval-ref", required=True)
 
     revise = subparsers.add_parser("revise")
     revise.add_argument("--id", required=True, type=int)
@@ -315,7 +360,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         if args.operation == "prepare":
             return prepare_draft(connection, args)
         if args.operation == "approve":
-            return approve_draft(connection, args.id)
+            return approve_draft(connection, args.id, args.approval_ref)
         if args.operation == "revise":
             return revise_draft(connection, args)
         if args.operation == "claim-send":

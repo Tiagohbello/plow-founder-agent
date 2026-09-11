@@ -12,15 +12,14 @@ def main():
     for relative,wanted in manifest["files"].items():
         target=home/relative
         checks.append({"path":relative,"present":target.is_file(),"valid":target.is_file() and digest(target)==wanted})
-    stores={}
-    for name,relative in {"profile":"founder-profile/profile.db","memory":"founder-memory/memory.db","queue":"founder-queue/queue.db","drafts":"communication/drafts.db","shift":"founder-shift/shift.db","operations":"external-operations/operations.db"}.items():
-        path=home/relative
-        try:
-            if path.exists():
-                db=sqlite3.connect(f"file:{path}?mode=ro",uri=True); db.execute("PRAGMA schema_version").fetchone(); db.close(); stores[name]="readable"
-            else: stores[name]="not_created"
-        except sqlite3.Error: stores[name]="unreadable"
-    result={"version":manifest["version"],"installation_ok":all(c["valid"] for c in checks),"files":checks,"stores":stores,"external_access":"verify interactively through Latch"}
+    store_path=home/"founder-agent"/"founder-agent.db"; store="not_created"
+    try:
+        if store_path.exists():
+            db=sqlite3.connect(f"file:{store_path}?mode=ro",uri=True)
+            integrity=db.execute("PRAGMA quick_check").fetchone()[0]
+            db.close(); store="readable" if integrity=="ok" else "unreadable"
+    except sqlite3.Error: store="unreadable"
+    result={"version":manifest["version"],"installation_ok":all(c["valid"] for c in checks),"files":checks,"store":store,"external_access":"verify interactively through Latch"}
     print(json.dumps(result,ensure_ascii=False,sort_keys=True)); return 0 if result["installation_ok"] else 1
 
 if __name__=="__main__": raise SystemExit(main())

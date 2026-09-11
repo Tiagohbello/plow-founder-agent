@@ -6,7 +6,7 @@ author: Founder Agent
 metadata:
   hermes:
     tags: [founder, calendar, google, meetings, latch]
-    related_skills: [founder-profile, external-operations]
+    related_skills: [founder-context, external-action]
 ---
 
 # Founder Calendar
@@ -40,9 +40,9 @@ not determine the scope, ask one short question before preparing the operation.
 
 ## Mutations
 
-Use `external-operations` for every create, update, move, response, settings
-change, or deletion. Resolve the `calendar_manage` policy from Founder Profile;
-the default is autonomous. The stable target is `<account>/<calendar>/<event>`
+Use `external-action` for every create, update, move, response, settings change,
+or deletion. `operations.py` resolves `calendar_manage` from Founder Profile;
+the default requires approval. The stable target is `<account>/<calendar>/<event>`
 or `<account>/<calendar>/new` and the intent includes times, recurrence scope,
 attendees, notification choice, and requested change.
 

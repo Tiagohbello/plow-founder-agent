@@ -16,6 +16,15 @@ from pathlib import Path
 SCOPES = ("calendar", "product")
 POLICIES = ("autonomous", "approval", "forbidden")
 STATUSES = ("pending", "approved", "executing", "completed", "uncertain", "cancelled")
+PERMANENTLY_FORBIDDEN = {
+    "merge",
+    "deploy",
+    "move_money",
+    "change_critical_credentials",
+    "delete_production_data",
+    "destructive_operation",
+}
+SCHEMA_VERSION = 1
 
 
 def now() -> str:
@@ -28,12 +37,41 @@ def required(value: str | None, name: str) -> str:
     return value.strip()
 
 
+def migrate_legacy(connection: sqlite3.Connection, path: Path) -> None:
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS founder_agent_migration "
+        "(component TEXT PRIMARY KEY, migrated_at TEXT NOT NULL)"
+    )
+    if connection.execute(
+        "SELECT 1 FROM founder_agent_migration WHERE component='operations'"
+    ).fetchone():
+        return
+    legacy = Path(os.environ.get("HERMES_HOME", "/var/lib/hermes")) / "external-operations" / "operations.db"
+    empty = not connection.execute("SELECT 1 FROM external_operation LIMIT 1").fetchone()
+    if legacy.is_file() and legacy.resolve() != path.resolve() and empty:
+        columns = (
+            "id,scope,target,operation,intent,policy,status,idempotency_key,"
+            "external_ref,evidence,created_at,updated_at"
+        )
+        connection.execute("ATTACH DATABASE ? AS legacy_operations", (str(legacy),))
+        connection.execute(
+            f"INSERT OR IGNORE INTO external_operation ({columns}) "
+            f"SELECT {columns} FROM legacy_operations.external_operation"
+        )
+        connection.commit()
+        connection.execute("DETACH DATABASE legacy_operations")
+    connection.execute(
+        "INSERT INTO founder_agent_migration(component,migrated_at) VALUES ('operations',?)",
+        (now(),),
+    )
+
+
 def database_path() -> Path:
     configured = os.environ.get("FOUNDER_OPERATIONS_DB")
     if configured:
         return Path(configured).expanduser()
     home = Path(os.environ.get("HERMES_HOME", "/var/lib/hermes"))
-    return home / "external-operations" / "operations.db"
+    return home / "founder-agent" / "founder-agent.db"
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -41,6 +79,11 @@ def connect(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout = 5000")
+    current_schema = connection.execute("PRAGMA user_version").fetchone()[0]
+    if current_schema > SCHEMA_VERSION:
+        raise sqlite3.Error(
+            f"operations schema {current_schema} is newer than supported {SCHEMA_VERSION}"
+        )
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS external_operation (
@@ -62,6 +105,10 @@ def connect(path: Path) -> sqlite3.Connection:
             ON external_operation(status, updated_at);
         """
     )
+    migrate_legacy(connection, path)
+    # Version 1 is the bootstrap schema. Future changes must bump
+    # SCHEMA_VERSION, apply a guarded migration, then update user_version.
+    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     connection.commit()
     try:
         path.chmod(0o600)
@@ -86,23 +133,51 @@ def derive_key(scope: str, target: str, operation: str, intent: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def resolve_policy(connection: sqlite3.Connection, scope: str, operation: str, access_name: str | None) -> str:
+    normalized_operation = operation.strip().casefold().replace("-", "_").replace(" ", "_")
+    if normalized_operation in PERMANENTLY_FORBIDDEN:
+        return "forbidden"
+    tables = {
+        row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+    if scope == "calendar" and "permission" in tables:
+        row = connection.execute(
+            "SELECT policy FROM permission WHERE capability='calendar_manage'"
+        ).fetchone()
+        return row["policy"] if row else "approval"
+    if scope == "product" and access_name and {
+        "product_access", "product_access_policy"
+    }.issubset(tables):
+        row = connection.execute(
+            """SELECT p.policy FROM product_access_policy p
+               JOIN product_access a ON a.id=p.access_id
+               WHERE a.name=? AND a.active=1 AND p.operation=?""",
+            (access_name.strip(), operation.strip()),
+        ).fetchone()
+        return row["policy"] if row else "approval"
+    return "approval"
+
+
 def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
-    if args.policy == "forbidden":
-        raise ValueError("operation is forbidden by Founder Profile")
     target = required(args.target, "target")
     operation = required(args.external_operation, "external_operation")
     intent = required(args.intent, "intent")
+    policy = resolve_policy(connection, args.scope, operation, args.access_name)
+    if policy == "forbidden":
+        raise ValueError("operation is forbidden by Founder Profile or global policy")
     key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
     existing = connection.execute("SELECT * FROM external_operation WHERE idempotency_key=?", (key,)).fetchone()
     if existing:
         return {"created": False, "duplicate": True, "operation": as_dict(existing)}
-    status = "approved" if args.policy == "autonomous" else "pending"
+    status = "approved" if policy == "autonomous" else "pending"
     timestamp = now()
     cursor = connection.execute(
         """INSERT INTO external_operation(scope,target,operation,intent,policy,status,idempotency_key,
                                             created_at,updated_at)
            VALUES (?,?,?,?,?,?,?,?,?)""",
-        (args.scope, target, operation, intent, args.policy, status, key, timestamp, timestamp),
+        (args.scope, target, operation, intent, policy, status, key, timestamp, timestamp),
     )
     connection.commit()
     return {"created": True, "duplicate": False, "approval_required": status == "pending",
@@ -183,7 +258,7 @@ def parser() -> argparse.ArgumentParser:
     create = commands.add_parser("prepare")
     create.add_argument("--scope", required=True, choices=SCOPES); create.add_argument("--target", required=True)
     create.add_argument("--operation", dest="external_operation", required=True); create.add_argument("--intent", required=True)
-    create.add_argument("--policy", required=True, choices=POLICIES); create.add_argument("--idempotency-key")
+    create.add_argument("--access-name"); create.add_argument("--idempotency-key")
     approval = commands.add_parser("approve"); approval.add_argument("--id", required=True, type=int)
     execution = commands.add_parser("claim"); execution.add_argument("--id", required=True, type=int)
     done = commands.add_parser("finish"); done.add_argument("--id", required=True, type=int)

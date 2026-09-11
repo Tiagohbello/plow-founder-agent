@@ -25,6 +25,7 @@ STATUSES = ("active", "deferred", "completed", "archived")
 PRIORITIES = ("low", "medium", "high", "urgent")
 SOURCE_KINDS = ("founder", "gmail", "github", "sentry", "whatsapp", "repo", "legacy")
 CONFIDENCE_LEVELS = ("fact", "inference")
+SCHEMA_VERSION = 1
 
 
 def default_database_path() -> Path:
@@ -32,7 +33,7 @@ def default_database_path() -> Path:
     if configured:
         return Path(configured).expanduser()
     home = Path(os.environ.get("HERMES_HOME", "/var/lib/hermes"))
-    return home / "founder-memory" / "memory.db"
+    return home / "founder-agent" / "founder-agent.db"
 
 
 def now() -> str:
@@ -49,6 +50,34 @@ def required_text(value: str, name: str) -> str:
     return value.strip()
 
 
+def migrate_legacy(connection: sqlite3.Connection, path: Path) -> None:
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS founder_agent_migration "
+        "(component TEXT PRIMARY KEY, migrated_at TEXT NOT NULL)"
+    )
+    if connection.execute(
+        "SELECT 1 FROM founder_agent_migration WHERE component='memory'"
+    ).fetchone():
+        return
+    legacy = Path(os.environ.get("HERMES_HOME", "/var/lib/hermes")) / "founder-memory" / "memory.db"
+    empty = not connection.execute("SELECT 1 FROM memory LIMIT 1").fetchone()
+    if legacy.is_file() and legacy.resolve() != path.resolve() and empty:
+        columns = (
+            "id,type,subject,content,priority,status,created_at,updated_at,"
+            "source_kind,source_ref,observed_at,evidence,confidence"
+        )
+        connection.execute("ATTACH DATABASE ? AS legacy_memory", (str(legacy),))
+        connection.execute(
+            f"INSERT OR IGNORE INTO memory ({columns}) SELECT {columns} FROM legacy_memory.memory"
+        )
+        connection.commit()
+        connection.execute("DETACH DATABASE legacy_memory")
+    connection.execute(
+        "INSERT INTO founder_agent_migration(component,migrated_at) VALUES ('memory',?)",
+        (now(),),
+    )
+
+
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
@@ -59,6 +88,11 @@ def connect(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout = 5000")
+    current_schema = connection.execute("PRAGMA user_version").fetchone()[0]
+    if current_schema > SCHEMA_VERSION:
+        raise sqlite3.Error(
+            f"memory schema {current_schema} is newer than supported {SCHEMA_VERSION}"
+        )
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS memory (
@@ -93,6 +127,10 @@ def connect(path: Path) -> sqlite3.Connection:
         "CREATE UNIQUE INDEX IF NOT EXISTS memory_source_ref_idx "
         "ON memory(source_kind, source_ref) WHERE source_ref != ''"
     )
+    migrate_legacy(connection, path)
+    # Version 1 is the bootstrap schema. Future changes must bump
+    # SCHEMA_VERSION, apply a guarded migration, then update user_version.
+    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     connection.commit()
     try:
         path.chmod(0o600)

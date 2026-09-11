@@ -29,8 +29,8 @@ Never put credentials in chat or commit them.
 ## 2. Download the agent and official runner
 
 ```sh
-git clone https://github.com/Tiagohbello/plow-hackathon.git
-cd plow-hackathon
+git clone https://github.com/Tiagohbello/plow-founder-agent.git
+cd plow-founder-agent
 git clone --depth 1 https://github.com/plow-pbc/plow-agents.git tools/plow-agents
 ```
 
@@ -111,6 +111,19 @@ No inbound ports are published. Docker stores agent state in the Compose-managed
 `agent-home` volume mounted at `/var/lib/hermes`. Preserve this volume and use the
 same checkout/project name across updates to retain state and install identity.
 
+The volume is the installation's persistent data. Founder Agent creates one
+SQLite store there as it is first used:
+
+```text
+/var/lib/hermes/founder-agent/founder-agent.db
+```
+
+The Hermes-owned `/var/lib/hermes/state.db` is separate and must also be
+preserved. The Founder Agent store records its schema version in SQLite
+`user_version`; image updates apply compatible migrations when it is opened.
+Existing split stores are imported once into the shared database and retained
+as rollback copies. Do not delete the volume during a normal update.
+
 ## 6. Onboard your company
 
 Send this message to the agent:
@@ -151,14 +164,8 @@ Success means a verified result: a reproduction, relevant test results, and a
 real draft PR URL, or an explicit blocker with a prepared patch. A summary of the
 README is not an end-to-end real-world success.
 
-Optional: test a bounded Founder Shift after the first interactive task works:
-
-> Run Founder Shift for 30 minutes. Work within my saved permissions. Summarize
-> Handled, Prepared, Needs you, and Watching when the shift ends.
-
-To stop early, ask the agent to cancel the active Shift. For a restart test, use
-`docker compose restart agent` during the requested window and confirm the agent
-resumes without creating duplicate effects.
+For a restart test, use `docker compose restart agent`, ask what it remembers,
+and confirm the company and repository context survived.
 
 ## Verify installation
 
@@ -166,9 +173,9 @@ resumes without creating duplicate effects.
 docker compose exec agent /opt/hermes/.venv/bin/python3 /opt/founder-agent/doctor.py
 ```
 
-Expect `installation_ok: true`. Stores marked `not_created` may be normal before
-the corresponding feature is first used. Verify browser and external account
-access interactively through Latch; the doctor does not check those connections.
+Expect `installation_ok: true`. A store marked `not_created` is normal before
+the first stateful feature is used. Verify browser and external account access
+interactively through Latch; the doctor does not check those connections.
 
 ## Verify Agent Index reporting
 
@@ -256,8 +263,8 @@ legitimate Plow agent credential with the official client to register
 - Name: `Founder Agent`
 - Blurb: `A technical chief of staff for solo founders: evidence-backed briefs and tested draft PRs.`
 - Runtime: `Hermes`
-- Repository: `https://github.com/Tiagohbello/plow-hackathon`
-- Install URL: `https://github.com/Tiagohbello/plow-hackathon/blob/main/docs/INSTALL.md`
+- Repository: `https://github.com/Tiagohbello/plow-founder-agent`
+- Install URL: `https://github.com/Tiagohbello/plow-founder-agent/blob/main/docs/INSTALL.md`
 
 The client exposes `--register`, `--agent`, `--name`, `--blurb`, `--runtime`,
 `--repo`, and `--install-url`; inspect its `--help` for the pinned version before
