@@ -13,7 +13,10 @@ metadata:
 
 Use for calendar setup, availability, meetings, events, reminders, focus time,
 out of office, working location, invitations, and calendar preferences. Read
-Founder Profile first. Use only active configured accounts and calendars.
+Founder Profile first. For availability and conflict checks, read every
+calendar the owner shows, as `google-workspace` describes — a commitment on a
+calendar missing from Founder Profile still blocks the slot. The active
+configured accounts and calendars choose where writes go.
 
 Call `plow_list_skills` and read `google-workspace` before using `plow-gog`.
 Reads may fan out across accounts. Every write must pass the configured
@@ -27,7 +30,7 @@ revealing its address in a shared conversation.
 Keep results bounded. Use `calendar events`, `freebusy`, or `conflicts` with an
 explicit time window and selected fields. Normalize times in the configured
 timezone and retain the source timezone for writes. Before creating or moving a
-timed event, check conflicts across active accounts.
+timed event, check conflicts across every calendar the founder shows.
 
 Preserve existing meetings by default. Find another free time or move a focus
 block. Move or cancel an existing meeting only when the founder requested that
