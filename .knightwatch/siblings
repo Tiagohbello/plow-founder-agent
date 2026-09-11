@@ -1,0 +1,22 @@
+# Repos a reviewer of THIS repo may search and cite, materialized under
+# .siblings/<owner>/<repo>. Declared rather than left to the fallback so the
+# set is the one this repo actually depends on.
+#
+# One per line. The reviewer host must also carry a SOURCE_PATHS entry for
+# each, or the sibling reports as `missing` and is never searched.
+#
+# Each row is a real edge: `plow-hermes-agent` is the base this image builds
+# FROM by tag and digest, and it owns boot, the hardened home, and the
+# compose step that turns `runtime/persona.md` into SOUL.md; `hermes-plugin-plow`
+# is the plugin that base pins, which frames every turn and owns the Plow
+# tools these skills call; `plow` owns the API and Latch surface behind those
+# tools and pins which base tag tenants boot; `agent-index-client` is the
+# upstream this repo pins by commit and sha256 in `vendor/client.pin` and runs
+# as the `agent-index` service. `NousResearch/hermes-agent` stays out — it
+# reaches this repo only through the base, never read as source here. Peer
+# agent variants share no edge with this repo, so they are not listed.
+
+plow-pbc/plow-hermes-agent
+plow-pbc/hermes-plugin-plow
+plow-pbc/plow
+plow-pbc/agent-index-client
