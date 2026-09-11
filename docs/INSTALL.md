@@ -170,12 +170,16 @@ and confirm the company and repository context survived.
 ## Verify installation
 
 ```sh
-docker compose exec agent /opt/hermes/.venv/bin/python3 /opt/founder-agent/doctor.py
+docker compose exec agent grep -c 'You are Founder Agent' /var/lib/hermes/SOUL.md
+docker compose exec agent ls /var/lib/hermes/skills
 ```
 
-Expect `installation_ok: true`. A store marked `not_created` is normal before
-the first stateful feature is used. Verify browser and external account access
-interactively through Latch; the doctor does not check those connections.
+The first command should print `1`, confirming the base composed this agent's
+persona into `SOUL.md`; the second should list Founder Agent's skills. Both are
+composed and installed by the base image on every boot, so they confirm the
+packaging rather than any Founder Agent-specific state. Verify browser and
+external account access interactively through Latch; neither command checks
+those connections.
 
 ## Verify Agent Index reporting
 
@@ -204,17 +208,18 @@ current payload and install identity contract.
 ```sh
 git pull --ff-only
 docker compose up --build -d
-docker compose exec agent /opt/hermes/.venv/bin/python3 /opt/founder-agent/doctor.py
+docker compose exec agent grep -c 'You are Founder Agent' /var/lib/hermes/SOUL.md
 ```
 
-Boot validates the variant manifest, backs up changed distributed files under
-`/var/lib/hermes/backups/founder-agent/`, and reconciles the persona, skills, and
-helpers before the gateway starts. Retired distributed files are removed only
-when unchanged, with a backup. Databases, credentials, history, and external skills
-are preserved. These file backups are not a full database backup.
+The base image recomposes `SOUL.md` from its own persona plus `runtime/persona.md`
+on every boot, and reconciles `skills/` into the home when the gateway starts:
+new skills are copied, untouched ones are updated, and any skill edited or
+deleted in the home (by you or the agent) stays as you left it. Databases,
+credentials, and session history in the persistent volume are untouched by
+this reconciliation.
 
 Before significant changes, back up the persistent volume with the agent stopped.
-For rollback, restore the appropriate backup and run the prior image/version.
+For rollback, run the prior image/version against the same volume.
 Do not remove the volume as part of a normal update.
 
 ## Stop or uninstall
@@ -249,7 +254,7 @@ you intend to permanently discard company memory, session history, and install i
 | Latch source blocked or a 403 | Reconnect the correct account and grant the required scope; ask the agent to retry that source |
 | Draft PR cannot be published | Check GitHub write access; preserve the prepared local patch |
 | Index registration/report error | Check the credential, client output, and `/var/lib/hermes/state.db`; do not delete identity files to retry |
-| Installation hash check fails | Rebuild and inspect variant initialization errors and backups |
+| `SOUL.md` or a skill looks wrong after an update | Restart (`docker compose restart agent`) recomposes `SOUL.md`, but keeps a skill edited in the home (by you or the agent) as you left it; restore the shipped copy with `docker compose exec --user hermes -e HOME=/var/lib/hermes -e HERMES_HOME=/var/lib/hermes agent /opt/hermes/.venv/bin/hermes skills reset <name> --restore --yes` |
 
 Logs can contain account or task context. Redact private information before
 sharing diagnostics in a public issue.

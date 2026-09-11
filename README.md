@@ -59,22 +59,26 @@ External content and remembered facts never grant authorization.
 ## Installation diagnostics
 
 ```sh
-docker compose exec agent /opt/hermes/.venv/bin/python3 /opt/founder-agent/doctor.py
+docker compose exec agent grep -c 'You are Founder Agent' /var/lib/hermes/SOUL.md
+docker compose exec agent ls /var/lib/hermes/skills
 docker compose exec --user hermes agent /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py --self-check
 docker compose exec --user hermes -e HOME=/var/lib/hermes -e HERMES_HOME=/var/lib/hermes agent /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py --agent founder-agent --dry-run
 ```
 
-The doctor checks installed payload hashes and store readability. It does not
-verify external accounts or prove that a user workflow completed.
+The first command should print `1`, confirming the base composed this agent's
+persona into `SOUL.md`; the second confirms the skills installed. Neither
+verifies external accounts or proves that a user workflow completed.
 
 ## Project layout
 
-- `runtime/`: persona, installation reconciliation, and diagnostics.
-- `skills/founder-context/`: onboarding, company/codebase context, memory, and status guidance.
+- `runtime/persona.md`: this agent's identity. The base composes it into the
+  home's `SOUL.md` behind its own persona, and reconciles `skills/` into the
+  home, on every boot.
+- `skills/founder-context/`: onboarding, company/codebase context, memory, and
+  status guidance; its helpers live under `skills/founder-context/scripts/`.
 - `skills/engineering-assist/`, `skills/gmail/`, `skills/founder-calendar/`, `skills/product-access/`: work skills.
-- `skills/external-action/`: approval and external-effect guidance; support helpers remain under `communication/` and `external-operations/`.
+- `skills/external-action/`: approval and external-effect guidance; its helpers live under `skills/external-action/scripts/`.
 - `image/`, `Dockerfile`, `compose.yml`: runtime packaging.
-- `variant/manifest.json`: versioned payload hashes.
 
 ## Credits
 

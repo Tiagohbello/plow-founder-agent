@@ -35,8 +35,8 @@ explicitly says otherwise.
 Use the existing helpers, which share one database:
 
 ```sh
-python3 "$HERMES_HOME/skills/founder-profile/profile.py" show
-python3 "$HERMES_HOME/skills/founder-memory/memory.py" list
+python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" show
+python3 "$HERMES_HOME/skills/founder-context/scripts/memory.py" list
 ```
 
 ## Memory
