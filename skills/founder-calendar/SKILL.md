@@ -1,6 +1,6 @@
 ---
 name: founder-calendar
-description: "Read and manage the founder's configured Google calendars through Latch."
+description: "Read and manage the founder's Google calendars through Latch."
 version: 1.0.0
 author: Founder Agent
 metadata:
