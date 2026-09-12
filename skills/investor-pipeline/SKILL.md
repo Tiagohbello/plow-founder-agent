@@ -33,15 +33,22 @@ directly — this helper offers no rename or delete.
 - `Holds` — held options as human text, `; `-separated, timezone-qualified:
   `Tue 9/15 11:30–12:00 PT`. No event ids; a hold's calendar event is found
   by title `HOLD — <Investor> / <Firm>` (just `HOLD — <Investor>` when
-  `Firm` is blank) and start time. `Holds` is exactly the set of times
-  `Proposed` refers to — changing `Holds` on a row whose `Proposed` is
-  non-blank means those times must be re-sent and `Proposed` rewritten in
-  the same `set` call.
+  `Firm` is blank) and start time. `Holds` tracks the hold events that
+  still exist; `Proposed` independently records what was actually sent —
+  they diverge legitimately when Hold fills `Holds` before `Proposed` is
+  sent, and when Pick clears `Holds` while `Proposed` remains as the
+  record of what was offered. Replacing or altering times still on offer
+  in `Holds` while `Proposed` is non-blank means those times must be
+  re-sent and `Proposed` rewritten in the same `set` call; clearing
+  `Holds` because the offer concluded — a time was picked, or the holds
+  were released after a decision — is not a resend.
 - `Proposed` — blank until held times are sent; then `<channel> <date>
-  (<thread ref>)`, channel one of email, text, plow.
+  (<thread ref>)`, channel one of email, text, plow. Never cleared once
+  set — it is the record of what was sent; a later change of mind is
+  recorded in `Status`, not by emptying it.
 - `Status` — compact factual state and next action, in precise words:
-  drafted / sent / held / confirmed / completed. A hold is not an
-  invitation; a proposal is not a meeting.
+  drafted / sent / unverified / withdrawn / held / confirmed / completed.
+  A hold is not an invitation; a proposal is not a meeting.
 
 ## Change a row
 
