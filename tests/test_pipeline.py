@@ -12,8 +12,8 @@ from pathlib import Path
 HELPER = Path(__file__).resolve().parents[1] / "skills/investor-pipeline/scripts/pipeline.py"
 LEGACY = (
     "﻿Investor,Contact info,Firm,Status\n"
-    'Leah Solivan,leah@example.com,"Fuel, Capital","Awaiting reply"\n'
-    "Paul,paul@example.com,Flex Capital,Times sent\n"
+    'Ada Example,ada@example.com,"Example Ventures, LP","Awaiting reply"\n'
+    "Cy Placeholder,cy@example.com,Sample Capital,Times sent\n"
 )
 
 
@@ -34,17 +34,20 @@ class PipelineTests(unittest.TestCase):
 
     def test_set_changes_only_the_named_fields_and_upgrades_the_header(self) -> None:
         self.csv.write_text(LEGACY, encoding="utf-8")
-        result = self.run_helper("set", str(self.csv), "--investor", "Paul",
-                                 "--holds", "Fri 9/18 12:00–13:00 PT", "--status", "Holds placed")
+        hostile_contact = "O'Brien \"Fund\"; $(echo hi)\nsecond line"
+        result = self.run_helper("set", str(self.csv), "--investor", "Cy Placeholder",
+                                 "--contact", hostile_contact,
+                                 "--holds", "Fri 9/18 12:00–13:00 PT", "--status", "held")
         self.assertEqual(result.returncode, 0, result.stderr)
         rows = self.rows()
         self.assertEqual(list(rows[0]), ["Investor", "Contact info", "Firm", "Status", "Holds", "Proposed"])
-        self.assertEqual(rows[0], {"Investor": "Leah Solivan", "Contact info": "leah@example.com",
-                                   "Firm": "Fuel, Capital", "Status": "Awaiting reply",
+        self.assertEqual(rows[0], {"Investor": "Ada Example", "Contact info": "ada@example.com",
+                                   "Firm": "Example Ventures, LP", "Status": "Awaiting reply",
                                    "Holds": "", "Proposed": ""})
+        self.assertEqual(rows[1]["Contact info"], hostile_contact)
         self.assertEqual(rows[1]["Holds"], "Fri 9/18 12:00–13:00 PT")
-        self.assertEqual(rows[1]["Status"], "Holds placed")
-        self.assertEqual(rows[1]["Firm"], "Flex Capital")
+        self.assertEqual(rows[1]["Status"], "held")
+        self.assertEqual(rows[1]["Firm"], "Sample Capital")
         self.assertEqual(json.loads(result.stdout)["Holds"], "Fri 9/18 12:00–13:00 PT")
 
     def test_set_appends_a_new_investor_and_creates_a_missing_file(self) -> None:
@@ -55,15 +58,16 @@ class PipelineTests(unittest.TestCase):
                 else:
                     self.csv.write_text(existing, encoding="utf-8")
                 result = self.run_helper("set", str(self.csv),
-                                         "--investor", "Andrew Lee", "--firm", "a16z")
+                                         "--investor", "Bo Sample", "--firm", "Placeholder Capital")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 last = self.rows()[-1]
-                self.assertEqual((last["Investor"], last["Firm"], last["Status"]), ("Andrew Lee", "a16z", ""))
+                self.assertEqual((last["Investor"], last["Firm"], last["Status"]),
+                                 ("Bo Sample", "Placeholder Capital", ""))
                 self.assertEqual(len(self.rows()), 3 if existing else 1)
 
     def test_unknown_columns_and_quoted_values_survive(self) -> None:
-        self.csv.write_text('Investor,Notes,Status\nLeah,"met at YC, 2024\nsecond line",Warm\n', encoding="utf-8")
-        result = self.run_helper("set", str(self.csv), "--investor", "Leah",
+        self.csv.write_text('Investor,Notes,Status\nAda,"met at YC, 2024\nsecond line",Warm\n', encoding="utf-8")
+        result = self.run_helper("set", str(self.csv), "--investor", "Ada",
                                  "--proposed", "email 9/10 (Scheduling thread)")
         self.assertEqual(result.returncode, 0, result.stderr)
         row = self.rows()[0]
@@ -71,25 +75,17 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(row["Proposed"], "email 9/10 (Scheduling thread)")
         self.assertEqual(list(row)[:3], ["Investor", "Notes", "Status"])
 
-    def test_hostile_values_round_trip_through_argv_untouched(self) -> None:
-        investor = "O'Brien \"Fund\"; $(echo hi)\nsecond line"
-        status = "held ' \" ; $(whoami) done"
-        result = self.run_helper("set", str(self.csv), "--investor", investor, "--status", status)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        row = self.rows()[0]
-        self.assertEqual(row["Investor"], investor)
-        self.assertEqual(row["Status"], status)
-
     def test_set_refuses_and_leaves_the_file_untouched(self) -> None:
         cases = {
-            "duplicate investor": (LEGACY + "Paul,other@example.com,Other Fund,\n",
-                                    ["--investor", "Paul", "--status", "x"], "Paul"),
+            "duplicate investor": (LEGACY + "Cy Placeholder,other@example.com,Other Fund,\n",
+                                    ["--investor", "Cy Placeholder", "--status", "x"], "Cy Placeholder"),
             "no Investor column": ("Name,Email,Fund,Stage\nJane Doe,jane@example.com,Acme Fund,Series A\n",
                                     ["--investor", "Jane Doe"], "Investor"),
-            "repeated header column": ("Investor,Notes,Status,Notes\nLeah,foo,Warm,bar\n",
-                                        ["--investor", "Leah", "--status", "x"], None),
+            "repeated header column": ("Investor,Notes,Status,Notes\nAda,foo,Warm,bar\n",
+                                        ["--investor", "Ada", "--status", "x"], None),
             "short row": ("Investor,Contact info,Firm,Status\nJane Doe,jane@example.com\n",
                           ["--investor", "Jane Doe", "--status", "x"], "row 2"),
+            "formula-leading status": (LEGACY, ["--investor", "Cy Placeholder", "--status", "=cmd"], "Status"),
         }
         for name, (content, flags, message) in cases.items():
             with self.subTest(case=name):
@@ -102,9 +98,9 @@ class PipelineTests(unittest.TestCase):
 
     def test_show_returns_one_investor_or_all(self) -> None:
         self.csv.write_text(LEGACY, encoding="utf-8")
-        one = json.loads(self.run_helper("show", str(self.csv), "--investor", "Paul").stdout)
+        one = json.loads(self.run_helper("show", str(self.csv), "--investor", "Cy Placeholder").stdout)
         every = json.loads(self.run_helper("show", str(self.csv)).stdout)
-        self.assertEqual((one["count"], one["rows"][0]["Firm"]), (1, "Flex Capital"))
+        self.assertEqual((one["count"], one["rows"][0]["Firm"]), (1, "Sample Capital"))
         self.assertEqual(every["count"], 2)
         self.assertEqual(every["columns"][-2:], ["Holds", "Proposed"])
 

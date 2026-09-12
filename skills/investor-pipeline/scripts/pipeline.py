@@ -51,6 +51,9 @@ def set_row(args: argparse.Namespace) -> dict:
     if len(matches) > 1:
         raise ValueError(f"{len(matches)} rows are named {investor!r}; rename one before editing")
     changes = {column: getattr(args, name) for name, column in FIELDS.items() if getattr(args, name) is not None}
+    for column, value in {"Investor": investor, **changes}.items():
+        if value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+            raise ValueError(f"{column}: {value!r} starts with a character spreadsheet software reads as a formula")
     if matches:
         row = matches[0]
     else:
