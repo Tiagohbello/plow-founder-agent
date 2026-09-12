@@ -55,8 +55,9 @@ the same surface Sweep searches; a Plow message goes through
 `plow_list_chats` to resolve the thread and `plow_send_message` to send,
 with `plow_start_group_message` only when none exists and only as its own
 decision put to the founder. Either way, resolve the exact conversation
-before sending — never send to a chat or thread matched only by name.
-Get the founder's approval of that resolved conversation and the exact
+and confirm its participant set is the intended investor before sending
+— never send to a chat or thread matched only by name. Get the
+founder's approval of that resolved conversation and the exact
 body before sending, the same approval Gmail requires of recipient,
 thread, subject, and body. Send once, then read the message back on that
 same surface — an ambiguous or unverified result is reported as
