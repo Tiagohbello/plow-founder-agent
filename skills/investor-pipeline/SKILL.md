@@ -70,14 +70,15 @@ invokes the helper, only the flags actually changing are passed (here
 untouched). There is no shell to assemble a command string into, so there
 is nothing for `'`, `"`, `;`, `$(...)`, or a newline to escape into, all of
 which are valid text in an investor name or status. `set` mutates `tmp` in
-place from the copy you just read — that alone doesn't make it safe to
-upload, since the founder may have edited the real file since. Immediately
-before `plow_write_file`, `plow_read_file` the destination once more and
-diff it byte-for-byte against the copy `tmp` was built from: identical
-means nothing changed underneath you, so write `tmp` over it; different
-means the founder edited it in between — abort without writing, and redo
-the read → `set` → recheck sequence against that new content instead of
-silently overwriting their edit. Confirm a successful write the same way:
+place from the copy you just read, and the upload replaces the destination
+whole — there is no conditional write, so a save landing mid-upload is
+lost and no re-read prevents it: update this file only when the sheet
+isn't being edited, asking the founder to close it if it's open.
+Immediately before `plow_write_file`, `plow_read_file` the destination and
+diff it byte-for-byte against the copy `tmp` was built from; different
+means they edited it while you worked — abort without writing and redo the
+read → `set` sequence against that content. That catches an edit already
+saved, not one saved mid-upload. Confirm a successful write the same way:
 
 ```python
 subprocess.run(["python3", helper, "show", tmp, "--investor", name], check=True)
