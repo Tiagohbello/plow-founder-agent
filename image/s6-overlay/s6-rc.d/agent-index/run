@@ -14,9 +14,13 @@ if [ -z "$AGENT_ID" ]; then
 fi
 
 while :; do
-  # Preserve both current install identities and valid legacy registrations.
-  # Existing but malformed state must fail in the client, never mint a new ID.
-  if [ ! -e "$HERMES_HOME/.agent-index.json" ] && [ ! -s "$HERMES_HOME/.agent-index/token" ]; then
+  /command/s6-setuidgid hermes \
+    env HOME="$HERMES_HOME" HERMES_HOME="$HERMES_HOME" \
+    /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py \
+    status >/dev/null
+  status=$?
+
+  if [ "$status" -eq 3 ]; then
     /command/s6-setuidgid hermes \
       env HOME="$HERMES_HOME" AGENT_ID="$AGENT_ID" PLOW_AGENT_TOKEN="$PLOW_AGENT_TOKEN" \
       /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py \
@@ -25,7 +29,12 @@ while :; do
         /bin/sleep 3600
         continue
       }
+  elif [ "$status" -ne 0 ]; then
+    echo "agent-index: status exited $status; not reporting this hour" >&2
+    /bin/sleep 3600
+    continue
   fi
+
   /command/s6-setuidgid hermes \
     env HOME="$HERMES_HOME" HERMES_HOME="$HERMES_HOME" AGENT_ID="$AGENT_ID" \
     /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py \
