@@ -50,17 +50,18 @@ invitation sent`, notifications off. Record the times and set `Status` to
 
 Only on an explicit send instruction, in the channel the founder named —
 "text" never becomes email. Send email through `gmail`'s draft → approve →
-send flow. For text or Plow, resolve the exact conversation before
-sending: find the thread via `plow_list_chats` and confirm the
-participant set is the intended investor — never send to a chat matched
-only by name; when none exists, creating one with
-`plow_start_group_message` is its own decision to put to the founder. Get
-the founder's approval of that resolved conversation and the exact body
-before sending, the same approval Gmail requires of recipient, thread,
-subject, and body. Send once with `plow_send_message`, then read the
-message back on the thread — an ambiguous or unverified result is
-reported as unverified and never retried; a duplicate proposal to an
-investor is worse than a delayed one. On a verified read-back, record
+send flow. A text goes through Messages on the founder's Mac via Latch,
+the same surface Sweep searches; a Plow message goes through
+`plow_list_chats` to resolve the thread and `plow_send_message` to send,
+with `plow_start_group_message` only when none exists and only as its own
+decision put to the founder. Either way, resolve the exact conversation
+before sending — never send to a chat or thread matched only by name.
+Get the founder's approval of that resolved conversation and the exact
+body before sending, the same approval Gmail requires of recipient,
+thread, subject, and body. Send once, then read the message back on that
+same surface — an ambiguous or unverified result is reported as
+unverified and never retried; a duplicate proposal to an investor is
+worse than a delayed one. On a verified read-back, record
 `Proposed` and set `Status` to `sent`. On an ambiguous or unverified
 result, record `Proposed` noting the send was not confirmed and set
 `Status` to `unverified`. Once sent, those times are fixed: a conflict
