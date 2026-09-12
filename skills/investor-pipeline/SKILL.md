@@ -78,10 +78,12 @@ Immediately before `plow_write_file`, `plow_read_file` the destination and
 diff it byte-for-byte against the copy `tmp` was built from; different
 means they edited it while you worked — abort without writing and redo the
 read → `set` sequence against that content. That catches an edit already
-saved, not one saved mid-upload. Confirm a successful write the same way:
+saved, not one saved mid-upload. Confirm the write the way First use does —
+`plow_read_file` the destination into a fresh temp file and `show` that,
+never `tmp`, which would prove only that your own copy is right:
 
 ```python
-subprocess.run(["python3", helper, "show", tmp, "--investor", name], check=True)
+subprocess.run(["python3", helper, "show", fresh_tmp, "--investor", name], check=True)
 ```
 
 Only the named flags change; every other row and column is preserved. Pass
