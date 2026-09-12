@@ -84,11 +84,12 @@ in the window and find each one's pipeline row by title. Check email,
 texts (Messages through Latch), and the agent's own Plow conversations
 (`session_search`) for that investor at those exact times before deleting
 a blank-`Proposed` hold — found evidence means it was sent, so ask the
-founder rather than delete; no evidence means delete the event and report
-it. `Proposed` set means show the founder the thread and ask before
-deleting. A hold with no matching row falls back to the same
-evidence check before asking — that hold has no row to write back to, so
-the record stays untouched. For a hold matched to a pipeline row, verify
+founder rather than delete; no evidence means delete the event, through
+`founder-calendar`/`external-action`, and report it. `Proposed` set means
+show the founder the thread and ask before deleting. A hold with no
+matching row falls back to the same evidence check before asking — that
+hold has no row to write back to, so the record stays untouched. For a
+hold matched to a pipeline row, verify
 each delete from the API's own response, then update that row with
 `investor-pipeline`'s `set` so `Holds` lists only what survives — empty
 (`"--holds", ""`) if nothing does — and re-read the window to confirm the
@@ -97,9 +98,12 @@ rest remain.
 ## Repurpose
 
 Moving held times to another investor renames the events (title and
-description) and moves the `Holds` cell to the new row; attendees stay
-empty and notifications stay off. Before moving a blank-`Proposed` hold,
-check email, texts (Messages through Latch), and the agent's own Plow
+description), through `founder-calendar`/`external-action`, and appends
+them to the destination row's existing `Holds` — read first, `; `-joined
+with what is already there, never overwritten — setting its `Status` to
+`held` unless it is already further along (e.g. `confirmed`); attendees
+stay empty and notifications stay off. Before moving a blank-`Proposed`
+hold, check email, texts (Messages through Latch), and the agent's own Plow
 conversations (`session_search`) for that investor at those exact times
 — evidence found means ask the founder first, same as when `Proposed` is
 set; no evidence means it moves freely. When `Proposed` is set, the
