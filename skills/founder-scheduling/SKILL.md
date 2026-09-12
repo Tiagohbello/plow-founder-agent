@@ -64,9 +64,13 @@ founder's approval of that resolved conversation and the exact
 body before sending, the same approval Gmail requires of recipient,
 thread, subject, and body. Neither channel has a durable send claim — the
 draft ledger accepts Gmail only — so the stand-in check runs before the
-first send, not only after: search that surface for this proposal already
-sitting in that conversation and treat a hit as sent, since that is what a
-restart mid-send would otherwise repeat. Send once, then read the message
+first send, not only after: search that conversation for this same proposal
+— Messages through Latch for a text, `session_search` for a Plow thread,
+the surfaces Sweep already reads — and count it already sent only when a
+message there carries every one of the exact times now being offered. An
+earlier proposal with different times is not a hit; treating it as one
+would drop a send while marking the row `sent`, which is worse than the
+duplicate this check prevents. Send once, then read the message
 back on that same surface — an ambiguous or unverified result is reported
 as unverified and never retried; a duplicate proposal to an investor is
 worse than a delayed one. On a verified read-back, record
