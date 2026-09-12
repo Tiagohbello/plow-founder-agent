@@ -43,8 +43,11 @@ Only on an explicit hold request. Through `founder-calendar`/
 account and calendar the founder named, or the configured work default
 when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`
 (drop ` / <Firm>` when `Firm` is blank), description `Tentative — no
-invitation sent`, notifications off. Record the times and set `Status` to
-`held`. Holding is never sending.
+invitation sent`, notifications off. Record the times — read the row's
+existing `Holds` first and pass the complete `; `-joined value, the same
+append Repurpose uses, so a second hold request never drops the events the
+first one left standing — and set `Status` to `held`. Holding is never
+sending.
 
 ## Send
 
@@ -59,9 +62,13 @@ and confirm its participant set is the intended investor before sending
 — never send to a chat or thread matched only by name. Get the
 founder's approval of that resolved conversation and the exact
 body before sending, the same approval Gmail requires of recipient,
-thread, subject, and body. Send once, then read the message back on that
-same surface — an ambiguous or unverified result is reported as
-unverified and never retried; a duplicate proposal to an investor is
+thread, subject, and body. Neither channel has a durable send claim — the
+draft ledger accepts Gmail only — so the stand-in check runs before the
+first send, not only after: search that surface for this proposal already
+sitting in that conversation and treat a hit as sent, since that is what a
+restart mid-send would otherwise repeat. Send once, then read the message
+back on that same surface — an ambiguous or unverified result is reported
+as unverified and never retried; a duplicate proposal to an investor is
 worse than a delayed one. On a verified read-back, record
 `Proposed` and set `Status` to `sent`. On an ambiguous or unverified
 result, record `Proposed` noting the send was not confirmed and set
