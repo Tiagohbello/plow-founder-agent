@@ -52,32 +52,25 @@ sending.
 ## Send
 
 Only on an explicit send instruction, in the channel the founder named —
-"text" never becomes email. Send email through `gmail`'s draft → approve →
-send flow. A text goes through Messages on the founder's Mac via Latch,
-the same surface Sweep searches; a Plow message goes through
-`plow_list_chats` to resolve the thread and `plow_send_message` to send,
-with `plow_start_group_message` only when none exists and only as its own
-decision put to the founder. Either way, resolve the exact conversation
-and confirm its participant set is the intended investor before sending
-— never send to a chat or thread matched only by name. Get the
-founder's approval of that resolved conversation and the exact
-body before sending, the same approval Gmail requires of recipient,
-thread, subject, and body. Neither channel has a durable send claim — the
-draft ledger accepts Gmail only — so the stand-in check runs before the
-first send, not only after: search that conversation for this same proposal
-— Messages through Latch for a text, `session_search` for a Plow thread,
-the surfaces Sweep already reads — and count it already sent only when a
-message there carries every one of the exact times now being offered. An
-earlier proposal with different times is not a hit; treating it as one
-would drop a send while marking the row `sent`, which is worse than the
-duplicate this check prevents. Send once, then read the message
-back on that same surface — an ambiguous or unverified result is reported
-as unverified and never retried; a duplicate proposal to an investor is
-worse than a delayed one. On a verified read-back, record
-`Proposed` and set `Status` to `sent`. On an ambiguous or unverified
-result, record `Proposed` noting the send was not confirmed and set
-`Status` to `unverified`. Once sent, those times are fixed: a conflict
-that surfaces later goes to the founder, never a silent swap.
+"text" never becomes email.
+
+Email goes through `gmail`'s draft → approve → send flow, which records it
+in `external-action`'s ledger: prepared, approved, claimed once, verified.
+A verified send records `Proposed` and `Status` `sent`; an ambiguous one
+records `Proposed` noting the send was not confirmed and sets `Status` to
+`unverified`, never a retry.
+
+This skill does not send the text or the Plow message itself. That ledger
+accepts Gmail only, and with no durable claim behind them no wording here
+can stop two turns sending from one approval, or a restart repeating a
+send. So resolve the conversation, confirm its participant set is the
+intended investor rather than a chat matched by name, show the founder that
+exact conversation and the exact body — and let them send it. Record
+`Proposed` from what they confirm went out, `Status` `sent`; until then it
+stays `drafted`.
+
+Once sent, those times are fixed: a conflict that surfaces later goes to
+the founder, never a silent swap.
 
 ## Pick
 
