@@ -30,6 +30,8 @@ result, or a tested draft PR.
 | Google Calendar | Manages availability, events, recurrence, guests, and scheduling preferences |
 | Product Access | Operates your admin or application through the Latch browser and vault |
 | External Action | Records approval, idempotency, and reconciliation of external writes |
+| Investor Pipeline | Reads and updates the founder's investor pipeline CSV at ~/Plow/investors/pipeline.csv on request |
+| Founder Scheduling | Runs the investor hold lifecycle: options → holds → send → confirm → sweep |
 
 ## Runtime and integrations
 
@@ -76,7 +78,7 @@ verifies external accounts or proves that a user workflow completed.
   home, on every boot.
 - `skills/founder-context/`: onboarding, company/codebase context, memory, and
   status guidance; its helpers live under `skills/founder-context/scripts/`.
-- `skills/engineering-assist/`, `skills/gmail/`, `skills/founder-calendar/`, `skills/product-access/`: work skills.
+- `skills/engineering-assist/`, `skills/gmail/`, `skills/founder-calendar/`, `skills/product-access/`, `skills/investor-pipeline/`, `skills/founder-scheduling/`: work skills.
 - `skills/external-action/`: approval and external-effect guidance; its helpers live under `skills/external-action/scripts/`.
 - `image/`, `Dockerfile`, `compose.yml`: runtime packaging.
 
