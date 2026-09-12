@@ -85,3 +85,7 @@ verifies external accounts or proves that a user workflow completed.
 Built with [Hermes](https://github.com/NousResearch/hermes-agent),
 [Plow](https://plow.co/), and the [AI Worth Using Agent Index](https://aiworthusing.com/agent-index).
 Upstream projects retain their own licenses and trademarks.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
