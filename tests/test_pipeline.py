@@ -88,6 +88,8 @@ class PipelineTests(unittest.TestCase):
                                     ["--investor", "Jane Doe"], "Investor"),
             "repeated header column": ("Investor,Notes,Status,Notes\nLeah,foo,Warm,bar\n",
                                         ["--investor", "Leah", "--status", "x"], None),
+            "short row": ("Investor,Contact info,Firm,Status\nJane Doe,jane@example.com\n",
+                          ["--investor", "Jane Doe", "--status", "x"], "row 2"),
         }
         for name, (content, flags, message) in cases.items():
             with self.subTest(case=name):

@@ -26,6 +26,8 @@ def load(path: Path) -> tuple[list[str], list[dict]]:
     for number, row in enumerate(rows, start=2):
         if None in row:
             raise ValueError(f"{path}: row {number} has more cells than the header")
+        if any(row[column] is None for column in header):
+            raise ValueError(f"{path}: row {number} has fewer cells than the header")
     return header + [column for column in COLUMNS if column not in header], rows
 
 
