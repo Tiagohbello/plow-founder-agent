@@ -101,9 +101,12 @@ Moving held times to another investor renames the events (title and
 description), through `founder-calendar`/`external-action`, and appends
 them to the destination row's existing `Holds` — read first, `; `-joined
 with what is already there, never overwritten — setting its `Status` to
-`held` unless it is already further along (e.g. `confirmed`); attendees
-stay empty and notifications stay off. Before moving a blank-`Proposed`
-hold, check email, texts (Messages through Latch), and the agent's own Plow
+`held` unless it is already further along (e.g. `confirmed`), then clears
+them from the source row's `Holds` in the same turn — remaining entries
+kept (`; `-joined), the cell emptied (`"--holds", ""`) when nothing is
+left, the same write-back Sweep uses; attendees stay empty and
+notifications stay off. Before moving a blank-`Proposed` hold, check
+email, texts (Messages through Latch), and the agent's own Plow
 conversations (`session_search`) for that investor at those exact times
 — evidence found means ask the founder first, same as when `Proposed` is
 set; no evidence means it moves freely. When `Proposed` is set, the
