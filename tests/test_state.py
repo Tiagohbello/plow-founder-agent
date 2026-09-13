@@ -364,6 +364,70 @@ class FounderAgentStateTests(unittest.TestCase):
         )
         self.assertEqual(2, refused.returncode)
 
+    def test_draft_migration_runs_when_another_helper_already_set_version_two(self) -> None:
+        database = self.home / "founder-agent" / "founder-agent.db"
+        expected = self.create_v1_draft_database(database)
+        connection = sqlite3.connect(database)
+        connection.execute("PRAGMA user_version = 2")
+        connection.commit()
+        connection.close()
+
+        # A sibling helper may touch the shared version before drafts.py gets
+        # a chance to run its component-specific migration.
+        self.run_helper("skills/founder-context/scripts/profile.py", "show")
+        result = json.loads(
+            self.run_helper("skills/external-action/scripts/drafts.py", "list").stdout
+        )
+        self.assertEqual({row[0] for row in expected}, {row["id"] for row in result["drafts"]})
+        connection = sqlite3.connect(database)
+        draft_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='draft'"
+        ).fetchone()[0]
+        marker = connection.execute(
+            "SELECT 1 FROM founder_agent_migration WHERE component=?",
+            (DRAFTS.DRAFT_SCHEMA_MIGRATION,),
+        ).fetchone()
+        self.assertEqual(2, connection.execute("PRAGMA user_version").fetchone()[0])
+        self.assertIn("'text'", draft_sql)
+        self.assertIn("'plow'", draft_sql)
+        self.assertIsNotNone(marker)
+        connection.close()
+
+    def test_shared_helpers_initialize_in_different_orders(self) -> None:
+        helper_commands = {
+            "profile": ("skills/founder-context/scripts/profile.py", "show"),
+            "memory": ("skills/founder-context/scripts/memory.py", "list"),
+            "operations": ("skills/external-action/scripts/operations.py", "list"),
+            "drafts": ("skills/external-action/scripts/drafts.py", "list"),
+        }
+        for order in (
+            ("profile", "memory", "operations", "drafts"),
+            ("drafts", "operations", "memory", "profile"),
+        ):
+            with self.subTest(order=order):
+                with tempfile.TemporaryDirectory() as directory:
+                    environment = {**os.environ, "HERMES_HOME": directory}
+                    for name in order:
+                        helper, *arguments = helper_commands[name]
+                        result = subprocess.run(
+                            [sys.executable, str(ROOT / helper), *arguments],
+                            cwd=ROOT,
+                            env=environment,
+                            text=True,
+                            capture_output=True,
+                            check=False,
+                        )
+                        self.assertEqual(0, result.returncode, result.stderr)
+                    database = Path(directory) / "founder-agent" / "founder-agent.db"
+                    connection = sqlite3.connect(database)
+                    self.assertEqual(2, connection.execute("PRAGMA user_version").fetchone()[0])
+                    tables = {
+                        row[0] for row in connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        )
+                    }
+                    self.assertTrue({"company", "memory", "draft", "external_operation"}.issubset(tables))
+                    connection.close()
     def test_legacy_memory_is_imported_once(self) -> None:
         legacy = self.home / "founder-memory" / "memory.db"
         self.run_helper(

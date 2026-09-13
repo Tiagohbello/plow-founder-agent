@@ -21,7 +21,7 @@ from pathlib import Path
 ACTIVE_CHANNELS = ("gmail", "text", "plow")
 KNOWN_CHANNELS = (*ACTIVE_CHANNELS, "whatsapp")
 STATUSES = ("draft", "approved", "sending", "sent", "uncertain", "cancelled")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DRAFT_SCHEMA_MIGRATION = "drafts-schema-v2"
 
 
