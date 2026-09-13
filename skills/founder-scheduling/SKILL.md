@@ -65,14 +65,22 @@ id plus the canonical external participant identifiers in deterministic order.
 Show the founder that channel, conversation, participant set, and exact body
 before recording approval.
 
-After a successful claim, send once, retain `message_id` from the successful
-`plow_send_message` receipt, and read the message back from that exact
-conversation to verify its body. Pass the retained id to `mark-sent`, then
-record `Proposed` and set `Status` to `sent`. If the send receipt, its id, or the
-body read-back is ambiguous or unavailable, mark the draft uncertain, record
+After approval and immediately before claiming or sending, run a fresh
+`plow_list_chats` lookup. Canonicalize the live external participant handles in
+the same deterministic order and compare them exactly with the approved
+draft's `recipient`. If the conversation is missing or any handle differs, do
+not claim or send; prepare the changed record and request approval again.
+
+After a successful claim, send once and retain `message_id` from the successful
+`plow_send_message` receipt. That receipt is not verification: separately read
+the message back from that exact conversation and verify its body before
+passing the retained id to `mark-sent`, recording `Proposed`, and setting
+`Status` to `sent`. If the send receipt, its id, or the body read-back is
+ambiguous or unavailable — including a warning that the message was not
+mirrored or no live session owns the chat — mark the draft uncertain, record
 `Proposed` noting the send was not confirmed, and set `Status` to `unverified`;
-never retry. A claim reporting `already_sent` or `verification_required` never
-authorizes another send.
+never report success or retry. A claim reporting `already_sent` or
+`verification_required` never authorizes another send.
 
 Once sent, those times are fixed: a conflict that surfaces later goes to
 the founder, never a silent swap.

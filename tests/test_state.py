@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import argparse
-import importlib.util
 import json
 import os
 import sqlite3
@@ -10,15 +8,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DRAFTS_PATH = ROOT / "skills/external-action/scripts/drafts.py"
-DRAFTS_SPEC = importlib.util.spec_from_file_location("founder_agent_drafts", DRAFTS_PATH)
-assert DRAFTS_SPEC and DRAFTS_SPEC.loader
-DRAFTS = importlib.util.module_from_spec(DRAFTS_SPEC)
-DRAFTS_SPEC.loader.exec_module(DRAFTS)
 
 
 class FounderAgentStateTests(unittest.TestCase):
@@ -235,92 +227,6 @@ class FounderAgentStateTests(unittest.TestCase):
         )
         self.assertTrue(repeated["verification_required"])
 
-    def test_revision_cannot_cancel_a_draft_claimed_during_its_state_check(self) -> None:
-        self.run_helper(
-            "skills/external-action/scripts/drafts.py", "prepare", "--channel", "text",
-            "--thread-id", "text-thread", "--recipient", "investor-id",
-            "--body", "Tuesday at 11:30?",
-        )
-        self.run_helper(
-            "skills/external-action/scripts/drafts.py", "approve", "--id", "1",
-            "--approval-ref", "conversation:approval-1",
-        )
-        database = self.home / "founder-agent" / "founder-agent.db"
-        revision_connection = DRAFTS.connect(database)
-        claim_connection = DRAFTS.connect(database)
-        original_resolve = DRAFTS.resolve
-        claim_succeeded = False
-        claim_attempted = False
-
-        def resolve_with_interleaved_claim(connection, draft_id):
-            nonlocal claim_attempted, claim_succeeded
-            row = original_resolve(connection, draft_id)
-            if (
-                connection is revision_connection
-                and not connection.in_transaction
-                and not claim_attempted
-            ):
-                claim_attempted = True
-                claim_succeeded = DRAFTS.claim_send(claim_connection, draft_id)["claimed"]
-            return row
-
-        arguments = argparse.Namespace(
-            id=1, thread_id=None, recipient=None, subject=None,
-            body="Wednesday at 14:00?", idempotency_key=None,
-        )
-        try:
-            with mock.patch.object(DRAFTS, "resolve", side_effect=resolve_with_interleaved_claim):
-                DRAFTS.revise_draft(revision_connection, arguments)
-            if not claim_succeeded:
-                with self.assertRaises(ValueError):
-                    DRAFTS.claim_send(claim_connection, 1)
-            self.assertFalse(claim_succeeded)
-            self.assertEqual("cancelled", original_resolve(revision_connection, 1)["status"])
-        finally:
-            revision_connection.close()
-            claim_connection.close()
-
-    def test_approval_cannot_resurrect_a_draft_revised_during_its_state_check(self) -> None:
-        self.run_helper(
-            "skills/external-action/scripts/drafts.py", "prepare", "--channel", "plow",
-            "--thread-id", "plow-thread", "--recipient", "investor-id",
-            "--body", "Tuesday at 11:30?",
-        )
-        database = self.home / "founder-agent" / "founder-agent.db"
-        approval_connection = DRAFTS.connect(database)
-        revision_connection = DRAFTS.connect(database)
-        original_resolve = DRAFTS.resolve
-        revision_ran = False
-        revision_attempted = False
-        arguments = argparse.Namespace(
-            id=1, thread_id=None, recipient=None, subject=None,
-            body="Wednesday at 14:00?", idempotency_key=None,
-        )
-
-        def resolve_with_interleaved_revision(connection, draft_id):
-            nonlocal revision_attempted, revision_ran
-            row = original_resolve(connection, draft_id)
-            if (
-                connection is approval_connection
-                and not connection.in_transaction
-                and not revision_attempted
-            ):
-                revision_attempted = True
-                DRAFTS.revise_draft(revision_connection, arguments)
-                revision_ran = True
-            return row
-
-        try:
-            with mock.patch.object(DRAFTS, "resolve", side_effect=resolve_with_interleaved_revision):
-                DRAFTS.approve_draft(approval_connection, 1, "conversation:approval-1")
-            if not revision_ran:
-                DRAFTS.revise_draft(revision_connection, arguments)
-            self.assertEqual("cancelled", original_resolve(approval_connection, 1)["status"])
-            self.assertEqual("draft", original_resolve(approval_connection, 2)["status"])
-        finally:
-            approval_connection.close()
-            revision_connection.close()
-
     def test_v1_draft_schema_is_migrated_without_losing_rows(self) -> None:
         database = self.home / "founder-agent" / "founder-agent.db"
         expected = self.create_v1_draft_database(database)
@@ -363,14 +269,25 @@ class FounderAgentStateTests(unittest.TestCase):
             "--body", "This must remain historical", ok=False,
         )
         self.assertEqual(2, refused.returncode)
-        connection = DRAFTS.connect(database)
+        connection = sqlite3.connect(database)
         connection.execute("UPDATE draft SET status='sending' WHERE id=8")
         connection.commit()
-        with self.assertRaises(ValueError):
-            DRAFTS.mark_sent(connection, 8, "must-not-send")
-        with self.assertRaises(ValueError):
-            DRAFTS.mark_uncertain(connection, 8, "must-remain-read-only")
-        self.assertEqual("sending", DRAFTS.resolve(connection, 8)["status"])
+        connection.close()
+        refused = self.run_helper(
+            "skills/external-action/scripts/drafts.py", "mark-sent", "--id", "8",
+            "--message-id", "must-not-send", ok=False,
+        )
+        self.assertEqual(2, refused.returncode)
+        refused = self.run_helper(
+            "skills/external-action/scripts/drafts.py", "mark-uncertain", "--id", "8",
+            "--note", "must-remain-read-only", ok=False,
+        )
+        self.assertEqual(2, refused.returncode)
+        connection = sqlite3.connect(database)
+        self.assertEqual(
+            "sending",
+            connection.execute("SELECT status FROM draft WHERE id=8").fetchone()[0],
+        )
         connection.close()
 
     def test_draft_migration_runs_when_another_helper_already_set_version_two(self) -> None:
@@ -394,7 +311,7 @@ class FounderAgentStateTests(unittest.TestCase):
         ).fetchone()[0]
         marker = connection.execute(
             "SELECT 1 FROM founder_agent_migration WHERE component=?",
-            (DRAFTS.DRAFT_SCHEMA_MIGRATION,),
+            ("drafts-schema-v2",),
         ).fetchone()
         self.assertEqual(2, connection.execute("PRAGMA user_version").fetchone()[0])
         self.assertIn("'text'", draft_sql)

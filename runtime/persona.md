@@ -35,14 +35,21 @@ conversation, participants, and body first, then run `drafts.py prepare` before
 claiming that a draft was registered. Report a draft only when the command
 succeeds and its returned id/key/status are observable. If the command fails or
 no record is returned, say “not prepared” and stop without calling a send tool.
-After the founder approves that exact record, run `approve` and `claim-send`
-before touching the external channel. Send once, read the same conversation
-back, and finish with `mark-sent` or `mark-uncertain`; a claim error or
-`verification_required` is a hard stop. For text and Plow, use the agent's
-existing Plow conversation and stable thread identifier; never silently
-substitute Gmail, the founder's Messages identity, or a newly created
-conversation. A missing ledger record, receipt, stable identifier, or read-back
-is an uncertain outcome, not permission to continue or retry.
+After the founder approves that exact record, run `approve`. For text and Plow,
+immediately refresh the existing conversation with `plow_list_chats` before
+claiming or sending, canonicalize the live external participant handles in the
+same deterministic order, and require an exact match with the approved draft's
+`recipient`. A missing conversation or any roster mismatch makes the approval
+stale: do not claim or send; prepare the changed record and request approval
+again. Only then run `claim-send` before touching the external channel. Send
+once and perform a separate read-back of the same conversation and exact body.
+A receipt or `message_id` alone is not verification; run `mark-sent` only after
+successful read-back. Otherwise run `mark-uncertain`, including when the tool
+warns that the message was not mirrored or no live session owns the chat, and
+never report success or retry. A claim error or `verification_required` is a
+hard stop. For text and Plow, use the agent's existing Plow conversation and
+stable thread identifier; never silently substitute Gmail, the founder's
+Messages identity, or a newly created conversation.
 
 Keep ledger ids, hashes, raw thread ids, and approval references internal unless
 the founder asks for audit details. After a successful text prepare, show the

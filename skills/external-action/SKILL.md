@@ -43,13 +43,22 @@ possible:
    ledger commands without making them part of the normal user-facing preview.
    The channel, participant display, conversation context, subject (if any),
    and body must still be exact.
-5. After the founder explicitly approves, run `approve` and then
-   `claim-send`. A claim that returns `verification_required`, `already_sent`,
-   or any error is a stop condition; never send or retry around it.
-6. Send exactly once through the selected channel, read the same conversation
-   back, retain the native stable message id, and finish with `mark-sent`.
-   When the send, receipt id, or read-back is unavailable or ambiguous, run
-   `mark-uncertain`, inspect remote state, and never retry blindly.
+5. After the founder explicitly approves, run `approve`. For text and Plow,
+   immediately run a fresh `plow_list_chats` lookup before claiming or sending.
+   Canonicalize its live external participant handles exactly as in the draft
+   and compare them with the approved `recipient`. A missing conversation or
+   any added, removed, changed, or reordered handle makes the approval stale:
+   do not claim or send; prepare the changed record and request approval again.
+   Only an exact match permits `claim-send`. A claim that returns
+   `verification_required`, `already_sent`, or any error is a stop condition;
+   never send or retry around it.
+6. Send exactly once through the selected channel, then perform a separate
+   read-back of the same conversation and verify the exact body. A send receipt
+   or `message_id` alone is not verification. Retain the native stable message
+   id and run `mark-sent` only after that read-back succeeds. When the send,
+   receipt id, or read-back is unavailable or ambiguous — including a warning
+   that the message was not mirrored or no live session owns the chat — run
+   `mark-uncertain`, report no success, and never retry blindly.
 
 WhatsApp is historical and read-only: it may be listed, but never prepared,
 approved, revised, claimed, or marked sent/uncertain. Never silently substitute
