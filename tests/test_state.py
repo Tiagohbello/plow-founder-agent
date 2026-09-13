@@ -319,19 +319,6 @@ class FounderAgentStateTests(unittest.TestCase):
         self.assertIsNotNone(marker)
         connection.close()
 
-    def test_read_only_first_open_persists_shared_schema_state(self) -> None:
-        self.run_helper("skills/external-action/scripts/drafts.py", "list")
-        database = self.home / "founder-agent" / "founder-agent.db"
-        connection = sqlite3.connect(database)
-        self.assertEqual(1, connection.execute("PRAGMA user_version").fetchone()[0])
-        markers = {
-            row[0] for row in connection.execute(
-                "SELECT component FROM founder_agent_migration"
-            )
-        }
-        self.assertTrue({"drafts", "drafts-schema-v2"}.issubset(markers))
-        connection.close()
-
     def test_shared_helpers_initialize_in_different_orders(self) -> None:
         helper_commands = {
             "profile": ("skills/founder-context/scripts/profile.py", "show"),
@@ -360,6 +347,12 @@ class FounderAgentStateTests(unittest.TestCase):
                     database = Path(directory) / "founder-agent" / "founder-agent.db"
                     connection = sqlite3.connect(database)
                     self.assertEqual(1, connection.execute("PRAGMA user_version").fetchone()[0])
+                    markers = {
+                        row[0] for row in connection.execute(
+                            "SELECT component FROM founder_agent_migration"
+                        )
+                    }
+                    self.assertTrue({"drafts", "drafts-schema-v2"}.issubset(markers))
                     tables = {
                         row[0] for row in connection.execute(
                             "SELECT name FROM sqlite_master WHERE type='table'"
