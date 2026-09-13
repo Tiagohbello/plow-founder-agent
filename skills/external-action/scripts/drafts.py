@@ -21,7 +21,9 @@ from pathlib import Path
 ACTIVE_CHANNELS = ("gmail", "text", "plow")
 KNOWN_CHANNELS = (*ACTIVE_CHANNELS, "whatsapp")
 STATUSES = ("draft", "approved", "sending", "sent", "uncertain", "cancelled")
-SCHEMA_VERSION = 2
+# Shared-store compatibility version. Draft-specific migrations use markers so
+# the previous image can keep using the same persistent volume after rollback.
+SCHEMA_VERSION = 1
 DRAFT_SCHEMA_MIGRATION = "drafts-schema-v2"
 
 
@@ -163,6 +165,7 @@ def connect(path: Path) -> sqlite3.Connection:
     migrate_channel_schema(connection, draft_existed)
     migrate_legacy(connection, path)
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    connection.commit()
     try:
         path.chmod(0o600)
     except OSError:

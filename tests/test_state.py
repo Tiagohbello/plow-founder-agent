@@ -290,11 +290,11 @@ class FounderAgentStateTests(unittest.TestCase):
         )
         connection.close()
 
-    def test_draft_migration_runs_when_another_helper_already_set_version_two(self) -> None:
+    def test_draft_migration_runs_after_a_sibling_sets_the_shared_version(self) -> None:
         database = self.home / "founder-agent" / "founder-agent.db"
         expected = self.create_v1_draft_database(database)
         connection = sqlite3.connect(database)
-        connection.execute("PRAGMA user_version = 2")
+        connection.execute("PRAGMA user_version = 0")
         connection.commit()
         connection.close()
 
@@ -313,10 +313,23 @@ class FounderAgentStateTests(unittest.TestCase):
             "SELECT 1 FROM founder_agent_migration WHERE component=?",
             ("drafts-schema-v2",),
         ).fetchone()
-        self.assertEqual(2, connection.execute("PRAGMA user_version").fetchone()[0])
+        self.assertEqual(1, connection.execute("PRAGMA user_version").fetchone()[0])
         self.assertIn("'text'", draft_sql)
         self.assertIn("'plow'", draft_sql)
         self.assertIsNotNone(marker)
+        connection.close()
+
+    def test_read_only_first_open_persists_shared_schema_state(self) -> None:
+        self.run_helper("skills/external-action/scripts/drafts.py", "list")
+        database = self.home / "founder-agent" / "founder-agent.db"
+        connection = sqlite3.connect(database)
+        self.assertEqual(1, connection.execute("PRAGMA user_version").fetchone()[0])
+        markers = {
+            row[0] for row in connection.execute(
+                "SELECT component FROM founder_agent_migration"
+            )
+        }
+        self.assertTrue({"drafts", "drafts-schema-v2"}.issubset(markers))
         connection.close()
 
     def test_shared_helpers_initialize_in_different_orders(self) -> None:
@@ -346,7 +359,7 @@ class FounderAgentStateTests(unittest.TestCase):
                         self.assertEqual(0, result.returncode, result.stderr)
                     database = Path(directory) / "founder-agent" / "founder-agent.db"
                     connection = sqlite3.connect(database)
-                    self.assertEqual(2, connection.execute("PRAGMA user_version").fetchone()[0])
+                    self.assertEqual(1, connection.execute("PRAGMA user_version").fetchone()[0])
                     tables = {
                         row[0] for row in connection.execute(
                             "SELECT name FROM sqlite_master WHERE type='table'"

@@ -25,7 +25,7 @@ STATUSES = ("active", "deferred", "completed", "archived")
 PRIORITIES = ("low", "medium", "high", "urgent")
 SOURCE_KINDS = ("founder", "gmail", "github", "sentry", "whatsapp", "repo", "legacy")
 CONFIDENCE_LEVELS = ("fact", "inference")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 1
 
 
 def default_database_path() -> Path:
@@ -128,8 +128,8 @@ def connect(path: Path) -> sqlite3.Connection:
         "ON memory(source_kind, source_ref) WHERE source_ref != ''"
     )
     migrate_legacy(connection, path)
-    # The shared database is at schema version 2. Component-specific changes
-    # still use founder_agent_migration markers because user_version is shared.
+    # Keep the shared compatibility version at 1 so the previous image can use
+    # this volume; component changes use founder_agent_migration markers.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     connection.commit()
     try:

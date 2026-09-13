@@ -34,7 +34,7 @@ PERMANENTLY_FORBIDDEN = {
     "production_mutation",
     "destructive_operation",
 }
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 1
 
 
 def database_path() -> Path:
@@ -191,8 +191,8 @@ def connect(path: Path) -> sqlite3.Connection:
         """
     )
     migrate_legacy(connection, path)
-    # The shared database is at schema version 2. Component-specific changes
-    # still use founder_agent_migration markers because user_version is shared.
+    # Keep the shared compatibility version at 1 so the previous image can use
+    # this volume; component changes use founder_agent_migration markers.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     timestamp = now()
     for capability, policy in DEFAULT_POLICIES.items():
