@@ -363,6 +363,15 @@ class FounderAgentStateTests(unittest.TestCase):
             "--body", "This must remain historical", ok=False,
         )
         self.assertEqual(2, refused.returncode)
+        connection = DRAFTS.connect(database)
+        connection.execute("UPDATE draft SET status='sending' WHERE id=8")
+        connection.commit()
+        with self.assertRaises(ValueError):
+            DRAFTS.mark_sent(connection, 8, "must-not-send")
+        with self.assertRaises(ValueError):
+            DRAFTS.mark_uncertain(connection, 8, "must-remain-read-only")
+        self.assertEqual("sending", DRAFTS.resolve(connection, 8)["status"])
+        connection.close()
 
     def test_draft_migration_runs_when_another_helper_already_set_version_two(self) -> None:
         database = self.home / "founder-agent" / "founder-agent.db"

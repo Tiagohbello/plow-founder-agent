@@ -279,13 +279,17 @@ def resolve(connection: sqlite3.Connection, draft_id: int) -> sqlite3.Row:
     return row
 
 
+def require_active_channel(row: sqlite3.Row) -> None:
+    if row["channel"] not in ACTIVE_CHANNELS:
+        raise ValueError(f"channel {row['channel']} is read-only")
+
+
 def approve_draft(connection: sqlite3.Connection, draft_id: int, approval_ref: str) -> dict[str, object]:
     approval_ref = required_text(approval_ref, "approval_ref")
     connection.execute("BEGIN IMMEDIATE")
     try:
         row = resolve(connection, draft_id)
-        if row["channel"] not in ACTIVE_CHANNELS:
-            raise ValueError(f"channel {row['channel']} is read-only")
+        require_active_channel(row)
         if row["status"] == "approved":
             connection.rollback()
             return {"approved": True, "already_approved": True, "draft": as_dict(row)}
@@ -344,6 +348,7 @@ def claim_send(connection: sqlite3.Connection, draft_id: int) -> dict[str, objec
 def mark_sent(connection: sqlite3.Connection, draft_id: int, message_id: str) -> dict[str, object]:
     message_id = required_text(message_id, "message_id")
     row = resolve(connection, draft_id)
+    require_active_channel(row)
     if row["status"] == "sent":
         if row["external_message_id"] == message_id:
             return {"sent": True, "already_sent": True, "draft": as_dict(row)}
@@ -360,6 +365,7 @@ def mark_sent(connection: sqlite3.Connection, draft_id: int, message_id: str) ->
 
 def mark_uncertain(connection: sqlite3.Connection, draft_id: int, note: str) -> dict[str, object]:
     row = resolve(connection, draft_id)
+    require_active_channel(row)
     if row["status"] not in {"sending", "uncertain"}:
         raise ValueError("only a sending draft can become uncertain")
     connection.execute(
