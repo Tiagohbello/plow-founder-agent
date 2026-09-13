@@ -1,11 +1,11 @@
 ---
 name: external-action
-description: "Prepare, approve, claim, and verify email, calendar, and product writes without repeating ambiguous effects."
+description: "Prepare, approve, claim, and verify communication, calendar, and product writes without repeating ambiguous effects."
 version: 1.0.0
 author: Founder Agent
 metadata:
   hermes:
-    tags: [founder, approval, idempotency, gmail, calendar, product]
+    tags: [founder, approval, idempotency, gmail, text, plow, calendar, product]
     related_skills: [founder-context, gmail, founder-calendar, product-access]
 ---
 
@@ -18,12 +18,16 @@ forbidden.
 
 All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
-For Gmail, prepare a draft first with
+For Gmail, text, or Plow, resolve the exact existing conversation and its
+participants, then prepare a draft first with
 `python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" prepare ...`.
-Only the founder's explicit approval of its exact recipient, thread, subject,
-and body permits recording approval and claiming one send. Record a stable
-conversation/message reference as `--approval-ref`. Editing any field creates
-a new unapproved draft.
+Use channel `gmail`, `text`, or `plow`, the stable conversation id as
+`--thread-id`, and canonical external participant identifiers in deterministic
+order as `--recipient`; omit subject for text and Plow. Only the founder's
+explicit approval of that exact channel, recipient set, thread, subject, and
+body permits recording approval and claiming one send. Record a stable founder
+conversation/message reference as `--approval-ref`. Editing any field creates a
+new unapproved draft. WhatsApp drafts are historical and read-only.
 
 For calendar and product writes,
 `python3 "$HERMES_HOME/skills/external-action/scripts/operations.py" prepare ...`
@@ -31,7 +35,10 @@ resolves policy from Founder Profile; never pass or invent a policy.
 Unconfigured operations require approval. A concrete founder request approves
 only that exact prepared action.
 
-Claim before touching the external system. After observable verification, mark
-the action completed with its external id and evidence. After timeout or an
-ambiguous response, mark it uncertain, inspect remote state, and never retry
-blindly.
+Claim before touching the external system. For text, use Messages through Latch;
+for Plow, resolve an existing conversation with `plow_list_chats` and send with
+`plow_send_message`. Never substitute another channel or create a new Plow
+conversation in this flow. Read the exact conversation back after sending and
+mark the draft sent only with its stable native message id. When sending,
+read-back, or the id is unavailable or ambiguous, mark it uncertain, inspect
+remote state, and never retry blindly.

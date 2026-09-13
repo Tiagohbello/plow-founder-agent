@@ -54,20 +54,23 @@ sending.
 Only on an explicit send instruction, in the channel the founder named —
 "text" never becomes email.
 
-Email goes through `gmail`'s draft → approve → send flow, which records it
-in `external-action`'s ledger: prepared, approved, claimed once, verified.
-A verified send records `Proposed` and `Status` `sent`; an ambiguous one
-records `Proposed` noting the send was not confirmed and sets `Status` to
-`unverified`, never a retry.
+Every channel goes through `external-action`'s durable draft → approve → claim →
+verify flow. Email then uses `gmail`; text uses Messages on the founder's Mac
+through Latch; Plow uses `plow_list_chats` to resolve an existing conversation
+and `plow_send_message` to send. Never substitute another channel, create a new
+Plow conversation, or use a chat matched only by name. Before preparing the
+draft, confirm the exact conversation's participant set is the intended
+investor and record its stable id plus the canonical external participant
+identifiers in deterministic order. Show the founder that channel, conversation,
+participant set, and exact body before recording approval.
 
-This skill does not send the text or the Plow message itself. That ledger
-accepts Gmail only, and with no durable claim behind them no wording here
-can stop two turns sending from one approval, or a restart repeating a
-send. So resolve the conversation, confirm its participant set is the
-intended investor rather than a chat matched by name, show the founder that
-exact conversation and the exact body — and let them send it. Record
-`Proposed` from what they confirm went out, `Status` `sent`; until then it
-stays `drafted`.
+After a successful claim, send once and read the message back from that exact
+conversation. Mark it sent only with the stable native message id from the
+read-back, then record `Proposed` and set `Status` to `sent`. If the send,
+read-back, or message id is ambiguous or unavailable, mark the draft uncertain,
+record `Proposed` noting the send was not confirmed, and set `Status` to
+`unverified`; never retry. A claim reporting `already_sent` or
+`verification_required` never authorizes another send.
 
 Once sent, those times are fixed: a conflict that surfaces later goes to
 the founder, never a silent swap.

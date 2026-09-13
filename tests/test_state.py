@@ -22,11 +22,17 @@ class FounderAgentStateTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def run_helper(self, relative: str, *arguments: str, ok: bool = True):
+    def run_helper(
+        self,
+        relative: str,
+        *arguments: str,
+        ok: bool = True,
+        environment: dict[str, str] | None = None,
+    ):
         result = subprocess.run(
             [sys.executable, str(ROOT / relative), *arguments],
             cwd=ROOT,
-            env=self.environment,
+            env=environment or self.environment,
             text=True,
             capture_output=True,
             check=False,
@@ -34,6 +40,64 @@ class FounderAgentStateTests(unittest.TestCase):
         if ok and result.returncode != 0:
             self.fail(f"{relative} failed: {result.stderr}")
         return result
+
+    def create_v1_draft_database(self, database: Path, user_version: int = 1) -> list[tuple]:
+        database.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(database)
+        connection.executescript(
+            f"""
+            CREATE TABLE draft (
+                id INTEGER PRIMARY KEY,
+                channel TEXT NOT NULL CHECK (channel IN ('gmail', 'whatsapp')),
+                thread_id TEXT NOT NULL,
+                recipient TEXT NOT NULL,
+                subject TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN
+                    ('draft', 'approved', 'sending', 'sent', 'uncertain', 'cancelled')),
+                approval_token TEXT,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                external_message_id TEXT,
+                verification_note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                approval_ref TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX draft_thread_idx ON draft(channel, thread_id);
+            CREATE INDEX draft_status_idx ON draft(status);
+            CREATE TABLE founder_agent_migration (
+                component TEXT PRIMARY KEY,
+                migrated_at TEXT NOT NULL
+            );
+            INSERT INTO founder_agent_migration VALUES ('drafts', '2026-09-01T00:00:00+00:00');
+            PRAGMA user_version = {user_version};
+            """
+        )
+        rows = [
+            (
+                7, "gmail", "gmail-thread", "founder@example.test", "Times",
+                "Tuesday at 11:30?", "sent", "approval-token", "gmail-key",
+                "gmail-message", "verified", "2026-09-01T00:00:00+00:00",
+                "2026-09-01T00:01:00+00:00", "conversation:approval-1",
+            ),
+            (
+                8, "whatsapp", "retired-thread", "+15550100999", "",
+                "Historical message", "uncertain", "retired-token", "retired-key",
+                None, "legacy verification required", "2026-09-02T00:00:00+00:00",
+                "2026-09-02T00:01:00+00:00", "conversation:approval-2",
+            ),
+        ]
+        connection.executemany(
+            """INSERT INTO draft(
+                   id,channel,thread_id,recipient,subject,body,status,approval_token,
+                   idempotency_key,external_message_id,verification_note,created_at,
+                   updated_at,approval_ref
+               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            rows,
+        )
+        connection.commit()
+        connection.close()
+        return rows
 
     def test_helpers_share_one_database(self) -> None:
         self.run_helper("skills/founder-context/scripts/profile.py", "show")
@@ -101,6 +165,152 @@ class FounderAgentStateTests(unittest.TestCase):
             "skills/external-action/scripts/drafts.py", "claim-send", "--id", "1"
         )
         self.assertTrue(json.loads(claimed.stdout)["claimed"])
+
+    def test_active_channels_complete_the_same_durable_send_lifecycle(self) -> None:
+        for draft_id, channel in enumerate(("gmail", "text", "plow"), start=1):
+            with self.subTest(channel=channel):
+                arguments = (
+                    "prepare", "--channel", channel, "--thread-id", f"{channel}-thread",
+                    "--recipient", f"{channel}-recipient", "--body", "Tuesday at 11:30?",
+                )
+                prepared = json.loads(
+                    self.run_helper("skills/external-action/scripts/drafts.py", *arguments).stdout
+                )
+                duplicate = json.loads(
+                    self.run_helper("skills/external-action/scripts/drafts.py", *arguments).stdout
+                )
+                self.assertTrue(prepared["created"])
+                self.assertTrue(duplicate["duplicate"])
+                self.assertEqual(draft_id, duplicate["draft"]["id"])
+
+                self.run_helper(
+                    "skills/external-action/scripts/drafts.py", "approve", "--id", str(draft_id),
+                    "--approval-ref", f"conversation:approval-{draft_id}",
+                )
+                claimed = json.loads(
+                    self.run_helper(
+                        "skills/external-action/scripts/drafts.py", "claim-send", "--id", str(draft_id)
+                    ).stdout
+                )
+                repeated_claim = json.loads(
+                    self.run_helper(
+                        "skills/external-action/scripts/drafts.py", "claim-send", "--id", str(draft_id)
+                    ).stdout
+                )
+                self.assertTrue(claimed["claimed"])
+                self.assertTrue(repeated_claim["verification_required"])
+
+                self.run_helper(
+                    "skills/external-action/scripts/drafts.py", "mark-sent", "--id", str(draft_id),
+                    "--message-id", f"{channel}-message",
+                )
+                sent_claim = json.loads(
+                    self.run_helper(
+                        "skills/external-action/scripts/drafts.py", "claim-send", "--id", str(draft_id)
+                    ).stdout
+                )
+                self.assertTrue(sent_claim["already_sent"])
+
+    def test_uncertain_send_is_not_claimed_again(self) -> None:
+        self.run_helper(
+            "skills/external-action/scripts/drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "messages-chat-42", "--recipient", "+15550100999",
+            "--body", "Tuesday at 11:30?",
+        )
+        self.run_helper(
+            "skills/external-action/scripts/drafts.py", "approve", "--id", "1",
+            "--approval-ref", "conversation:approval-1",
+        )
+        self.run_helper("skills/external-action/scripts/drafts.py", "claim-send", "--id", "1")
+        self.run_helper(
+            "skills/external-action/scripts/drafts.py", "mark-uncertain", "--id", "1",
+            "--note", "Messages read-back unavailable",
+        )
+        repeated = json.loads(
+            self.run_helper(
+                "skills/external-action/scripts/drafts.py", "claim-send", "--id", "1"
+            ).stdout
+        )
+        self.assertTrue(repeated["verification_required"])
+
+    def test_v1_draft_schema_is_migrated_without_losing_rows(self) -> None:
+        database = self.home / "founder-agent" / "founder-agent.db"
+        expected = self.create_v1_draft_database(database)
+
+        result = json.loads(
+            self.run_helper("skills/external-action/scripts/drafts.py", "list").stdout
+        )
+        actual = {
+            row["id"]: tuple(row[name] for name in (
+                "id", "channel", "thread_id", "recipient", "subject", "body", "status",
+                "approval_token", "idempotency_key", "external_message_id",
+                "verification_note", "created_at", "updated_at", "approval_ref",
+            ))
+            for row in result["drafts"]
+        }
+        self.assertEqual({row[0]: row for row in expected}, actual)
+
+        connection = sqlite3.connect(database)
+        schema = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='draft'"
+        ).fetchone()[0]
+        marker = connection.execute(
+            "SELECT 1 FROM founder_agent_migration WHERE component='drafts-schema-v2'"
+        ).fetchone()
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        connection.close()
+        self.assertIn("'text'", schema)
+        self.assertIn("'plow'", schema)
+        self.assertIsNotNone(marker)
+        self.assertEqual(2, version)
+
+        historical = json.loads(
+            self.run_helper(
+                "skills/external-action/scripts/drafts.py", "list", "--channel", "whatsapp"
+            ).stdout
+        )
+        self.assertEqual([8], [row["id"] for row in historical["drafts"]])
+        refused = self.run_helper(
+            "skills/external-action/scripts/drafts.py", "approve", "--id", "8", ok=False
+        )
+        self.assertEqual(2, refused.returncode)
+        refused = self.run_helper(
+            "skills/external-action/scripts/drafts.py", "prepare", "--channel", "whatsapp",
+            "--thread-id", "new-retired-thread", "--recipient", "+15550100888",
+            "--body", "This must remain historical", ok=False,
+        )
+        self.assertEqual(2, refused.returncode)
+
+    def test_draft_migration_runs_after_another_helper_advances_shared_version(self) -> None:
+        database = self.home / "founder-agent" / "founder-agent.db"
+        self.create_v1_draft_database(database, user_version=2)
+        result = self.run_helper(
+            "skills/external-action/scripts/drafts.py", "prepare", "--channel", "plow",
+            "--thread-id", "plow-thread", "--recipient", "investor-id",
+            "--body", "Tuesday at 11:30?",
+        )
+        self.assertTrue(json.loads(result.stdout)["created"])
+
+    def test_shared_helpers_accept_schema_version_two_in_any_initialization_order(self) -> None:
+        initializers = (
+            ("skills/founder-context/scripts/profile.py", ("show",)),
+            ("skills/founder-context/scripts/memory.py", ("list",)),
+            ("skills/external-action/scripts/operations.py", ("list",)),
+            ("skills/external-action/scripts/drafts.py", ("list",)),
+        )
+        for first_helper, first_arguments in initializers:
+            with self.subTest(first=first_helper), tempfile.TemporaryDirectory() as temporary:
+                environment = {**os.environ, "HERMES_HOME": temporary}
+                self.run_helper(
+                    first_helper, *first_arguments, environment=environment
+                )
+                for helper, arguments in initializers:
+                    self.run_helper(helper, *arguments, environment=environment)
+                database = Path(temporary) / "founder-agent" / "founder-agent.db"
+                connection = sqlite3.connect(database)
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                connection.close()
+                self.assertEqual(2, version)
 
     def test_legacy_memory_is_imported_once(self) -> None:
         legacy = self.home / "founder-memory" / "memory.db"

@@ -34,7 +34,7 @@ PERMANENTLY_FORBIDDEN = {
     "production_mutation",
     "destructive_operation",
 }
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def database_path() -> Path:
@@ -191,8 +191,6 @@ def connect(path: Path) -> sqlite3.Connection:
         """
     )
     migrate_legacy(connection, path)
-    # Version 1 is the bootstrap schema. Future changes must bump
-    # SCHEMA_VERSION, apply a guarded migration, then update user_version.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     timestamp = now()
     for capability, policy in DEFAULT_POLICIES.items():
