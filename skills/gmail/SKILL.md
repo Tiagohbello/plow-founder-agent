@@ -54,8 +54,9 @@ python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" prepare \
   --recipient '<verified-address>' --subject '<subject>' --body '<draft>'
 ```
 
-Return the draft id and text. `prepare` never opens Send and never claims that
-the message was sent.
+Return the exact recipient, subject, body, and prepared status. Keep the draft
+id and other ledger identifiers internal unless the founder asks for audit
+details. `prepare` never opens Send and never claims that the message was sent.
 
 ## Send only after approval
 

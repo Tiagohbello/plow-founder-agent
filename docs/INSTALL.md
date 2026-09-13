@@ -119,10 +119,11 @@ SQLite store there as it is first used:
 ```
 
 The Hermes-owned `/var/lib/hermes/state.db` is separate and must also be
-preserved. The Founder Agent store records its schema version in SQLite
-`user_version`; image updates apply compatible migrations when it is opened.
-Existing split stores are imported once into the shared database and retained
-as rollback copies. Do not delete the volume during a normal update.
+preserved. The Founder Agent store records its shared compatibility version in
+SQLite `user_version`; component migrations use durable markers in the same
+database. Image updates apply compatible migrations when it is opened. Existing
+split stores are imported once and retained as rollback copies. Do not delete
+the volume during a normal update.
 
 ## 6. Onboard your company
 

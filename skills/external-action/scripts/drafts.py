@@ -18,10 +18,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-ACTIVE_CHANNELS = ("gmail",)
-HISTORICAL_CHANNELS = ("gmail", "whatsapp")
+ACTIVE_CHANNELS = ("gmail", "text", "plow")
+KNOWN_CHANNELS = (*ACTIVE_CHANNELS, "whatsapp")
 STATUSES = ("draft", "approved", "sending", "sent", "uncertain", "cancelled")
+# Shared-store compatibility version. Draft-specific migrations use markers so
+# the previous image can keep using the same persistent volume after rollback.
 SCHEMA_VERSION = 1
+DRAFT_SCHEMA_MIGRATION = "drafts-schema-v2"
 
 
 def default_database_path() -> Path:
@@ -40,6 +43,75 @@ def required_text(value: str, name: str) -> str:
     if not value or not value.strip():
         raise ValueError(f"{name} must not be blank")
     return value.strip()
+
+
+def create_draft_table(connection: sqlite3.Connection, table: str = "draft") -> None:
+    connection.execute(
+        f"""
+        CREATE TABLE {table} (
+            id INTEGER PRIMARY KEY,
+            channel TEXT NOT NULL CHECK (channel IN ('gmail', 'text', 'plow', 'whatsapp')),
+            thread_id TEXT NOT NULL,
+            recipient TEXT NOT NULL,
+            subject TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN
+                ('draft', 'approved', 'sending', 'sent', 'uncertain', 'cancelled')),
+            approval_token TEXT,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            external_message_id TEXT,
+            verification_note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            approval_ref TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+
+def create_draft_indexes(connection: sqlite3.Connection) -> None:
+    connection.execute("CREATE INDEX IF NOT EXISTS draft_thread_idx ON draft(channel, thread_id)")
+    connection.execute("CREATE INDEX IF NOT EXISTS draft_status_idx ON draft(status)")
+
+
+def migrate_channel_schema(connection: sqlite3.Connection, draft_existed: bool) -> None:
+    """Expand the draft channel constraint once, independent of shared user_version."""
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS founder_agent_migration "
+        "(component TEXT PRIMARY KEY, migrated_at TEXT NOT NULL)"
+    )
+    connection.commit()
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        migrated = connection.execute(
+            "SELECT 1 FROM founder_agent_migration WHERE component=?",
+            (DRAFT_SCHEMA_MIGRATION,),
+        ).fetchone()
+        if migrated is not None:
+            connection.commit()
+            return
+        if draft_existed:
+            create_draft_table(connection, "draft_schema_v2")
+            target_columns = (
+                "id,channel,thread_id,recipient,subject,body,status,approval_token,"
+                "idempotency_key,external_message_id,verification_note,created_at,updated_at,"
+                "approval_ref"
+            )
+            connection.execute(
+                f"INSERT INTO draft_schema_v2 ({target_columns}) SELECT {target_columns} FROM draft"
+            )
+            connection.execute("DROP TABLE draft")
+            connection.execute("ALTER TABLE draft_schema_v2 RENAME TO draft")
+            create_draft_indexes(connection)
+        connection.execute(
+            "INSERT INTO founder_agent_migration(component,migrated_at) VALUES (?,?)",
+            (DRAFT_SCHEMA_MIGRATION, now()),
+        )
+        connection.commit()
+    except BaseException:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
 
 
 def migrate_legacy(connection: sqlite3.Connection, path: Path) -> None:
@@ -84,35 +156,16 @@ def connect(path: Path) -> sqlite3.Connection:
         raise sqlite3.Error(
             f"draft schema {current_schema} is newer than supported {SCHEMA_VERSION}"
         )
-    connection.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS draft (
-            id INTEGER PRIMARY KEY,
-            channel TEXT NOT NULL CHECK (channel IN ('gmail', 'whatsapp')),
-            thread_id TEXT NOT NULL,
-            recipient TEXT NOT NULL,
-            subject TEXT NOT NULL DEFAULT '',
-            body TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN
-                ('draft', 'approved', 'sending', 'sent', 'uncertain', 'cancelled')),
-            approval_token TEXT,
-            idempotency_key TEXT NOT NULL UNIQUE,
-            external_message_id TEXT,
-            verification_note TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS draft_thread_idx ON draft(channel, thread_id);
-        CREATE INDEX IF NOT EXISTS draft_status_idx ON draft(status);
-        """
-    )
-    columns = {row["name"] for row in connection.execute("PRAGMA table_info(draft)")}
-    if "approval_ref" not in columns:
-        connection.execute("ALTER TABLE draft ADD COLUMN approval_ref TEXT NOT NULL DEFAULT ''")
+    draft_existed = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='draft'"
+    ).fetchone() is not None
+    if not draft_existed:
+        create_draft_table(connection)
+    create_draft_indexes(connection)
+    migrate_channel_schema(connection, draft_existed)
     migrate_legacy(connection, path)
-    # Version 1 is the bootstrap schema. Future changes must bump
-    # SCHEMA_VERSION, apply a guarded migration, then update user_version.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    connection.commit()
     try:
         path.chmod(0o600)
     except OSError:
@@ -157,26 +210,42 @@ def prepare_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> d
 
 def revise_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> dict[str, object]:
     """Create a new unapproved draft and cancel the superseded one."""
-    old = resolve(connection, args.id)
-    if old["channel"] not in ACTIVE_CHANNELS:
-        raise ValueError("historical WhatsApp drafts are read-only")
-    if old["status"] in {"sending", "sent", "uncertain", "cancelled"}:
-        raise ValueError(f"draft cannot be revised from status {old['status']}")
-    thread_id = required_text(args.thread_id if args.thread_id is not None else old["thread_id"], "thread_id")
-    recipient = required_text(args.recipient if args.recipient is not None else old["recipient"], "recipient")
-    subject = (args.subject if args.subject is not None else old["subject"]).strip()
-    body = required_text(args.body if args.body is not None else old["body"], "body")
-    if all(value == old[name] for name, value in (("thread_id", thread_id), ("recipient", recipient),
-                                                   ("subject", subject), ("body", body))):
-        return {"revised": False, "unchanged": True, "draft": as_dict(old)}
-    base_key = args.idempotency_key or derive_idempotency_key(old["channel"], thread_id, recipient, subject, body)
-    key = base_key
-    existing = connection.execute("SELECT * FROM draft WHERE idempotency_key=?", (key,)).fetchone()
-    if existing is not None and existing["status"] != "draft":
-        key = hashlib.sha256(f"{base_key}\x1f{secrets.token_urlsafe(12)}".encode()).hexdigest()
-        existing = None
     connection.execute("BEGIN IMMEDIATE")
     try:
+        old = resolve(connection, args.id)
+        if old["channel"] not in ACTIVE_CHANNELS:
+            raise ValueError(f"channel {old['channel']} is read-only")
+        if old["status"] in {"sending", "sent", "uncertain", "cancelled"}:
+            raise ValueError(f"draft cannot be revised from status {old['status']}")
+        thread_id = required_text(
+            args.thread_id if args.thread_id is not None else old["thread_id"], "thread_id"
+        )
+        recipient = required_text(
+            args.recipient if args.recipient is not None else old["recipient"], "recipient"
+        )
+        subject = (args.subject if args.subject is not None else old["subject"]).strip()
+        body = required_text(args.body if args.body is not None else old["body"], "body")
+        if all(
+            value == old[name]
+            for name, value in (
+                ("thread_id", thread_id), ("recipient", recipient),
+                ("subject", subject), ("body", body),
+            )
+        ):
+            connection.rollback()
+            return {"revised": False, "unchanged": True, "draft": as_dict(old)}
+        base_key = args.idempotency_key or derive_idempotency_key(
+            old["channel"], thread_id, recipient, subject, body
+        )
+        key = base_key
+        existing = connection.execute(
+            "SELECT * FROM draft WHERE idempotency_key=?", (key,)
+        ).fetchone()
+        if existing is not None and existing["status"] != "draft":
+            key = hashlib.sha256(
+                f"{base_key}\x1f{secrets.token_urlsafe(12)}".encode()
+            ).hexdigest()
+            existing = None
         timestamp = now()
         if existing is None:
             cursor = connection.execute(
@@ -191,13 +260,19 @@ def revise_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> di
             "UPDATE draft SET status='cancelled',approval_token=NULL,verification_note=?,updated_at=? WHERE id=?",
             (f"superseded by draft {new_id}", timestamp, old["id"]),
         )
+        old_draft = as_dict(resolve(connection, old["id"]))
+        draft = as_dict(resolve(connection, new_id))
         connection.commit()
+        return {
+            "revised": True,
+            "approval_required": True,
+            "old_draft": old_draft,
+            "draft": draft,
+        }
     except BaseException:
         if connection.in_transaction:
             connection.rollback()
         raise
-    return {"revised": True, "approval_required": True, "old_draft": as_dict(resolve(connection, old["id"])),
-            "draft": as_dict(resolve(connection, new_id))}
 
 
 def resolve(connection: sqlite3.Connection, draft_id: int) -> sqlite3.Row:
@@ -207,21 +282,34 @@ def resolve(connection: sqlite3.Connection, draft_id: int) -> sqlite3.Row:
     return row
 
 
-def approve_draft(connection: sqlite3.Connection, draft_id: int, approval_ref: str) -> dict[str, object]:
-    row = resolve(connection, draft_id)
+def require_active_channel(row: sqlite3.Row) -> None:
     if row["channel"] not in ACTIVE_CHANNELS:
-        raise ValueError("historical WhatsApp drafts cannot be approved")
-    if row["status"] == "approved":
-        return {"approved": True, "already_approved": True, "draft": as_dict(row)}
-    if row["status"] != "draft":
-        raise ValueError(f"draft cannot be approved from status {row['status']}")
-    token = secrets.token_urlsafe(18)
-    connection.execute(
-        "UPDATE draft SET status = 'approved', approval_token = ?, approval_ref = ?, updated_at = ? WHERE id = ?",
-        (token, required_text(approval_ref, "approval_ref"), now(), draft_id),
-    )
-    connection.commit()
-    return {"approved": True, "already_approved": False, "draft": as_dict(resolve(connection, draft_id))}
+        raise ValueError(f"channel {row['channel']} is read-only")
+
+
+def approve_draft(connection: sqlite3.Connection, draft_id: int, approval_ref: str) -> dict[str, object]:
+    approval_ref = required_text(approval_ref, "approval_ref")
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        row = resolve(connection, draft_id)
+        require_active_channel(row)
+        if row["status"] == "approved":
+            connection.rollback()
+            return {"approved": True, "already_approved": True, "draft": as_dict(row)}
+        if row["status"] != "draft":
+            raise ValueError(f"draft cannot be approved from status {row['status']}")
+        token = secrets.token_urlsafe(18)
+        connection.execute(
+            "UPDATE draft SET status = 'approved', approval_token = ?, approval_ref = ?, updated_at = ? WHERE id = ?",
+            (token, approval_ref, now(), draft_id),
+        )
+        draft = as_dict(resolve(connection, draft_id))
+        connection.commit()
+        return {"approved": True, "already_approved": False, "draft": draft}
+    except BaseException:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
 
 
 def claim_send(connection: sqlite3.Connection, draft_id: int) -> dict[str, object]:
@@ -235,7 +323,7 @@ def claim_send(connection: sqlite3.Connection, draft_id: int) -> dict[str, objec
         row = resolve(connection, draft_id)
         if row["channel"] not in ACTIVE_CHANNELS:
             connection.rollback()
-            raise ValueError("WhatsApp sending is retired")
+            raise ValueError(f"channel {row['channel']} is read-only")
         if row["status"] == "sent":
             connection.rollback()
             return {"claimed": False, "already_sent": True, "draft": as_dict(row)}
@@ -263,6 +351,7 @@ def claim_send(connection: sqlite3.Connection, draft_id: int) -> dict[str, objec
 def mark_sent(connection: sqlite3.Connection, draft_id: int, message_id: str) -> dict[str, object]:
     message_id = required_text(message_id, "message_id")
     row = resolve(connection, draft_id)
+    require_active_channel(row)
     if row["status"] == "sent":
         if row["external_message_id"] == message_id:
             return {"sent": True, "already_sent": True, "draft": as_dict(row)}
@@ -279,6 +368,7 @@ def mark_sent(connection: sqlite3.Connection, draft_id: int, message_id: str) ->
 
 def mark_uncertain(connection: sqlite3.Connection, draft_id: int, note: str) -> dict[str, object]:
     row = resolve(connection, draft_id)
+    require_active_channel(row)
     if row["status"] not in {"sending", "uncertain"}:
         raise ValueError("only a sending draft can become uncertain")
     connection.execute(
@@ -293,8 +383,8 @@ def list_drafts(connection: sqlite3.Connection, args: argparse.Namespace) -> dic
     clauses: list[str] = []
     values: list[object] = []
     if args.channel:
-        if args.channel not in HISTORICAL_CHANNELS:
-            raise ValueError(f"channel must be one of: {', '.join(HISTORICAL_CHANNELS)}")
+        if args.channel not in KNOWN_CHANNELS:
+            raise ValueError(f"channel must be one of: {', '.join(KNOWN_CHANNELS)}")
         clauses.append("channel = ?")
         values.append(args.channel)
     if args.status:
@@ -316,7 +406,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="operation", required=True)
 
     prepare = subparsers.add_parser("prepare")
-    prepare.add_argument("--channel", required=True, choices=HISTORICAL_CHANNELS)
+    prepare.add_argument("--channel", required=True, choices=KNOWN_CHANNELS)
     prepare.add_argument("--thread-id", required=True)
     prepare.add_argument("--recipient", required=True)
     prepare.add_argument("--subject")
@@ -347,7 +437,7 @@ def build_parser() -> argparse.ArgumentParser:
     uncertain.add_argument("--note", required=True)
 
     listing = subparsers.add_parser("list")
-    listing.add_argument("--channel", choices=HISTORICAL_CHANNELS)
+    listing.add_argument("--channel", choices=KNOWN_CHANNELS)
     listing.add_argument("--status", choices=STATUSES)
     return parser
 

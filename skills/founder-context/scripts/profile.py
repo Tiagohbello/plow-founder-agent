@@ -191,8 +191,8 @@ def connect(path: Path) -> sqlite3.Connection:
         """
     )
     migrate_legacy(connection, path)
-    # Version 1 is the bootstrap schema. Future changes must bump
-    # SCHEMA_VERSION, apply a guarded migration, then update user_version.
+    # Keep the shared compatibility version at 1 so the previous image can use
+    # this volume; component changes use founder_agent_migration markers.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     timestamp = now()
     for capability, policy in DEFAULT_POLICIES.items():

@@ -54,20 +54,33 @@ sending.
 Only on an explicit send instruction, in the channel the founder named —
 "text" never becomes email.
 
-Email goes through `gmail`'s draft → approve → send flow, which records it
-in `external-action`'s ledger: prepared, approved, claimed once, verified.
-A verified send records `Proposed` and `Status` `sent`; an ambiguous one
-records `Proposed` noting the send was not confirmed and sets `Status` to
-`unverified`, never a retry.
+Every channel goes through `external-action`'s durable draft → approve → claim →
+verify flow. Email then uses `gmail`; text and Plow use the agent's Plow line,
+with `plow_list_chats` resolving an existing conversation and
+`plow_send_message` sending. Never use the founder's Mac Messages identity,
+substitute another channel, create a new Plow conversation, or use a chat
+matched only by name. Before preparing the draft, confirm the exact
+conversation's participant set is the intended investor and record its stable
+id plus the canonical external participant identifiers in deterministic order.
+Show the founder that channel, conversation, participant set, and exact body
+before recording approval.
 
-This skill does not send the text or the Plow message itself. That ledger
-accepts Gmail only, and with no durable claim behind them no wording here
-can stop two turns sending from one approval, or a restart repeating a
-send. So resolve the conversation, confirm its participant set is the
-intended investor rather than a chat matched by name, show the founder that
-exact conversation and the exact body — and let them send it. Record
-`Proposed` from what they confirm went out, `Status` `sent`; until then it
-stays `drafted`.
+After approval and immediately before claiming or sending, run a fresh
+`plow_list_chats` lookup. Canonicalize the live external participant handles in
+the same deterministic order and compare them exactly with the approved
+draft's `recipient`. If the conversation is missing or any handle differs, do
+not claim or send; prepare the changed record and request approval again.
+
+After a successful claim, send once and retain `message_id` from the successful
+`plow_send_message` receipt. That receipt is not verification: separately read
+the message back from that exact conversation and verify its body before
+passing the retained id to `mark-sent`, recording `Proposed`, and setting
+`Status` to `sent`. If the send receipt, its id, or the body read-back is
+ambiguous or unavailable — including a warning that the message was not
+mirrored or no live session owns the chat — mark the draft uncertain, record
+`Proposed` noting the send was not confirmed, and set `Status` to `unverified`;
+never report success or retry. A claim reporting `already_sent` or
+`verification_required` never authorizes another send.
 
 Once sent, those times are fixed: a conflict that surfaces later goes to
 the founder, never a silent swap.
