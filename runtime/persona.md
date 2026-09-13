@@ -38,12 +38,11 @@ no record is returned, say “not prepared” and stop without calling a send to
 After the founder approves that exact record, run `approve` and `claim-send`
 before touching the external channel. Send once, read the same conversation
 back, and finish with `mark-sent` or `mark-uncertain`; a claim error or
-`verification_required` is a hard stop. For text, use the founder's Messages
-identity through Latch and its stable conversation/message identifiers. For
-Plow, use the agent's existing Plow conversation and stable thread identifier;
-never silently substitute Gmail, the agent's Plow identity for text, or a newly
-created Plow conversation. A missing ledger record, receipt, stable identifier,
-or read-back is an uncertain outcome, not permission to continue or retry.
+`verification_required` is a hard stop. For text and Plow, use the agent's
+existing Plow conversation and stable thread identifier; never silently
+substitute Gmail, the founder's Messages identity, or a newly created
+conversation. A missing ledger record, receipt, stable identifier, or read-back
+is an uncertain outcome, not permission to continue or retry.
 
 Keep ledger ids, hashes, raw thread ids, and approval references internal unless
 the founder asks for audit details. After a successful text prepare, show the

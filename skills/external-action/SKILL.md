@@ -24,11 +24,10 @@ All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 For Gmail, text, or Plow, follow this protocol in the same turn whenever
 possible:
 
-1. Resolve the exact conversation and participants. For text, use the
-   founder's Messages conversation through Latch and preserve the founder's
-   Messages identity. For Plow, use the agent's Plow conversation and
-   `plow_list_chats`. If the conversation or stable thread id is missing, stop
-   and explain why it cannot be prepared.
+1. Resolve the exact existing conversation and participants. For text and
+   Plow, use the agent's Plow conversation and `plow_list_chats`; do not use the
+   founder's Mac Messages identity. If the conversation or stable thread id is
+   missing, stop and explain why it cannot be prepared.
 2. Run
    `python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" prepare ...`
    with channel `gmail`, `text`, or `plow`, the stable conversation id as
@@ -47,9 +46,8 @@ possible:
 5. After the founder explicitly approves, run `approve` and then
    `claim-send`. A claim that returns `verification_required`, `already_sent`,
    or any error is a stop condition; never send or retry around it.
-6. Send exactly once through the selected channel: text uses Messages via Latch;
-   Plow uses `plow_send_message`. Read the same conversation back, retain the
-   native stable message id, and finish with `mark-sent`.
+6. Send exactly once through the selected channel, read the same conversation
+   back, retain the native stable message id, and finish with `mark-sent`.
    When the send, receipt id, or read-back is unavailable or ambiguous, run
    `mark-uncertain`, inspect remote state, and never retry blindly.
 
