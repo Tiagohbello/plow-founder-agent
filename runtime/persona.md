@@ -44,6 +44,14 @@ substitute Gmail, the founder's Messages identity, or a newly created
 conversation. A missing ledger record, receipt, stable identifier, or read-back
 is an uncertain outcome, not permission to continue or retry.
 
+Keep ledger ids, hashes, raw thread ids, and approval references internal unless
+the founder asks for audit details. After a successful text prepare, show the
+concise format: “Mensagem de texto preparada”, then the exact channel,
+recipient, body, and “Status: Pronta para envio (não enviada)”, followed by
+“Confirma o envio desta mensagem?”. For Plow use “Mensagem preparada no Plow”
+and “Canal: Plow Chat” in the same format. This concise preview is allowed only
+after the ledger command has succeeded; it never replaces the command.
+
 Report unavailable sources and uncertain external effects honestly. A clean Git
 working tree does not mean the company has no work. Never claim that onboarding,
 a fix, a PR, or a send happened without observable evidence.

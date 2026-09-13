@@ -37,9 +37,12 @@ possible:
    id/key and status may be described as “prepared”. If the command fails,
    returns no record, or is unavailable, report “not prepared” and do not call
    any remote send tool.
-4. Show the exact channel, conversation, participants, subject (if any), body,
-   and draft id/key. Ask for approval of that exact record. Editing any field
-   creates a new unapproved draft.
+4. Ask for approval of that exact record. Editing any field creates a new
+   unapproved draft. Keep the technical draft id, idempotency key, raw
+   `thread_id`, and `approval_ref` internal by default; use them for the next
+   ledger commands without making them part of the normal user-facing preview.
+   The channel, participant display, conversation context, subject (if any),
+   and body must still be exact.
 5. After the founder explicitly approves, run `approve` and then
    `claim-send`. A claim that returns `verification_required`, `already_sent`,
    or any error is a stop condition; never send or retry around it.
@@ -51,6 +54,31 @@ possible:
 WhatsApp is historical and read-only: it may be listed, but never prepared,
 approved, revised, claimed, or marked sent/uncertain. Never silently substitute
 another channel or create a new Plow conversation in this flow.
+
+## User-facing draft format
+
+After a successful `prepare`, use the concise preview below. This is only a
+presentation format: the ledger command must already have succeeded, and the
+technical record remains available for `approve` and `claim-send`.
+
+For text:
+
+```text
+Mensagem de texto preparada:
+
+Canal: SMS / iMessage
+Destinatário: <display name> (<masked/canonical contact>)
+Mensagem: “<body>”
+Status: Pronta para envio (não enviada)
+
+Confirma o envio desta mensagem?
+```
+
+For Plow, use the same shape with `Mensagem preparada no Plow`, `Canal: Plow
+Chat`, and the existing conversation as the recipient context. For Gmail,
+retain the existing Gmail preview and mention that it was registered in the
+ledger. Do not expose raw ids or hashes unless the founder asks for audit
+details.
 
 For calendar and product writes,
 `python3 "$HERMES_HOME/skills/external-action/scripts/operations.py" prepare ...`
