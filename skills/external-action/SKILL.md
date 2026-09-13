@@ -35,10 +35,11 @@ resolves policy from Founder Profile; never pass or invent a policy.
 Unconfigured operations require approval. A concrete founder request approves
 only that exact prepared action.
 
-Claim before touching the external system. For text, use Messages through Latch;
-for Plow, resolve an existing conversation with `plow_list_chats` and send with
-`plow_send_message`. Never substitute another channel or create a new Plow
-conversation in this flow. Read the exact conversation back after sending and
-mark the draft sent only with its stable native message id. When sending,
-read-back, or the id is unavailable or ambiguous, mark it uncertain, inspect
-remote state, and never retry blindly.
+Claim before touching the external system. For text and Plow, use the agent's
+Plow line: resolve an existing conversation with `plow_list_chats` and send with
+`plow_send_message`; never use the founder's Mac Messages identity, substitute
+another channel, or create a new Plow conversation in this flow. Retain the
+successful send receipt's `message_id`, read the exact conversation back to
+verify the body, then pass the retained id to `mark-sent`. When sending,
+read-back, or the receipt id is unavailable or ambiguous, mark it uncertain,
+inspect remote state, and never retry blindly.

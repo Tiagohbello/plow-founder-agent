@@ -24,7 +24,7 @@ PERMANENTLY_FORBIDDEN = {
     "delete_production_data",
     "destructive_operation",
 }
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 1
 
 
 def now() -> str:
@@ -106,6 +106,8 @@ def connect(path: Path) -> sqlite3.Connection:
         """
     )
     migrate_legacy(connection, path)
+    # Version 1 is the bootstrap schema. Future changes must bump
+    # SCHEMA_VERSION, apply a guarded migration, then update user_version.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     connection.commit()
     try:

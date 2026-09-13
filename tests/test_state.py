@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import json
 import os
 import sqlite3
@@ -8,9 +10,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DRAFTS_PATH = ROOT / "skills/external-action/scripts/drafts.py"
+DRAFTS_SPEC = importlib.util.spec_from_file_location("founder_agent_drafts", DRAFTS_PATH)
+assert DRAFTS_SPEC and DRAFTS_SPEC.loader
+DRAFTS = importlib.util.module_from_spec(DRAFTS_SPEC)
+DRAFTS_SPEC.loader.exec_module(DRAFTS)
 
 
 class FounderAgentStateTests(unittest.TestCase):
@@ -22,17 +30,11 @@ class FounderAgentStateTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def run_helper(
-        self,
-        relative: str,
-        *arguments: str,
-        ok: bool = True,
-        environment: dict[str, str] | None = None,
-    ):
+    def run_helper(self, relative: str, *arguments: str, ok: bool = True):
         result = subprocess.run(
             [sys.executable, str(ROOT / relative), *arguments],
             cwd=ROOT,
-            env=environment or self.environment,
+            env=self.environment,
             text=True,
             capture_output=True,
             check=False,
@@ -41,11 +43,11 @@ class FounderAgentStateTests(unittest.TestCase):
             self.fail(f"{relative} failed: {result.stderr}")
         return result
 
-    def create_v1_draft_database(self, database: Path, user_version: int = 1) -> list[tuple]:
+    def create_v1_draft_database(self, database: Path) -> list[tuple]:
         database.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(database)
         connection.executescript(
-            f"""
+            """
             CREATE TABLE draft (
                 id INTEGER PRIMARY KEY,
                 channel TEXT NOT NULL CHECK (channel IN ('gmail', 'whatsapp')),
@@ -70,7 +72,7 @@ class FounderAgentStateTests(unittest.TestCase):
                 migrated_at TEXT NOT NULL
             );
             INSERT INTO founder_agent_migration VALUES ('drafts', '2026-09-01T00:00:00+00:00');
-            PRAGMA user_version = {user_version};
+            PRAGMA user_version = 1;
             """
         )
         rows = [
@@ -214,7 +216,7 @@ class FounderAgentStateTests(unittest.TestCase):
     def test_uncertain_send_is_not_claimed_again(self) -> None:
         self.run_helper(
             "skills/external-action/scripts/drafts.py", "prepare", "--channel", "text",
-            "--thread-id", "messages-chat-42", "--recipient", "+15550100999",
+            "--thread-id", "plow-text-thread-42", "--recipient", "investor-id",
             "--body", "Tuesday at 11:30?",
         )
         self.run_helper(
@@ -224,7 +226,7 @@ class FounderAgentStateTests(unittest.TestCase):
         self.run_helper("skills/external-action/scripts/drafts.py", "claim-send", "--id", "1")
         self.run_helper(
             "skills/external-action/scripts/drafts.py", "mark-uncertain", "--id", "1",
-            "--note", "Messages read-back unavailable",
+            "--note", "Plow read-back unavailable",
         )
         repeated = json.loads(
             self.run_helper(
@@ -232,6 +234,92 @@ class FounderAgentStateTests(unittest.TestCase):
             ).stdout
         )
         self.assertTrue(repeated["verification_required"])
+
+    def test_revision_cannot_cancel_a_draft_claimed_during_its_state_check(self) -> None:
+        self.run_helper(
+            "skills/external-action/scripts/drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "text-thread", "--recipient", "investor-id",
+            "--body", "Tuesday at 11:30?",
+        )
+        self.run_helper(
+            "skills/external-action/scripts/drafts.py", "approve", "--id", "1",
+            "--approval-ref", "conversation:approval-1",
+        )
+        database = self.home / "founder-agent" / "founder-agent.db"
+        revision_connection = DRAFTS.connect(database)
+        claim_connection = DRAFTS.connect(database)
+        original_resolve = DRAFTS.resolve
+        claim_succeeded = False
+        claim_attempted = False
+
+        def resolve_with_interleaved_claim(connection, draft_id):
+            nonlocal claim_attempted, claim_succeeded
+            row = original_resolve(connection, draft_id)
+            if (
+                connection is revision_connection
+                and not connection.in_transaction
+                and not claim_attempted
+            ):
+                claim_attempted = True
+                claim_succeeded = DRAFTS.claim_send(claim_connection, draft_id)["claimed"]
+            return row
+
+        arguments = argparse.Namespace(
+            id=1, thread_id=None, recipient=None, subject=None,
+            body="Wednesday at 14:00?", idempotency_key=None,
+        )
+        try:
+            with mock.patch.object(DRAFTS, "resolve", side_effect=resolve_with_interleaved_claim):
+                DRAFTS.revise_draft(revision_connection, arguments)
+            if not claim_succeeded:
+                with self.assertRaises(ValueError):
+                    DRAFTS.claim_send(claim_connection, 1)
+            self.assertFalse(claim_succeeded)
+            self.assertEqual("cancelled", original_resolve(revision_connection, 1)["status"])
+        finally:
+            revision_connection.close()
+            claim_connection.close()
+
+    def test_approval_cannot_resurrect_a_draft_revised_during_its_state_check(self) -> None:
+        self.run_helper(
+            "skills/external-action/scripts/drafts.py", "prepare", "--channel", "plow",
+            "--thread-id", "plow-thread", "--recipient", "investor-id",
+            "--body", "Tuesday at 11:30?",
+        )
+        database = self.home / "founder-agent" / "founder-agent.db"
+        approval_connection = DRAFTS.connect(database)
+        revision_connection = DRAFTS.connect(database)
+        original_resolve = DRAFTS.resolve
+        revision_ran = False
+        revision_attempted = False
+        arguments = argparse.Namespace(
+            id=1, thread_id=None, recipient=None, subject=None,
+            body="Wednesday at 14:00?", idempotency_key=None,
+        )
+
+        def resolve_with_interleaved_revision(connection, draft_id):
+            nonlocal revision_attempted, revision_ran
+            row = original_resolve(connection, draft_id)
+            if (
+                connection is approval_connection
+                and not connection.in_transaction
+                and not revision_attempted
+            ):
+                revision_attempted = True
+                DRAFTS.revise_draft(revision_connection, arguments)
+                revision_ran = True
+            return row
+
+        try:
+            with mock.patch.object(DRAFTS, "resolve", side_effect=resolve_with_interleaved_revision):
+                DRAFTS.approve_draft(approval_connection, 1, "conversation:approval-1")
+            if not revision_ran:
+                DRAFTS.revise_draft(revision_connection, arguments)
+            self.assertEqual("cancelled", original_resolve(approval_connection, 1)["status"])
+            self.assertEqual("draft", original_resolve(approval_connection, 2)["status"])
+        finally:
+            approval_connection.close()
+            revision_connection.close()
 
     def test_v1_draft_schema_is_migrated_without_losing_rows(self) -> None:
         database = self.home / "founder-agent" / "founder-agent.db"
@@ -250,19 +338,14 @@ class FounderAgentStateTests(unittest.TestCase):
         }
         self.assertEqual({row[0]: row for row in expected}, actual)
 
-        connection = sqlite3.connect(database)
-        schema = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='draft'"
-        ).fetchone()[0]
-        marker = connection.execute(
-            "SELECT 1 FROM founder_agent_migration WHERE component='drafts-schema-v2'"
-        ).fetchone()
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
-        connection.close()
-        self.assertIn("'text'", schema)
-        self.assertIn("'plow'", schema)
-        self.assertIsNotNone(marker)
-        self.assertEqual(2, version)
+        migrated = json.loads(
+            self.run_helper(
+                "skills/external-action/scripts/drafts.py", "prepare", "--channel", "text",
+                "--thread-id", "text-thread", "--recipient", "investor-id",
+                "--body", "Wednesday at 14:00?",
+            ).stdout
+        )
+        self.assertTrue(migrated["created"])
 
         historical = json.loads(
             self.run_helper(
@@ -280,37 +363,6 @@ class FounderAgentStateTests(unittest.TestCase):
             "--body", "This must remain historical", ok=False,
         )
         self.assertEqual(2, refused.returncode)
-
-    def test_draft_migration_runs_after_another_helper_advances_shared_version(self) -> None:
-        database = self.home / "founder-agent" / "founder-agent.db"
-        self.create_v1_draft_database(database, user_version=2)
-        result = self.run_helper(
-            "skills/external-action/scripts/drafts.py", "prepare", "--channel", "plow",
-            "--thread-id", "plow-thread", "--recipient", "investor-id",
-            "--body", "Tuesday at 11:30?",
-        )
-        self.assertTrue(json.loads(result.stdout)["created"])
-
-    def test_shared_helpers_accept_schema_version_two_in_any_initialization_order(self) -> None:
-        initializers = (
-            ("skills/founder-context/scripts/profile.py", ("show",)),
-            ("skills/founder-context/scripts/memory.py", ("list",)),
-            ("skills/external-action/scripts/operations.py", ("list",)),
-            ("skills/external-action/scripts/drafts.py", ("list",)),
-        )
-        for first_helper, first_arguments in initializers:
-            with self.subTest(first=first_helper), tempfile.TemporaryDirectory() as temporary:
-                environment = {**os.environ, "HERMES_HOME": temporary}
-                self.run_helper(
-                    first_helper, *first_arguments, environment=environment
-                )
-                for helper, arguments in initializers:
-                    self.run_helper(helper, *arguments, environment=environment)
-                database = Path(temporary) / "founder-agent" / "founder-agent.db"
-                connection = sqlite3.connect(database)
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-                connection.close()
-                self.assertEqual(2, version)
 
     def test_legacy_memory_is_imported_once(self) -> None:
         legacy = self.home / "founder-memory" / "memory.db"

@@ -55,22 +55,24 @@ Only on an explicit send instruction, in the channel the founder named —
 "text" never becomes email.
 
 Every channel goes through `external-action`'s durable draft → approve → claim →
-verify flow. Email then uses `gmail`; text uses Messages on the founder's Mac
-through Latch; Plow uses `plow_list_chats` to resolve an existing conversation
-and `plow_send_message` to send. Never substitute another channel, create a new
-Plow conversation, or use a chat matched only by name. Before preparing the
-draft, confirm the exact conversation's participant set is the intended
-investor and record its stable id plus the canonical external participant
-identifiers in deterministic order. Show the founder that channel, conversation,
-participant set, and exact body before recording approval.
+verify flow. Email then uses `gmail`; text and Plow use the agent's Plow line,
+with `plow_list_chats` resolving an existing conversation and
+`plow_send_message` sending. Never use the founder's Mac Messages identity,
+substitute another channel, create a new Plow conversation, or use a chat
+matched only by name. Before preparing the draft, confirm the exact
+conversation's participant set is the intended investor and record its stable
+id plus the canonical external participant identifiers in deterministic order.
+Show the founder that channel, conversation, participant set, and exact body
+before recording approval.
 
-After a successful claim, send once and read the message back from that exact
-conversation. Mark it sent only with the stable native message id from the
-read-back, then record `Proposed` and set `Status` to `sent`. If the send,
-read-back, or message id is ambiguous or unavailable, mark the draft uncertain,
-record `Proposed` noting the send was not confirmed, and set `Status` to
-`unverified`; never retry. A claim reporting `already_sent` or
-`verification_required` never authorizes another send.
+After a successful claim, send once, retain `message_id` from the successful
+`plow_send_message` receipt, and read the message back from that exact
+conversation to verify its body. Pass the retained id to `mark-sent`, then
+record `Proposed` and set `Status` to `sent`. If the send receipt, its id, or the
+body read-back is ambiguous or unavailable, mark the draft uncertain, record
+`Proposed` noting the send was not confirmed, and set `Status` to `unverified`;
+never retry. A claim reporting `already_sent` or `verification_required` never
+authorizes another send.
 
 Once sent, those times are fixed: a conflict that surfaces later goes to
 the founder, never a silent swap.

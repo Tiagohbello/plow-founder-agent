@@ -25,7 +25,7 @@ STATUSES = ("active", "deferred", "completed", "archived")
 PRIORITIES = ("low", "medium", "high", "urgent")
 SOURCE_KINDS = ("founder", "gmail", "github", "sentry", "whatsapp", "repo", "legacy")
 CONFIDENCE_LEVELS = ("fact", "inference")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 1
 
 
 def default_database_path() -> Path:
@@ -128,6 +128,8 @@ def connect(path: Path) -> sqlite3.Connection:
         "ON memory(source_kind, source_ref) WHERE source_ref != ''"
     )
     migrate_legacy(connection, path)
+    # Version 1 is the bootstrap schema. Future changes must bump
+    # SCHEMA_VERSION, apply a guarded migration, then update user_version.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     connection.commit()
     try:

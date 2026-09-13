@@ -21,7 +21,7 @@ from pathlib import Path
 ACTIVE_CHANNELS = ("gmail", "text", "plow")
 KNOWN_CHANNELS = (*ACTIVE_CHANNELS, "whatsapp")
 STATUSES = ("draft", "approved", "sending", "sent", "uncertain", "cancelled")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 1
 DRAFT_SCHEMA_MIGRATION = "drafts-schema-v2"
 
 
@@ -95,15 +95,8 @@ def migrate_channel_schema(connection: sqlite3.Connection, draft_existed: bool) 
                 "idempotency_key,external_message_id,verification_note,created_at,updated_at,"
                 "approval_ref"
             )
-            source_columns = {row["name"] for row in connection.execute("PRAGMA table_info(draft)")}
-            approval_ref = "approval_ref" if "approval_ref" in source_columns else "''"
-            source_values = (
-                "id,channel,thread_id,recipient,subject,body,status,approval_token,"
-                "idempotency_key,external_message_id,verification_note,created_at,updated_at,"
-                f"{approval_ref}"
-            )
             connection.execute(
-                f"INSERT INTO draft_schema_v2 ({target_columns}) SELECT {source_values} FROM draft"
+                f"INSERT INTO draft_schema_v2 ({target_columns}) SELECT {target_columns} FROM draft"
             )
             connection.execute("DROP TABLE draft")
             connection.execute("ALTER TABLE draft_schema_v2 RENAME TO draft")
@@ -214,26 +207,42 @@ def prepare_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> d
 
 def revise_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> dict[str, object]:
     """Create a new unapproved draft and cancel the superseded one."""
-    old = resolve(connection, args.id)
-    if old["channel"] not in ACTIVE_CHANNELS:
-        raise ValueError(f"channel {old['channel']} is read-only")
-    if old["status"] in {"sending", "sent", "uncertain", "cancelled"}:
-        raise ValueError(f"draft cannot be revised from status {old['status']}")
-    thread_id = required_text(args.thread_id if args.thread_id is not None else old["thread_id"], "thread_id")
-    recipient = required_text(args.recipient if args.recipient is not None else old["recipient"], "recipient")
-    subject = (args.subject if args.subject is not None else old["subject"]).strip()
-    body = required_text(args.body if args.body is not None else old["body"], "body")
-    if all(value == old[name] for name, value in (("thread_id", thread_id), ("recipient", recipient),
-                                                   ("subject", subject), ("body", body))):
-        return {"revised": False, "unchanged": True, "draft": as_dict(old)}
-    base_key = args.idempotency_key or derive_idempotency_key(old["channel"], thread_id, recipient, subject, body)
-    key = base_key
-    existing = connection.execute("SELECT * FROM draft WHERE idempotency_key=?", (key,)).fetchone()
-    if existing is not None and existing["status"] != "draft":
-        key = hashlib.sha256(f"{base_key}\x1f{secrets.token_urlsafe(12)}".encode()).hexdigest()
-        existing = None
     connection.execute("BEGIN IMMEDIATE")
     try:
+        old = resolve(connection, args.id)
+        if old["channel"] not in ACTIVE_CHANNELS:
+            raise ValueError(f"channel {old['channel']} is read-only")
+        if old["status"] in {"sending", "sent", "uncertain", "cancelled"}:
+            raise ValueError(f"draft cannot be revised from status {old['status']}")
+        thread_id = required_text(
+            args.thread_id if args.thread_id is not None else old["thread_id"], "thread_id"
+        )
+        recipient = required_text(
+            args.recipient if args.recipient is not None else old["recipient"], "recipient"
+        )
+        subject = (args.subject if args.subject is not None else old["subject"]).strip()
+        body = required_text(args.body if args.body is not None else old["body"], "body")
+        if all(
+            value == old[name]
+            for name, value in (
+                ("thread_id", thread_id), ("recipient", recipient),
+                ("subject", subject), ("body", body),
+            )
+        ):
+            connection.rollback()
+            return {"revised": False, "unchanged": True, "draft": as_dict(old)}
+        base_key = args.idempotency_key or derive_idempotency_key(
+            old["channel"], thread_id, recipient, subject, body
+        )
+        key = base_key
+        existing = connection.execute(
+            "SELECT * FROM draft WHERE idempotency_key=?", (key,)
+        ).fetchone()
+        if existing is not None and existing["status"] != "draft":
+            key = hashlib.sha256(
+                f"{base_key}\x1f{secrets.token_urlsafe(12)}".encode()
+            ).hexdigest()
+            existing = None
         timestamp = now()
         if existing is None:
             cursor = connection.execute(
@@ -248,13 +257,19 @@ def revise_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> di
             "UPDATE draft SET status='cancelled',approval_token=NULL,verification_note=?,updated_at=? WHERE id=?",
             (f"superseded by draft {new_id}", timestamp, old["id"]),
         )
+        old_draft = as_dict(resolve(connection, old["id"]))
+        draft = as_dict(resolve(connection, new_id))
         connection.commit()
+        return {
+            "revised": True,
+            "approval_required": True,
+            "old_draft": old_draft,
+            "draft": draft,
+        }
     except BaseException:
         if connection.in_transaction:
             connection.rollback()
         raise
-    return {"revised": True, "approval_required": True, "old_draft": as_dict(resolve(connection, old["id"])),
-            "draft": as_dict(resolve(connection, new_id))}
 
 
 def resolve(connection: sqlite3.Connection, draft_id: int) -> sqlite3.Row:
@@ -265,20 +280,29 @@ def resolve(connection: sqlite3.Connection, draft_id: int) -> sqlite3.Row:
 
 
 def approve_draft(connection: sqlite3.Connection, draft_id: int, approval_ref: str) -> dict[str, object]:
-    row = resolve(connection, draft_id)
-    if row["channel"] not in ACTIVE_CHANNELS:
-        raise ValueError(f"channel {row['channel']} is read-only")
-    if row["status"] == "approved":
-        return {"approved": True, "already_approved": True, "draft": as_dict(row)}
-    if row["status"] != "draft":
-        raise ValueError(f"draft cannot be approved from status {row['status']}")
-    token = secrets.token_urlsafe(18)
-    connection.execute(
-        "UPDATE draft SET status = 'approved', approval_token = ?, approval_ref = ?, updated_at = ? WHERE id = ?",
-        (token, required_text(approval_ref, "approval_ref"), now(), draft_id),
-    )
-    connection.commit()
-    return {"approved": True, "already_approved": False, "draft": as_dict(resolve(connection, draft_id))}
+    approval_ref = required_text(approval_ref, "approval_ref")
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        row = resolve(connection, draft_id)
+        if row["channel"] not in ACTIVE_CHANNELS:
+            raise ValueError(f"channel {row['channel']} is read-only")
+        if row["status"] == "approved":
+            connection.rollback()
+            return {"approved": True, "already_approved": True, "draft": as_dict(row)}
+        if row["status"] != "draft":
+            raise ValueError(f"draft cannot be approved from status {row['status']}")
+        token = secrets.token_urlsafe(18)
+        connection.execute(
+            "UPDATE draft SET status = 'approved', approval_token = ?, approval_ref = ?, updated_at = ? WHERE id = ?",
+            (token, approval_ref, now(), draft_id),
+        )
+        draft = as_dict(resolve(connection, draft_id))
+        connection.commit()
+        return {"approved": True, "already_approved": False, "draft": draft}
+    except BaseException:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
 
 
 def claim_send(connection: sqlite3.Connection, draft_id: int) -> dict[str, object]:
