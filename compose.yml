@@ -1,13 +1,13 @@
 services:
   agent:
     build: .
+    # The KEY=VALUE file `plow-agents mint` writes (PLOW_API_BASE and
+    # PLOW_AGENT_TOKEN), loaded as environment: the base reads both from there.
+    env_file: ./plow-credentials
     environment:
       AGENT_ID: ${AGENT_ID:-founder-agent}
       # Inherit the official image defaults for Plow inference.
     volumes:
-      # plow-agents mint writes this file with restrictive permissions. The
-      # image promotes it into the runtime credential path during boot.
-      - ./plow-credentials:/var/lib/plow/credentials.host:ro
       # Keep sessions and runtime state between restarts.
       - agent-home:/var/lib/hermes
     stop_grace_period: 35s

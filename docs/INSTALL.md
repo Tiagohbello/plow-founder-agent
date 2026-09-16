@@ -249,7 +249,7 @@ you intend to permanently discard company memory, session history, and install i
 | Local Gemini override requires `GEMINI_API_KEY` | Add your key to `.env`, or remove the optional override to use Plow inference |
 | Official runner missing | Complete the runner clone in step 2 |
 | Line is already occupied | Choose a free line; do not revoke an unrelated running agent |
-| `plow-credentials` is a directory | Stop with `docker compose down`; remove it with `rmdir plow-credentials` only if empty, then mint before starting |
+| Compose says `plow-credentials` is not found | Mint (step 3) before starting |
 | No reply on the selected line | Check gateway logs, line configuration, and provider authentication/model errors |
 | TLS certificate error during login | Check your host Python certificate setup; the wrapper uses `certifi` if installed |
 | Latch source blocked or a 403 | Reconnect the correct account and grant the required scope; ask the agent to retry that source |

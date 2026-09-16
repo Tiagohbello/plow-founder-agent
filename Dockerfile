@@ -1,7 +1,7 @@
 # Founder Agent variant built on the official Plow Hermes image.
 # Keep the base pinned by immutable tag and digest: it contains the Hermes
 # runtime, Plow Chat integration, and Latch configuration.
-FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-4747960eaa8a44ac24424bf0cc6c22559af61f43@sha256:fe9b0f428f9ed2da1698ecf0b504c79eceb9e016e770291ff6b3418b9f65449d
+FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-c96adf18b1b660d059efb0429df455558cdb1ef0@sha256:6c4089e1002fcfb9de4378992a43285040f7c8676e62662e206762820e41b913
 
 # plow-init composes the home's SOUL.md from the base persona plus this file
 # on every boot; nothing is COPYed to $HERMES_HOME/SOUL.md directly.
