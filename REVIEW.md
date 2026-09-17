@@ -21,8 +21,8 @@ founder's credential and reaches their Gmail, calendar, repos, Sentry, and
 their Mac and browser through Latch, so a credential, a chat id, an account
 name or a real person's data anywhere under the tracked tree is blocking.
 
-Prose and skills are bilingual by design (Portuguese and English) because the
-founder is. That is not inconsistency to normalize.
+Prose and skills are written in English. Agent-facing prompts, examples, and
+confirmation text should remain consistent with that language.
 
 ## Review priority
 
