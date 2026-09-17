@@ -99,7 +99,8 @@ delete its Gmail draft. After revision or monitor supersession, run
 Saving drafts does not authorize deleting them: scheduled checks only read back
 and flag obsolete drafts; removal requires a specific foreground founder decision.
 
-For each queued item, read its recorded provider id in `external_draft_account`.
+For each queued item, select and verify the Gmail account using
+`external_draft_account`, then look up the draft by `external_draft_id`.
 Compare thread, recipients, subject and body with the ledger snapshot. Missing
 account (including legacy rows), edited content, or unreadable state requires
 `reconcile-draft --id N --outcome blocked --ref <evidence>` and founder clarification.
