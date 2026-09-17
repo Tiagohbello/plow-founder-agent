@@ -23,8 +23,12 @@ All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
 For a `pipeline-monitor` suggestion, first follow its foreground approval and
 fresh-evidence protocol. Use the suggestion's existing draft id; calendar
-`operations.py prepare` calls must include `--suggestion-id <id>`. Linked ledger
-items cannot be approved or claimed while their suggestion is pending, obsolete
+`operations.py prepare` calls must include `--suggestion-id <id>`. Linked
+calendar operations must exactly match one persisted, displayed plan entry
+(`target`, `operation`, `intent`); preparation, approval and claim enforce it.
+Use the plan's exact parameters for the provider call. Changed parameters need
+a new suggestion and founder approval. Linked product writes are not permitted.
+Linked ledger items cannot be approved or claimed while their suggestion is pending, obsolete
 or uncertain, even with autonomous calendar policy. During a scheduled check,
 the only permitted mailbox write is saving a founder-owned Gmail draft when
 Founder Profile has `save_gmail_drafts=true`, following Gmail's draft reuse and

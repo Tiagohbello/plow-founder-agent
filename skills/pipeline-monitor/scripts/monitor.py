@@ -383,6 +383,7 @@ def suggestion(db, suggestion_id):
 
 
 def observe(db, data):
+    data = dict(data)
     contact = required(data.get("contact_key"), "contact_key")
     action = data.get("action")
     if action not in ACTIONS:
@@ -400,6 +401,19 @@ def observe(db, data):
     required(data.get("summary"), "summary")
     required(data.get("next_step"), "next_step")
     required(data.get("evidence_summary"), "human-readable evidence_summary")
+    data["conversation_context"] = required(data.get("conversation_context"), "human-readable conversation context")
+    plan = data.get("calendar_plan", [])
+    if not isinstance(plan, list):
+        raise ValueError("calendar_plan must be a list of exact operations")
+    normalized = []
+    for step in plan:
+        if not isinstance(step, dict) or set(step) != {"target", "operation", "intent"}:
+            raise ValueError("each calendar operation needs exactly target, operation and intent")
+        step = {key: required(step[key], key) for key in ("target", "operation", "intent")}
+        if step in normalized:
+            raise ValueError("duplicate calendar operation")
+        normalized.append(step)
+    data["calendar_plan"] = normalized
     draft = data.get("draft")
     drafts = None
     if draft:
@@ -442,11 +456,30 @@ def decide(db, sid, data):
             raise ValueError("suggestion is no longer actionable")
         if digest(sorted(set(data["evidence_refs"]))) != item["evidence_key"]:
             raise ValueError("evidence changed: observe the new facts and request fresh approval")
+        shown = db.execute("SELECT * FROM monitor_notice WHERE id=? AND status='delivered'",
+                           (data.get("notice_id"),)).fetchone()
+        if (shown is None or sid not in json.loads(shown["suggestion_ids"])
+                or render_suggestion(item) not in shown["body"]):
+            raise ValueError("approval requires a verified delivered notice containing this exact plan")
         required(data.get("approval_ref"), "specific founder approval reference")
         required(data.get("validation_ref"), "fresh conversation/calendar validation reference")
         db.execute("UPDATE monitor_suggestion SET status='approved',approval_ref=?,validation_ref=?,updated_at=? WHERE id=?",
                    (data["approval_ref"], data["validation_ref"], stamp(), sid))
     return suggestion(db, sid)
+
+
+def render_suggestion(item):
+    data = item["payload"]
+    context = data.get("conversation_context", data["evidence_summary"])
+    section = f"{context}\n{data['summary']}\n{data['next_step']}\n{data['evidence_summary']}"
+    plan = data.get("calendar_plan", [])
+    if isinstance(plan, list):
+        for step in plan:
+            section += f"\n{step['operation']} · {step['target']}\n{step['intent']}"
+    if data.get("draft"):
+        draft = data["draft"]
+        section += f"\n{draft['channel']} → {draft['recipient']}\n{draft.get('subject', '')}\n{draft['body']}"
+    return section
 
 
 def notice(db):
@@ -467,15 +500,7 @@ def stage_notice(db):
     items = [suggestion(db, r[0]) for r in db.execute("SELECT id FROM monitor_suggestion WHERE status='pending' ORDER BY id") if r[0] not in covered]
     if not items:
         return {"body": "[SILENT]"}
-    sections = []
-    for item in items:
-        data = item["payload"]
-        section = f"{data['summary']}\n{data['next_step']}\n{data['evidence_summary']}"
-        if data.get("draft"):
-            draft = data["draft"]
-            section += f"\n{draft['channel']} → {draft['recipient']}\n{draft['body']}"
-        sections.append(section)
-    body = "\n\n".join(sections)
+    body = "\n\n".join(render_suggestion(item) for item in items)
     with db:
         cursor = db.execute("INSERT INTO monitor_notice(suggestion_ids,body,created_at) VALUES (?,?,?)",
                             (canonical([i["id"] for i in items]), body, stamp()))

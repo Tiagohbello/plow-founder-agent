@@ -176,12 +176,20 @@ Observation shape (source refs are internal; `evidence_summary` is human-facing)
 {
   "contact_key": "<key from contacts>",
   "conversation_ref": "<stable source/thread reference>",
+  "conversation_context": "Gmail · Alex · Scheduling",
   "evidence_refs": ["<verified incoming message id>"],
   "evidence_at": "2026-09-17T14:00:00Z",
   "evidence_summary": "Reply in Scheduling, Thursday at 11:00; include a usable source link when available.",
   "action": "accepted",
   "summary": "Alex accepted Tuesday at 14:00 PT.",
-  "next_step": "Create the video invitation and release the other two holds. Approve?",
+  "next_step": "Create the video invitation. Approve?",
+  "calendar_plan": [
+    {
+      "target": "founder@example.com/primary/new",
+      "operation": "create",
+      "intent": "Scheduling with Alex; 2026-09-22 14:00–14:30 America/Los_Angeles; guest alex@example.com; video; send invitation"
+    }
+  ],
   "draft": {
     "channel": "gmail",
     "thread_id": "<verified existing thread>",
@@ -194,9 +202,14 @@ Observation shape (source refs are internal; `evidence_summary` is human-facing)
 
 `draft` is optional: accepting a slot usually only needs a calendar suggestion,
 not a separate email. `action` is one of `accepted`, `new_options`, `modality`,
-`cancellation`, `conflict`, `clarification`, `blocked`. Include the concrete slot,
-timezone, calendar/account and affected event ids in an optional `calendar_plan`
-object for later revalidation; keep internal ids out of `summary`/`next_step`.
+`cancellation`, `conflict`, `clarification`, `blocked`. `conversation_context`
+identifies the channel, contact and conversation in readable form.
+`calendar_plan` is an ordered list of exact `{target, operation, intent}` entries;
+omit it (or use `[]`) only when proposing no calendar operation. The helper renders
+each entry in the notice. Include account/calendar and exact event identity in
+`target`; put title, dates, timezone, guests, modality, invitation behavior and
+all intended changes in `intent`. Each hold removal needs its own entry. Use
+only provider-supported concrete operations; do not hide extra actions in prose.
 Deduplication uses source evidence, not generated wording. Keep `conversation_ref`
 stable across replies so new evidence supersedes earlier advice. Use the newest
 message timestamp and include every relevant message ref in `evidence_refs`.
@@ -224,13 +237,21 @@ suggestion/draft instead of revising its ledger draft independently.
 For unchanged facts and exact founder approval, run `approve --id N --file
 <approval.json>` containing `evidence_refs` matching the suggestion,
 `approval_ref` identifying the founder's message, and `validation_ref` identifying
-the fresh conversation/calendar checks. Then follow existing `external-action`:
+the fresh conversation/calendar checks, plus `notice_id` of the exact displayed
+notice. Read back that notice and mark its receipt delivered first. Approval is
+rejected if its stored body does not contain the exact rendered suggestion.
+Legacy notices without the plan/context need a new observation and preview;
+never reuse their approval. Then follow existing `external-action`:
 
 - Use the returned `draft_id` (do not prepare another draft); approve and claim it
   with `drafts.py`. Its monitor guard requires the specific suggestion approval.
 - Every calendar operation originating here must pass `--suggestion-id N` to
   `operations.py prepare`, then approve/claim normally. This overrides a broad
   autonomous calendar policy with approval, never a forbidden policy.
+  Copy `target`, `operation` and `intent` verbatim from its persisted plan. The
+  helper checks membership at preparation, approval and claim; any change requires
+  a new observation/notice and approval. Execute only those exact parameters via
+  the published calendar capability. No linked product operation is allowed.
 - For an accepted slot, create and fetch the real invitation first, then delete
   its verified sibling holds. Keep per-operation ledger records so partial
   completion cannot duplicate an invitation. On uncertainty, stop remaining

@@ -11,7 +11,7 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from monitor_guard import add_monitor_column, monitor_item
+from monitor_guard import add_monitor_column, monitor_operation
 
 
 SCOPES = ("calendar", "product")
@@ -170,12 +170,12 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     if policy == "forbidden":
         raise ValueError("operation is forbidden by Founder Profile or global policy")
     monitor_id = getattr(args, "suggestion_id", None)
-    monitor_item(connection, monitor_id)
+    monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
     if monitor_id is not None:
         policy = "approval"
     key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
     if monitor_id is not None:
-        key = f"monitor:{monitor_id}:{key}"
+        key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"
     existing = connection.execute("SELECT * FROM external_operation WHERE idempotency_key=?", (key,)).fetchone()
     if existing:
         return {"created": False, "duplicate": True, "operation": as_dict(existing)}
@@ -194,7 +194,8 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
 
 def approve(connection: sqlite3.Connection, operation_id: int) -> dict:
     row = resolve(connection, operation_id)
-    monitor_item(connection, row["monitor_suggestion_id"], approved=True)
+    monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
+                      row["operation"], row["intent"], approved=True)
     if row["status"] == "approved":
         return {"approved": True, "already_approved": True, "operation": as_dict(row)}
     if row["status"] != "pending":
@@ -208,7 +209,8 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
     connection.execute("BEGIN IMMEDIATE")
     try:
         row = resolve(connection, operation_id)
-        monitor_item(connection, row["monitor_suggestion_id"], approved=True)
+        monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
+                          row["operation"], row["intent"], approved=True)
         if row["status"] == "completed":
             connection.rollback()
             return {"claimed": False, "already_completed": True, "operation": as_dict(row)}

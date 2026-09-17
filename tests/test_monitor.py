@@ -67,6 +67,8 @@ class MonitorTests(unittest.TestCase):
     def observation(self, **changes):
         value = {
             "contact_key": self.contact["contact_key"], "conversation_ref": "gmail:thread-1",
+            "conversation_context": "Gmail · Alex · Scheduling",
+            "calendar_plan": [{"target": "work/calendar/new", "operation": "create", "intent": "Tuesday 14:00"}],
             "evidence_refs": ["gmail:message-1"], "evidence_at": "2026-09-17T14:00:00Z",
             "evidence_summary": "Alex replied in Scheduling at 07:00 PT.",
             "action": "accepted", "summary": "Alex accepted Tuesday at 14:00 PT.",
@@ -84,7 +86,10 @@ class MonitorTests(unittest.TestCase):
         return json.loads(result.stdout) if ok else result.stderr
 
     def approve(self, item):
+        notice = monitor.notice(self.db)
+        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview")
         return monitor.decide(self.db, item["id"], {"evidence_refs": item["payload"]["evidence_refs"],
+            "notice_id": notice["notice_id"],
             "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"})
 
     def test_opt_in_reconfigure_pause_restart_and_recover_creation(self):
@@ -251,6 +256,20 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "evidence changed"):
             monitor.decide(self.db, item["id"], {"evidence_refs": ["calendar:new-conflict"], "approval_ref": "founder:1", "validation_ref": "calendar:2"})
         self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+
+    def test_calendar_operation_must_match_displayed_plan(self):
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        with self.assertRaisesRegex(ValueError, "verified delivered notice"):
+            monitor.decide(self.db, item["id"], {"evidence_refs": item["payload"]["evidence_refs"],
+                           "approval_ref": "founder:1", "validation_ref": "fresh:1"})
+        self.approve(item)
+        for change in ({"target": "other/calendar/event"}, {"operation": "delete"},
+                       {"intent": "Wednesday 16:00"}, {"scope": "product"}):
+            args = {"scope": "calendar", **item["payload"]["calendar_plan"][0], **change}
+            error = self.helper("external-action", "operations.py", "prepare",
+                "--scope", args["scope"], "--target", args["target"], "--operation", args["operation"],
+                "--intent", args["intent"], "--suggestion-id", str(item["id"]), ok=False)
+            self.assertIn("differs from", error)
 
     def test_notices_require_readback_and_failed_delivery_can_be_retried(self):
         monitor.observe(self.db, self.observation())

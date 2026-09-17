@@ -1,5 +1,7 @@
 """Narrow approval guard shared by both external-action ledgers."""
 
+import json
+
 
 def add_monitor_column(connection, table):
     connection.commit()
@@ -21,3 +23,14 @@ def monitor_item(connection, suggestion_id, approved=False):
         raise ValueError("monitor suggestion is missing, obsolete, or requires reconciliation")
     if approved and (row["status"] not in ("approved", "executing") or not row["approval_ref"] or not row["validation_ref"]):
         raise ValueError("monitor action requires specific founder approval and fresh source/calendar validation")
+    return row
+
+
+def monitor_operation(connection, suggestion_id, scope, target, operation, intent, approved=False):
+    row = monitor_item(connection, suggestion_id, approved=approved)
+    if row is None:
+        return
+    plan = json.loads(row["payload"]).get("calendar_plan", [])
+    exact = {"target": target, "operation": operation, "intent": intent}
+    if scope != "calendar" or not isinstance(plan, list) or exact not in plan:
+        raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")
