@@ -3,6 +3,9 @@
 # runtime, Plow Chat integration, and Latch configuration.
 FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-c96adf18b1b660d059efb0429df455558cdb1ef0@sha256:6c4089e1002fcfb9de4378992a43285040f7c8676e62662e206762820e41b913
 
+# Link the GHCR package to the public source repository.
+LABEL org.opencontainers.image.source="https://github.com/Tiagohbello/plow-founder-agent"
+
 # plow-init composes the home's SOUL.md from the base persona plus this file
 # on every boot; nothing is COPYed to $HERMES_HOME/SOUL.md directly.
 COPY --chmod=0644 runtime/persona.md /opt/hermes/plow-seed/persona.md

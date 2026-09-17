@@ -2,7 +2,8 @@
 # Report this agent's usage hourly. AGENT_ID is explicit; never guess one.
 PATH=/command:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
 export PATH
-PLOW_AGENT_TOKEN=$(cat /run/s6/container_environment/PLOW_AGENT_TOKEN 2>/dev/null || true)
+plow_agent_token=$(cat /run/s6/container_environment/PLOW_AGENT_TOKEN 2>/dev/null || true)
+plow_token_key=PLOW_AGENT_TOKEN
 AGENT_ID=$(cat /run/s6/container_environment/AGENT_ID 2>/dev/null || true)
 export AGENT_ID
 HERMES_HOME=/var/lib/hermes
@@ -22,7 +23,7 @@ while :; do
 
   if [ "$status" -eq 3 ]; then
     /command/s6-setuidgid hermes \
-      env HOME="$HERMES_HOME" AGENT_ID="$AGENT_ID" PLOW_AGENT_TOKEN="$PLOW_AGENT_TOKEN" \
+      env HOME="$HERMES_HOME" AGENT_ID="$AGENT_ID" "$plow_token_key=$plow_agent_token" \
       /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py \
       --register --agent "$AGENT_ID" >/dev/null || {
         echo "agent-index: registration failed; not reporting this hour" >&2
