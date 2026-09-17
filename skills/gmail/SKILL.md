@@ -58,6 +58,37 @@ Return the exact recipient, subject, body, and prepared status. Keep the draft
 id and other ledger identifiers internal unless the founder asks for audit
 details. `prepare` never opens Send and never claims that the message was sent.
 
+After the ledger succeeds, read Founder Profile. If
+`preferences.save_gmail_drafts == true`, use the published Gmail/Google
+Workspace capability and the following protocol for the existing ledger record
+(for monitor work, use its linked draft, never prepare a second one):
+
+1. Read the current ledger record; only `draft` or `approved` records qualify.
+   If `external_draft_id` exists, fetch that draft in the verified founder
+   account and compare thread, recipients, subject, and body. Reuse an exact
+   match without creating another draft. If missing, edited, or unreadable,
+   stop and report the discrepancy; do not overwrite the founder's edits or
+   automatically recreate a potentially sent/deleted draft.
+2. If no provider id is recorded, inspect drafts in the verified account/thread
+   for an exact content and recipient match before creating. Reuse a single
+   verified match and record its id; multiple matches require clarification.
+   Create one draft only after a successful lookup confirms no match.
+3. Read the mailbox back to verify recipient, subject, body, and thread, then
+   record its provider draft id. If creation or read-back is uncertain, stop
+   and report uncertainty; on a later attempt reconcile the mailbox first.
+   Never retry creation blindly after a timeout or a failure to record the id.
+
+```sh
+python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" mark-draft-saved \
+  --id <ledger-id> --draft-id '<verified-provider-draft-id>'
+```
+
+If the preference is false or unset, do not create a provider draft. If the
+provider is unavailable, retain the ledger record and report that Gmail status
+could not be verified. Only say “not saved in Gmail” when no save was attempted
+and no earlier provider draft is known. Never infer a real Gmail draft from
+the local ledger record, and never send as part of saving the draft.
+
 ## Send only after approval
 
 Only an explicit founder instruction such as `Send it` authorizes sending the

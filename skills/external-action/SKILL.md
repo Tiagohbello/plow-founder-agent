@@ -21,6 +21,17 @@ operations are always forbidden.
 
 All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
+For a `pipeline-monitor` suggestion, first follow its foreground approval and
+fresh-evidence protocol. Use the suggestion's existing draft id; calendar
+`operations.py prepare` calls must include `--suggestion-id <id>`. Linked ledger
+items cannot be approved or claimed while their suggestion is pending, obsolete
+or uncertain, even with autonomous calendar policy. During a scheduled check,
+the only permitted mailbox write is saving a founder-owned Gmail draft when
+Founder Profile has `save_gmail_drafts=true`, following Gmail's draft reuse and
+read-back protocol. This does not require approving the pending suggestion and
+never authorizes sending, calendar changes, or CSV writes. Superseding a suggestion cancels its unexecuted
+linked drafts/operations without retrying in-flight or uncertain effects.
+
 For Gmail, text, or Plow, follow this protocol in the same turn whenever
 possible:
 
@@ -37,6 +48,8 @@ possible:
    id/key and status may be described as “prepared”. If the command fails,
    returns no record, or is unavailable, report “not prepared” and do not call
    any remote send tool.
+   For Gmail, follow the Gmail skill's saved-draft preference and reuse protocol
+   before presenting the preview; an existing provider draft must not be duplicated.
 4. Ask for approval of that exact record. Editing any field creates a new
    unapproved draft. Keep the technical draft id, idempotency key, raw
    `thread_id`, and `approval_ref` internal by default; use them for the next
@@ -85,9 +98,9 @@ Confirma o envio desta mensagem?
 
 For Plow, use the same shape with `Mensagem preparada no Plow`, `Canal: Plow
 Chat`, and the existing conversation as the recipient context. For Gmail,
-retain the existing Gmail preview and mention that it was registered in the
-ledger. Do not expose raw ids or hashes unless the founder asks for audit
-details.
+retain the existing Gmail preview and state whether it was saved as a verified
+real draft in the founder's inbox or remains ledger-only. Do not expose raw ids
+or hashes unless the founder asks for audit details.
 
 For calendar and product writes,
 `python3 "$HERMES_HOME/skills/external-action/scripts/operations.py" prepare ...`

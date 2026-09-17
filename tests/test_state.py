@@ -160,6 +160,23 @@ class FounderAgentStateTests(unittest.TestCase):
         )
         self.assertTrue(json.loads(claimed.stdout)["claimed"])
 
+    def test_gmail_provider_draft_reference_is_durable_and_idempotent(self) -> None:
+        self.run_helper(
+            "skills/external-action/scripts/drafts.py", "prepare", "--channel", "gmail",
+            "--thread-id", "thread-1", "--recipient", "founder@example.com", "--body", "Hello",
+        )
+        saved = json.loads(self.run_helper(
+            "skills/external-action/scripts/drafts.py", "mark-draft-saved", "--id", "1",
+            "--draft-id", "gmail-draft-123",
+        ).stdout)
+        self.assertTrue(saved["draft_saved"])
+        self.assertEqual(saved["draft"]["external_draft_id"], "gmail-draft-123")
+        repeated = json.loads(self.run_helper(
+            "skills/external-action/scripts/drafts.py", "mark-draft-saved", "--id", "1",
+            "--draft-id", "gmail-draft-123",
+        ).stdout)
+        self.assertEqual(repeated["draft"]["external_draft_id"], "gmail-draft-123")
+
     def test_active_channels_complete_the_same_durable_send_lifecycle(self) -> None:
         for draft_id, channel in enumerate(("gmail", "text", "plow"), start=1):
             with self.subTest(channel=channel):

@@ -12,7 +12,7 @@ You need:
 - Docker Desktop running, with Docker Compose available.
 - Git and Python 3 on the host.
 - A Plow account and a free assistant line. The login flow uses your phone.
-- A product repository you can safely use for the first task.
+- A product repository for engineering work, or a scheduling CSV for a pipeline-first setup.
 
 Check the local tools:
 
@@ -140,6 +140,7 @@ Be ready to identify:
 4. Google account, calendars, timezone, working hours, and scheduling preferences.
 5. Gmail, GitHub, and Sentry sources you want to connect.
 6. Operations it can perform autonomously and operations requiring approval.
+7. Optionally, a scheduling pipeline CSV and proactive checks (see below).
 
 The Founder Agent checkout is infrastructure, not automatically your product.
 Keep product credentials in the Latch vault and give the agent an item reference,
@@ -147,6 +148,81 @@ not a password. Approve access through Latch/provider prompts when applicable.
 
 Each connection is recorded as `available`, `blocked`, or `unconfigured`.
 One blocked connection should not stop work with sources already available.
+
+### Optional proactive scheduling
+
+Tell the agent:
+
+> Acompanhe as respostas dos contatos deste CSV. Mostre as opções de frequência
+> (15, 30 ou 45 minutos) para eu escolher durante o onboarding. Depois,
+> acompanhe durante meu horário útil. Prepare os próximos passos e me avise no
+> Plow. Peça aprovação
+> antes de enviar mensagens, criar convites ou remover holds.
+
+Provide the CSV's exact Mac path. It can stay in its current cloud directory;
+Latch must have access. The agent verifies the file and maps name, email/phone,
+organization and status, plus optional contact type/holds/proposals, without
+renaming headers or creating another copy. Investors and customers can share the
+same CSV. Ambiguous contacts are skipped and reported for clarification.
+
+Confirm your timezone, working days/window and video/phone preference. The offer
+is weekdays 09:00–18:00. The agent must show and ask you to choose one frequency:
+15, 30 or 45 minutes; there is no assumed default. During onboarding, it also
+asks whether every prepared email should be saved as a real Gmail draft in the
+founder's inbox for review. The explicit yes/no answer is persisted as
+`save_gmail_drafts`; a real Gmail draft is reported only after provider
+read-back verification.
+Existing calendar preferences are reused. Available Gmail, Messages through
+Latch, and agent Plow conversations can be checked; unavailable sources are
+reported rather than treated as empty. Verify the destination is your private
+founder chat. The agent creates one native Hermes job only after you opt in.
+
+The first check looks back 30 days and follows referenced scheduling threads.
+Subsequent checks use each contact/source's successful-read cursor with a
+one-hour overlap. New evidence produces a suggestion and, where useful, a local
+ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
+response is also saved as a verified real draft in the founder's inbox; it is
+never sent automatically. There is no automatic invitation, hold deletion or
+CSV write. There are no repeated reminders for unchanged pending suggestions. A
+new reply invalidates the old suggestion's approval.
+
+Use “pausar acompanhamento”, “retomar acompanhamento”, “verificar agora”,
+“mudar frequência para 15, 30 ou 45 minutos” or “mostrar configuração”. A manual check
+can run outside working hours without changing the recurring schedule. Check
+status for the native job's last run/delivery error and any unavailable sources.
+
+Monitor notifications are attached to the private founder conversation. Replying
+“aprovar” or “approve” refers to the suggestion in that notification; the agent
+still rechecks the conversation and calendar before executing it. Technical cron
+headers, job ids and management footers are disabled for cron notifications in
+this installation.
+
+Docker/Hermes must be running, and Latch and the selected sources must be
+reachable on the Mac. The interval job wakes outside working hours too, but its
+gate ends the agent turn silently before source reads; this is not a zero-cost
+inference change detector. No second daemon or inbox mirror is installed.
+
+Acceptance check, using test contacts you control:
+
+1. Offer three held slots, then reply accepting one. At the next working-hours
+   check, expect a proposal to create the invitation and release sibling holds.
+   Verify the calendar is unchanged until you approve.
+2. Reply proposing a phone call while your preference is video. Expect suitable
+   video options and a prepared response in Plow, not a sent message.
+3. Run another check without changes: no duplicate alert or draft. Send a newer
+   reply: the older suggestion must no longer be executable.
+4. Pause, restart Docker, and confirm it stays paused; resume and verify there
+   is still only one job. If Plow delivery fails, the notice stays unconfirmed
+   until read-back/reconciliation; it is not blindly resent.
+5. During onboarding choose “sim” for Gmail drafts, prepare a reply, and verify
+   that the same recipient, subject, body, and thread appear as a real draft in
+   the founder's inbox. Choosing “não” must leave only the internal ledger
+   record; neither path sends the message.
+
+Existing installs remain disabled until configured. Normal updates retain
+monitor state in the existing volume. To roll back to an image without this
+feature, pause the monitor first; restoring an older image alone does not
+remove its persisted Hermes job.
 
 ## 7. Complete your first real task
 

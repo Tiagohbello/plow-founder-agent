@@ -11,11 +11,23 @@ metadata:
 
 # Investor Pipeline
 
-Use for the founder's investor relationships.
+Use for the founder's scheduling relationships, including investors and customers.
 `founder-scheduling` owns the hold/send/confirm workflow and reads this
 file's `Holds`/`Proposed` columns; this skill owns the file and helper.
 
 ## File
+
+First read Founder Profile's `pipeline_monitor.config`. If configured, use its
+`csv_path` as the source of truth and its field-to-column `mapping`. Pass that
+mapping as JSON using the helper's `--mapping` argument on both `show` and `set`.
+It preserves the original headers/order and writes only mapped fields. `--investor`
+continues to select the mapped name for compatibility; `--email`, `--phone` and
+`--type` can edit their mapped columns. Missing optional columns are not appended
+in mapped mode: ask before adding them. The CSV does not move or become a second
+copy. Existing hold titles remain unchanged; `<Investor>`/`<Firm>` below mean
+the mapped name/organization for any contact type.
+
+With no configured pipeline, the following legacy path and format still apply.
 
 `~/Plow/investors/pipeline.csv` — inside the Plow folder Latch auto-approves,
 so no Mac dialog interrupts an update. For a file this skill creates from
@@ -101,6 +113,10 @@ that to the founder, who renames one of the rows in the sheet to break the
 tie (never guess or merge them yourself).
 
 ## Keep it current
+
+Scheduled `pipeline-monitor` checks never write this file. Their pending next
+steps are private SQLite suggestions, not factual CSV status changes. The
+write-back below applies to foreground requests and approved, verified actions.
 
 An update is part of the action, not a follow-up: whenever this skill is
 asked to record a change to a row — a status update, a hold, a proposal —
