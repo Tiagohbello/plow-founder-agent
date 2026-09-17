@@ -130,6 +130,10 @@ def connect(path):
     """)
     db.execute("INSERT OR IGNORE INTO founder_agent_migration VALUES ('pipeline-monitor-v1',?)", (stamp(),))
     db.commit()
+    if db.execute("SELECT 1 FROM sqlite_master WHERE name='draft' AND type='table'").fetchone():
+        # Initialize additive Gmail reconciliation fields even when no new draft
+        # is observed (e.g. a contact disappears from the CSV).
+        sibling("external-action", "drafts.py").connect(path).close()
     path.chmod(0o600)
     return db
 
@@ -297,7 +301,14 @@ def gate(db, current=None, manual=False):
     return {**state, "run": run, "reason": "manual" if manual else "scheduled" if run else "paused_or_outside_window",
             "read_started_at": stamp(current), "notices_to_reconcile": [dict(r) for r in db.execute(
                 "SELECT * FROM monitor_notice WHERE status IN ('staged','uncertain') ORDER BY id")],
+            "gmail_drafts_to_reconcile": gmail_cleanup(db),
             "initial_lookback_days": 30, "overlap_minutes": 60}
+
+
+def gmail_cleanup(db):
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE name='gmail_draft_cleanup' AND type='table'").fetchone():
+        return []
+    return sibling("external-action", "drafts.py").pending_gmail_cleanup(db)
 
 
 def identities(row, mapping):
@@ -365,6 +376,8 @@ def checkpoint(db, data):
 
 
 def supersede(db, suggestion_id):
+    # Invalidate approval immediately; cancelled Gmail rows remain in the
+    # reconciliation queue until provider cleanup or a founder retention decision.
     for table, waiting in (("draft", "'draft','approved'"), ("external_operation", "'pending','approved'")):
         columns = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
         if "monitor_suggestion_id" in columns:
@@ -528,7 +541,7 @@ def parser():
     root = argparse.ArgumentParser(description=__doc__)
     root.add_argument("--db", type=Path)
     commands = root.add_subparsers(dest="command", required=True)
-    for name in ("show", "enable", "pause", "resume", "run-now", "notice", "list"):
+    for name in ("show", "enable", "pause", "resume", "run-now", "notice", "list", "gmail-cleanup"):
         commands.add_parser(name)
     for name in ("configure", "observe", "checkpoint"):
         commands.add_parser(name).add_argument("--file", required=True, type=Path)
@@ -565,6 +578,7 @@ def run(args):
                 db.commit()
                 return sync_job(db, Hermes(), args.command != "pause")
         if args.command == "show": return show(db)
+        if args.command == "gmail-cleanup": return {"drafts": gmail_cleanup(db)}
         if args.command == "gate": return gate(db, manual=args.manual)
         if args.command == "contacts": return contacts(db, args.csv)
         if args.command == "window": return window(db, args.contact_key, args.source)

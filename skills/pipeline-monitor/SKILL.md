@@ -166,6 +166,18 @@ fix the reported problem, then `resume`. Do not change Hermes global timezone.
    run; do not claim the entire file was checked. Retry configured blocked sources
    on subsequent runs; unchanged blockers produce no repeated alert.
 8. Run `notice` and return its `body` verbatim, including `[SILENT]` when empty.
+   Before staging it, run `gmail-cleanup` (also returned by `gate` as
+   `gmail_drafts_to_reconcile`), including after CSV removal or new observations.
+   Follow Gmail's obsolete-draft protocol for each item. Scheduled checks never
+   delete drafts. For an obsolete draft still present, edited, or unverifiable,
+   persist a `blocked` observation with `contact_key: source:gmail-cleanup:<ledger-id>`
+   and the same stable `conversation_ref`. Include readable conversation context,
+   explain that the old Gmail draft may still be manually sendable, and ask for
+   removal approval or clarification. Use stable evidence refs (provider draft
+   id and actual state/content change, not the poll time) to avoid repeated alerts.
+   After confirmed removal/absence or explicit retention, dismiss that blocker.
+   Local approval is already invalidated; never delay supersession while waiting
+   for Gmail. Keep replacement responses ledger-only until reconciliation finishes.
    It consolidates new suggestions. Do not append approval hashes, ledger ids,
    raw thread ids, a second summary or a second delivery. Keep the exact emitted
    text available for the next check's delivery reconciliation.

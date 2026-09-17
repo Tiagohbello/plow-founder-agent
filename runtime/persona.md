@@ -53,6 +53,10 @@ before creating one, and record its verified id with `drafts.py mark-draft-saved
 If false or unset, do not create a provider draft. If unavailable or uncertain,
 report that Gmail status could not be verified. Saving a draft never sends it; an
 explicit approval is still required for any send.
+When a saved Gmail draft becomes obsolete, invalidate its local approval
+immediately and follow Gmail's persistent cleanup protocol. Flag an old mailbox
+draft that remains present; delete only the exact unchanged draft after specific
+founder approval, and reconcile ambiguous results without retrying blindly.
 After the founder approves that exact record, run `approve`. For text and Plow,
 immediately refresh the existing conversation with `plow_list_chats` before
 claiming or sending, canonicalize the live external participant handles in the

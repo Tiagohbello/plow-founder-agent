@@ -167,13 +167,13 @@ class FounderAgentStateTests(unittest.TestCase):
         )
         saved = json.loads(self.run_helper(
             "skills/external-action/scripts/drafts.py", "mark-draft-saved", "--id", "1",
-            "--draft-id", "gmail-draft-123",
+            "--draft-id", "gmail-draft-123", "--account", "owner@example.com",
         ).stdout)
         self.assertTrue(saved["draft_saved"])
         self.assertEqual(saved["draft"]["external_draft_id"], "gmail-draft-123")
         repeated = json.loads(self.run_helper(
             "skills/external-action/scripts/drafts.py", "mark-draft-saved", "--id", "1",
-            "--draft-id", "gmail-draft-123",
+            "--draft-id", "gmail-draft-123", "--account", "owner@example.com",
         ).stdout)
         self.assertEqual(repeated["draft"]["external_draft_id"], "gmail-draft-123")
 

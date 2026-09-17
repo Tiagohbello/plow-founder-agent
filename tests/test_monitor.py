@@ -251,6 +251,37 @@ class MonitorTests(unittest.TestCase):
         self.helper("external-action", "operations.py", "finish", "--id", oid, "--outcome", "uncertain", "--evidence", "request timed out")
         self.assertFalse(self.helper("external-action", "operations.py", "claim", "--id", oid)["claimed"])
 
+    def test_obsolete_gmail_draft_cleanup_survives_restart_and_uncertainty(self):
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        did = str(item["draft_id"])
+        saved = self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", did,
+                            "--draft-id", "gmail-draft-1", "--account", "owner@example.com")["draft"]
+        self.approve(item)
+        monitor.observe(self.db, self.observation(evidence_refs=["gmail:message-2"],
+                        evidence_at="2026-09-17T15:00:00Z", action="modality"))
+        self.db.close()
+        self.db = monitor.connect(self.path)
+        self.assertEqual(monitor.gmail_cleanup(self.db)[0]["id"], item["draft_id"])
+        self.helper("external-action", "drafts.py", "claim-send", "--id", did, ok=False)
+        snapshot = {key: saved[key] for key in (
+            "external_draft_id", "external_draft_account", "thread_id", "recipient", "subject", "body")}
+        file = self.home / "provider-readback.json"
+        file.write_text(json.dumps({**snapshot, "body": "Founder edited this"}))
+        claim = ("reconcile-draft", "--id", did, "--outcome", "deleting", "--file", str(file),
+                 "--ref", "gmail:readback:1")
+        self.helper("external-action", "drafts.py", *claim, ok=False)
+        self.helper("external-action", "drafts.py", *claim, "--approval-ref", "founder:cleanup:1", ok=False)
+        file.write_text(json.dumps(snapshot))
+        self.assertEqual(self.helper("external-action", "drafts.py", *claim,
+                         "--approval-ref", "founder:cleanup:1")["cleanup_status"], "deleting")
+        self.helper("external-action", "drafts.py", "reconcile-draft", "--id", did,
+                    "--outcome", "blocked", "--ref", "provider timeout")
+        self.helper("external-action", "drafts.py", *claim, "--approval-ref", "founder:cleanup:1", ok=False)
+        self.assertEqual(monitor.gmail_cleanup(self.db)[0]["cleanup_status"], "deleting")
+        self.helper("external-action", "drafts.py", "reconcile-draft", "--id", did,
+                    "--outcome", "removed", "--ref", "gmail:verified-absence:2")
+        self.assertEqual(monitor.gmail_cleanup(self.db), [])
+
     def test_changed_facts_cannot_reuse_approval(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
         with self.assertRaisesRegex(ValueError, "evidence changed"):

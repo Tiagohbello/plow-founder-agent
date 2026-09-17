@@ -80,6 +80,13 @@ def ensure_external_draft_column(connection: sqlite3.Connection) -> None:
     columns = {row[1] for row in connection.execute("PRAGMA table_info(draft)")}
     if "external_draft_id" not in columns:
         connection.execute("ALTER TABLE draft ADD COLUMN external_draft_id TEXT")
+    if "external_draft_account" not in columns:
+        connection.execute("ALTER TABLE draft ADD COLUMN external_draft_account TEXT NOT NULL DEFAULT ''")
+    connection.execute("""CREATE TABLE IF NOT EXISTS gmail_draft_cleanup (
+        draft_id INTEGER PRIMARY KEY, status TEXT NOT NULL,
+        approval_ref TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""")
 
 
 def migrate_channel_schema(connection: sqlite3.Connection, draft_existed: bool) -> None:
@@ -397,22 +404,78 @@ def mark_uncertain(connection: sqlite3.Connection, draft_id: int, note: str) -> 
     return {"uncertain": True, "draft": as_dict(resolve(connection, draft_id))}
 
 
-def mark_gmail_draft_saved(connection: sqlite3.Connection, draft_id: int, provider_id: str) -> dict[str, object]:
+def mark_gmail_draft_saved(connection: sqlite3.Connection, draft_id: int, provider_id: str, account: str) -> dict[str, object]:
     provider_id = required_text(provider_id, "draft_id")
+    account = required_text(account, "account")
     row = resolve(connection, draft_id)
     if row["channel"] != "gmail":
         raise ValueError("only Gmail drafts can receive an external draft reference")
-    if row["status"] not in {"draft", "approved"}:
-        raise ValueError("only an unsent Gmail draft can receive an external draft reference")
+    if row["status"] not in {"draft", "approved", "cancelled"}:
+        raise ValueError("only an unsent or cancelled Gmail draft can receive an external draft reference")
     existing = row["external_draft_id"]
     if existing and existing != provider_id:
         raise ValueError("draft already has a different external Gmail draft reference")
+    if row["external_draft_account"] and row["external_draft_account"] != account:
+        raise ValueError("draft already belongs to a different Gmail account")
     connection.execute(
-        "UPDATE draft SET external_draft_id=?,updated_at=? WHERE id=?",
-        (provider_id, now(), draft_id),
+        "UPDATE draft SET external_draft_id=?,external_draft_account=?,updated_at=? WHERE id=?",
+        (provider_id, account, now(), draft_id),
     )
     connection.commit()
-    return {"draft_saved": True, "draft": as_dict(resolve(connection, draft_id))}
+    saved = as_dict(resolve(connection, draft_id))
+    return {"draft_saved": True, "cleanup_required": saved["status"] == "cancelled", "draft": saved}
+
+
+def pending_gmail_cleanup(connection):
+    # Cancellation itself is the durable queue: an offline provider never keeps
+    # stale approval alive and a restart cannot lose the cleanup obligation.
+    return [dict(row) for row in connection.execute("""
+        SELECT d.*, COALESCE(c.status, 'pending') AS cleanup_status,
+               COALESCE(c.evidence, '') AS cleanup_evidence
+        FROM draft d LEFT JOIN gmail_draft_cleanup c ON c.draft_id=d.id
+        WHERE d.channel='gmail' AND d.status='cancelled' AND d.external_draft_id IS NOT NULL
+          AND COALESCE(c.status, 'pending') NOT IN ('removed','absent','retained')
+        ORDER BY d.id
+    """)]
+
+
+def reconcile_gmail_draft(connection, args):
+    evidence = required_text(args.ref, "read-back evidence")
+    with connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = resolve(connection, args.id)
+        if row["channel"] != "gmail" or row["status"] != "cancelled" or not row["external_draft_id"]:
+            raise ValueError("cleanup requires a cancelled draft with a recorded Gmail reference")
+        previous = connection.execute("SELECT * FROM gmail_draft_cleanup WHERE draft_id=?", (args.id,)).fetchone()
+        status = previous["status"] if previous else "pending"
+        if status in {"removed", "absent", "retained"}:
+            raise ValueError("cleanup already resolved")
+        approval = previous["approval_ref"] if previous else ""
+        if args.outcome == "deleting":
+            if status == "deleting":
+                raise ValueError("deletion already claimed; reconcile provider state, never retry blindly")
+            approval = required_text(args.approval_ref, "specific founder cleanup approval")
+            if not args.file or not row["external_draft_account"]:
+                raise ValueError("verified account and fresh provider snapshot required before deletion")
+            snapshot = json.loads(args.file.read_text())
+            expected = {key: row[key] for key in (
+                "external_draft_id", "external_draft_account", "thread_id", "recipient", "subject", "body"
+            )}
+            if snapshot != expected:
+                raise ValueError("Gmail draft was changed or could not be verified; request founder clarification")
+        elif args.outcome == "removed" and (status != "deleting" or not approval):
+            raise ValueError("verified removal requires a prior approved deletion claim")
+        elif args.outcome == "retained":
+            approval = required_text(args.approval_ref, "founder decision to retain obsolete Gmail draft")
+        elif args.outcome == "blocked" and status == "deleting":
+            # Keep the claim after ambiguous deletion so another cycle cannot
+            # turn provider downtime into a second delete attempt.
+            args.outcome = "deleting"
+        connection.execute("""INSERT INTO gmail_draft_cleanup VALUES (?,?,?,?,?)
+            ON CONFLICT(draft_id) DO UPDATE SET status=excluded.status,
+            approval_ref=excluded.approval_ref,evidence=excluded.evidence,updated_at=excluded.updated_at""",
+            (args.id, args.outcome, approval, evidence, now()))
+    return {"draft_id": args.id, "cleanup_status": args.outcome}
 
 
 def list_drafts(connection: sqlite3.Connection, args: argparse.Namespace) -> dict[str, object]:
@@ -476,6 +539,15 @@ def build_parser() -> argparse.ArgumentParser:
     saved = subparsers.add_parser("mark-draft-saved")
     saved.add_argument("--id", required=True, type=int)
     saved.add_argument("--draft-id", required=True)
+    saved.add_argument("--account", required=True)
+
+    subparsers.add_parser("pending-cleanup")
+    cleanup = subparsers.add_parser("reconcile-draft")
+    cleanup.add_argument("--id", type=int, required=True)
+    cleanup.add_argument("--outcome", choices=("deleting", "removed", "absent", "blocked", "retained"), required=True)
+    cleanup.add_argument("--ref", required=True)
+    cleanup.add_argument("--approval-ref")
+    cleanup.add_argument("--file", type=Path)
 
     listing = subparsers.add_parser("list")
     listing.add_argument("--channel", choices=KNOWN_CHANNELS)
@@ -501,7 +573,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         if args.operation == "mark-uncertain":
             return mark_uncertain(connection, args.id, args.note)
         if args.operation == "mark-draft-saved":
-            return mark_gmail_draft_saved(connection, args.id, args.draft_id)
+            return mark_gmail_draft_saved(connection, args.id, args.draft_id, args.account)
+        if args.operation == "pending-cleanup":
+            return {"drafts": pending_gmail_cleanup(connection)}
+        if args.operation == "reconcile-draft":
+            return reconcile_gmail_draft(connection, args)
         if args.operation == "list":
             return list_drafts(connection, args)
         raise ValueError(f"unknown operation: {args.operation}")

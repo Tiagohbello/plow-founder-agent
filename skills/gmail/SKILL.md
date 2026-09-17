@@ -77,10 +77,12 @@ Workspace capability and the following protocol for the existing ledger record
    record its provider draft id. If creation or read-back is uncertain, stop
    and report uncertainty; on a later attempt reconcile the mailbox first.
    Never retry creation blindly after a timeout or a failure to record the id.
+   If supersession happened while saving, still record the verified provider id;
+   `cleanup_required` routes the now-cancelled record to reconciliation.
 
 ```sh
 python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" mark-draft-saved \
-  --id <ledger-id> --draft-id '<verified-provider-draft-id>'
+  --id <ledger-id> --draft-id '<verified-provider-draft-id>' --account '<verified-account>'
 ```
 
 If the preference is false or unset, do not create a provider draft. If the
@@ -88,6 +90,37 @@ provider is unavailable, retain the ledger record and report that Gmail status
 could not be verified. Only say “not saved in Gmail” when no save was attempted
 and no earlier provider draft is known. Never infer a real Gmail draft from
 the local ledger record, and never send as part of saving the draft.
+
+## Reconcile obsolete mailbox drafts
+
+Cancelling a ledger record immediately invalidates its approval but does not
+delete its Gmail draft. After revision or monitor supersession, run
+`drafts.py pending-cleanup`. These cancelled records remain queued across restarts.
+Saving drafts does not authorize deleting them: scheduled checks only read back
+and flag obsolete drafts; removal requires a specific foreground founder decision.
+
+For each queued item, read its recorded provider id in `external_draft_account`.
+Compare thread, recipients, subject and body with the ledger snapshot. Missing
+account (including legacy rows), edited content, or unreadable state requires
+`reconcile-draft --id N --outcome blocked --ref <evidence>` and founder clarification.
+Never delete an edited draft. Do not create a replacement for the same thread
+while cleanup is unresolved; keep the new proposal in the local ledger.
+If a successful provider lookup confirms the draft is already absent, record
+`--outcome absent`; distinguish absence from access failure. If it was sent
+manually, refresh the conversation before proposing or sending any replacement.
+
+For an unchanged draft and explicit founder removal approval, write the fresh
+provider read-back to a JSON file with exactly `external_draft_id`,
+`external_draft_account`, `thread_id`, `recipient`, `subject`, `body`. Then run
+`drafts.py reconcile-draft --id N --outcome deleting --file <snapshot.json>
+--approval-ref <founder-message-ref> --ref <read-back-ref>` **before** deleting.
+Only a successful claim permits one provider delete of that exact draft.
+Read back its absence and record `--outcome removed --ref <verification-ref>`.
+A `deleting` item means reconcile only; never repeat deletion after timeout or
+failed verification. Report the uncertainty and leave it queued. A founder's
+explicit choice to keep an obsolete draft can be recorded with `--outcome retained
+--approval-ref <founder-message-ref> --ref <decision-ref>`; it stays unsendable
+through the cancelled ledger record.
 
 ## Send only after approval
 
