@@ -6,7 +6,7 @@ author: Founder Agent
 metadata:
   hermes:
     tags: [founder, context, memory, onboarding, brief, repositories]
-    related_skills: [gmail, founder-calendar, product-access, engineering-assist]
+    related_skills: [gmail, founder-calendar, product-access, engineering-assist, pipeline-monitor]
 ---
 
 # Founder Context
@@ -25,7 +25,18 @@ enough context exists to produce useful work. Collect, in order:
 3. admin/application URLs, environments, repository links, and Latch vault refs;
 4. Google accounts, calendars, timezone, preferences, and calendar autonomy;
 5. Gmail, GitHub, and Sentry availability;
-6. allowed product operations.
+6. allowed product operations;
+7. optional proactive pipeline monitoring: offer to follow scheduling replies in
+   one CSV using `pipeline-monitor`. Reuse calendar timezone, working hours and
+   meeting preferences; confirm the timezone and verify the selected sources and
+   private founder Plow destination. Show 15, 30 and 45 minutes and require an
+   explicit choice; never assume a frequency. Declining or skipping this step
+   leaves monitoring disabled;
+8. ask whether every prepared Gmail response should also be saved as a real draft
+   in the founder's inbox for review. Persist the explicit answer as
+   `save_gmail_drafts=true|false`. This controls founder-owned drafts only and
+   never grants send permission. No product repo is required if scheduling is the
+   founder's first useful task.
 
 Never scan arbitrary Mac directories or request secrets in chat. Test configured
 access through Latch and record `available`, `blocked`, or `unconfigured` with

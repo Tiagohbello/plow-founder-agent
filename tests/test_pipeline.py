@@ -104,6 +104,25 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(every["count"], 2)
         self.assertEqual(every["columns"][-2:], ["Holds", "Proposed"])
 
+    def test_generic_mapping_preserves_headers_unknown_columns_and_phones(self) -> None:
+        self.csv.write_text('Name,Email,Phone,Stage,Type,Notes\nAlex,alex@example.com,,Warm,customer,"keep, quoted"\n')
+        mapping = json.dumps({"name": "Name", "email": "Email", "phone": "Phone", "status": "Stage", "type": "Type"})
+        result = self.run_helper("set", str(self.csv), "--mapping", mapping, "--investor", "Alex",
+                                 "--phone", "+1 (415) 555-0100", "--status", "confirmed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        row = self.rows()[0]
+        self.assertEqual(list(row), ["Name", "Email", "Phone", "Stage", "Type", "Notes"])
+        self.assertEqual(row["Phone"], "+1 (415) 555-0100")
+        self.assertEqual(row["Type"], "customer")
+        self.assertEqual(row["Notes"], "keep, quoted")
+        shown = self.run_helper("show", str(self.csv), "--mapping", mapping, "--investor", "Alex")
+        self.assertEqual(json.loads(shown.stdout)["rows"][0]["Stage"], "confirmed")
+        before = self.csv.read_bytes()
+        for flags in (["--holds", "tomorrow"], ["--phone", "+cmd(1)"], ["--status", "=cmd"]):
+            rejected = self.run_helper("set", str(self.csv), "--mapping", mapping, "--investor", "Alex", *flags)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertEqual(self.csv.read_bytes(), before)
+
 
 if __name__ == "__main__":
     unittest.main()

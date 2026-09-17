@@ -6,18 +6,22 @@ author: Founder Agent
 metadata:
   hermes:
     tags: [founder, investors, scheduling, calendar, holds]
-    related_skills: [founder-context, founder-calendar, external-action, gmail, investor-pipeline]
+    related_skills: [founder-context, founder-calendar, external-action, gmail, investor-pipeline, pipeline-monitor]
 ---
 
 # Founder Scheduling
 
-Use for the investor hold lifecycle: proposing times, holding them, sending
+Use for the contact hold lifecycle (investors, customers, and other contacts): proposing times, holding them, sending
 them, confirming a pick, sweeping stale holds, and repurposing a hold to
 another investor. This skill owns the workflow only. It delegates
 availability reads to Latch's `google-workspace`, calendar writes to
 `founder-calendar`/`external-action`, email to `gmail`, and the record to
-`investor-pipeline`. It never sends anything on its own and never creates a
-background job. Every step leaves each investor's row it touches true of
+`investor-pipeline`. It never sends anything on its own. Only `pipeline-monitor`
+may configure the explicitly opted-in background check; that check prepares
+suggestions only. Foreground execution of a monitor suggestion requires its
+specific founder approval and fresh evidence, with `--suggestion-id` on calendar
+ledger preparations. Use its existing linked draft for a communication send.
+Every step leaves each contact's row it touches true of
 the calendar by the end of the same turn: `Holds` lists exactly the events
 that still exist, `Proposed` describes what was actually sent, and `Status`
 is one of `investor-pipeline`'s own words. A blank `Proposed` is never
@@ -33,7 +37,9 @@ travel, medical, school logistics, or otherwise marked do-not-overbook) or
 soft (internal standups, household services, optional blocks). Apply the
 request's own rules — blackout days, deadlines, duration — and offer N
 options in the counterparty's timezone, none overlapping another investor's
-live `Holds` in `~/Plow/investors/pipeline.csv`. Explain a soft overlap to
+live holds in the configured pipeline (legacy fallback
+`~/Plow/investors/pipeline.csv`). Read its mapped fields from Founder Profile's
+`pipeline_monitor.config` when configured. Explain a soft overlap to
 the founder privately; never name it in outgoing text.
 
 ## Hold
@@ -90,11 +96,19 @@ the founder, never a silent swap.
 When the investor chooses, create the real invite from the account and
 calendar the founder named, or the configured work default when the
 founder did not identify one, with every attendee from the prior thread;
-the conferencing link comes from `plow-gog`'s `--with-meet` on that
-create, through `founder-calendar`'s normal write path. Delete the
+for a video meeting the conferencing link comes from `plow-gog`'s `--with-meet`
+on that create, through `founder-calendar`'s normal write path. Honor the approved
+meeting format and stored preference; do not substitute phone for requested video,
+and omit a conferencing link for an explicitly approved phone/in-person meeting.
+Fetch and verify the
+created invitation before deleting any holds. Then delete only the matching
 sibling hold events, clear `Holds` (`"--holds", ""`), and set `Status` to
 `confirmed`. A date agreed without a time is not confirmed — say so and
-ask for the time.
+ask for the time. A partial or uncertain operation stops the remaining steps:
+reconcile the existing ledger records, never recreate a verified invitation.
+For mapped CSVs, write only configured fields and preserve unknown columns;
+if a needed scheduling field is absent, request adding it rather than silently
+changing the sheet's schema. Private suggestion state already lives in SQLite.
 
 ## Sweep
 

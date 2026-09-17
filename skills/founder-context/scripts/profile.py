@@ -28,6 +28,7 @@ DEFAULT_POLICIES = {
     "production_mutation": "forbidden",
     "destructive_operation": "forbidden",
 }
+PREFERENCE_KEYS = ("save_gmail_drafts",)
 PERMANENTLY_FORBIDDEN = {
     "merge",
     "deploy",
@@ -62,6 +63,12 @@ def json_object(value: str | None, name: str) -> str:
     if not isinstance(decoded, dict):
         raise ValueError(f"{name} must be a JSON object")
     return json.dumps(decoded, ensure_ascii=False, sort_keys=True)
+
+
+def preference_value(value: str) -> str:
+    if value not in ("true", "false"):
+        raise ValueError("preference value must be true or false")
+    return value
 
 
 def web_url(value: str | None) -> str:
@@ -188,6 +195,11 @@ def connect(path: Path) -> sqlite3.Connection:
             checked_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS founder_preference (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     migrate_legacy(connection, path)
@@ -251,6 +263,16 @@ def show(connection: sqlite3.Connection) -> dict:
     repositories = [dict(row) for row in connection.execute("SELECT * FROM repository ORDER BY is_primary DESC, id")]
     sources = [dict(row) for row in connection.execute("SELECT * FROM source WHERE kind != 'whatsapp' ORDER BY kind")]
     permissions = [dict(row) for row in connection.execute("SELECT * FROM permission ORDER BY capability")]
+    monitor = {"configured": False, "enabled": False}
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='monitor_config'").fetchone():
+        row = connection.execute("SELECT * FROM monitor_config WHERE id=1").fetchone()
+        if row:
+            monitor = {"configured": True, "enabled": bool(row["enabled"]), "job_id": row["job_id"],
+                       "config": json.loads(row["config"]), "updated_at": row["updated_at"]}
+    preferences = {
+        row["key"]: json.loads(row["value"])
+        for row in connection.execute("SELECT key,value FROM founder_preference ORDER BY key")
+    }
     return {
         "configured": company is not None,
         "company": row_dict(company),
@@ -259,6 +281,8 @@ def show(connection: sqlite3.Connection) -> dict:
         "permissions": permissions,
         "product_accesses": access_items(connection),
         "calendars": calendar_items(connection),
+        "preferences": preferences,
+        "pipeline_monitor": monitor,
     }
 
 
@@ -308,6 +332,16 @@ def run(args: argparse.Namespace) -> dict:
                 """INSERT INTO permission(capability,policy,updated_at) VALUES (?,?,?)
                    ON CONFLICT(capability) DO UPDATE SET policy=excluded.policy,updated_at=excluded.updated_at""",
                 (capability, args.policy, timestamp),
+            )
+        elif args.operation == "set-preference":
+            key = text(args.key, "key")
+            if key not in PREFERENCE_KEYS:
+                raise ValueError(f"preference key must be one of: {', '.join(PREFERENCE_KEYS)}")
+            value = preference_value(args.value)
+            connection.execute(
+                """INSERT INTO founder_preference(key,value,updated_at) VALUES (?,?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
+                (key, json.dumps(value == "true"), timestamp),
             )
         elif args.operation == "set-access":
             existing = connection.execute(
@@ -403,6 +437,9 @@ def parser() -> argparse.ArgumentParser:
     source.add_argument("--locator"); source.add_argument("--evidence")
     permission = commands.add_parser("set-permission")
     permission.add_argument("--capability", required=True, choices=tuple(DEFAULT_POLICIES)); permission.add_argument("--policy", required=True, choices=POLICIES)
+    preference = commands.add_parser("set-preference")
+    preference.add_argument("--key", required=True, choices=PREFERENCE_KEYS)
+    preference.add_argument("--value", required=True, choices=("true", "false"))
     access = commands.add_parser("set-access")
     access.add_argument("--name", required=True); access.add_argument("--kind", required=True, choices=ACCESS_KINDS)
     access.add_argument("--url", required=True); access.add_argument("--environment", required=True)

@@ -1,0 +1,11 @@
+#!/command/with-contenv sh
+set -eu
+
+export HOME=/var/lib/hermes
+cd /opt/hermes
+
+# Cron notifications are conversational monitor messages. Hermes' default
+# wrapper adds a job id and management footer that distract from the action and
+# are not needed because the job is already attached to the founder session.
+exec /command/s6-setuidgid hermes \
+  /opt/hermes/.venv/bin/hermes config set cron.wrap_response false --force

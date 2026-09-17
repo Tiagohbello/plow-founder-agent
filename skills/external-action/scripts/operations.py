@@ -11,6 +11,7 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from monitor_guard import add_monitor_column, monitor_operation
 
 
 SCOPES = ("calendar", "product")
@@ -106,6 +107,7 @@ def connect(path: Path) -> sqlite3.Connection:
         """
     )
     migrate_legacy(connection, path)
+    add_monitor_column(connection, "external_operation")
     # Keep the shared compatibility version at 1 so the previous image can use
     # this volume; component changes use founder_agent_migration markers.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -167,7 +169,13 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     policy = resolve_policy(connection, args.scope, operation, args.access_name)
     if policy == "forbidden":
         raise ValueError("operation is forbidden by Founder Profile or global policy")
+    monitor_id = getattr(args, "suggestion_id", None)
+    monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
+    if monitor_id is not None:
+        policy = "approval"
     key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
+    if monitor_id is not None:
+        key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"
     existing = connection.execute("SELECT * FROM external_operation WHERE idempotency_key=?", (key,)).fetchone()
     if existing:
         return {"created": False, "duplicate": True, "operation": as_dict(existing)}
@@ -175,9 +183,9 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     timestamp = now()
     cursor = connection.execute(
         """INSERT INTO external_operation(scope,target,operation,intent,policy,status,idempotency_key,
-                                            created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
-        (args.scope, target, operation, intent, policy, status, key, timestamp, timestamp),
+                                            created_at,updated_at,monitor_suggestion_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (args.scope, target, operation, intent, policy, status, key, timestamp, timestamp, monitor_id),
     )
     connection.commit()
     return {"created": True, "duplicate": False, "approval_required": status == "pending",
@@ -186,6 +194,8 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
 
 def approve(connection: sqlite3.Connection, operation_id: int) -> dict:
     row = resolve(connection, operation_id)
+    monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
+                      row["operation"], row["intent"], approved=True)
     if row["status"] == "approved":
         return {"approved": True, "already_approved": True, "operation": as_dict(row)}
     if row["status"] != "pending":
@@ -199,6 +209,8 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
     connection.execute("BEGIN IMMEDIATE")
     try:
         row = resolve(connection, operation_id)
+        monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
+                          row["operation"], row["intent"], approved=True)
         if row["status"] == "completed":
             connection.rollback()
             return {"claimed": False, "already_completed": True, "operation": as_dict(row)}
@@ -259,6 +271,7 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--scope", required=True, choices=SCOPES); create.add_argument("--target", required=True)
     create.add_argument("--operation", dest="external_operation", required=True); create.add_argument("--intent", required=True)
     create.add_argument("--access-name"); create.add_argument("--idempotency-key")
+    create.add_argument("--suggestion-id", type=int, help="Required for actions originating in a monitor suggestion")
     approval = commands.add_parser("approve"); approval.add_argument("--id", required=True, type=int)
     execution = commands.add_parser("claim"); execution.add_argument("--id", required=True, type=int)
     done = commands.add_parser("finish"); done.add_argument("--id", required=True, type=int)
