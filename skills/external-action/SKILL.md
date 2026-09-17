@@ -94,17 +94,17 @@ technical record remains available for `approve` and `claim-send`.
 For text:
 
 ```text
-Mensagem de texto preparada:
+Text message prepared:
 
-Canal: SMS / iMessage
-Destinatário: <display name> (<masked/canonical contact>)
-Mensagem: “<body>”
-Status: Pronta para envio (não enviada)
+Channel: SMS / iMessage
+Recipient: <display name> (<masked/canonical contact>)
+Message: “<body>”
+Status: Ready to send (not sent)
 
-Confirma o envio desta mensagem?
+Confirm sending this message?
 ```
 
-For Plow, use the same shape with `Mensagem preparada no Plow`, `Canal: Plow
+For Plow, use the same shape with `Message prepared in Plow`, `Channel: Plow
 Chat`, and the existing conversation as the recipient context. For Gmail,
 retain the existing Gmail preview and state whether it was saved as a verified
 real draft in the founder's inbox or remains ledger-only. Do not expose raw ids

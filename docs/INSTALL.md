@@ -153,11 +153,10 @@ One blocked connection should not stop work with sources already available.
 
 Tell the agent:
 
-> Acompanhe as respostas dos contatos deste CSV. Mostre as opções de frequência
-> (15, 30 ou 45 minutos) para eu escolher durante o onboarding. Depois,
-> acompanhe durante meu horário útil. Prepare os próximos passos e me avise no
-> Plow. Peça aprovação
-> antes de enviar mensagens, criar convites ou remover holds.
+> Monitor replies from the contacts in this CSV. Show me the frequency options
+> (15, 30, or 45 minutes) so I can choose during onboarding. Then monitor them
+> during my working hours. Prepare next steps and notify me in Plow. Ask for
+> approval before sending messages, creating invitations, or removing holds.
 
 Provide the CSV's exact Mac path. It can stay in its current cloud directory;
 Latch must have access. The agent verifies the file and maps name, email/phone,
@@ -190,13 +189,13 @@ Obsolete Gmail drafts enter a persistent reconciliation queue: the agent flags
 them and asks before removing an unchanged draft. Edited or unverifiable drafts
 require clarification; Gmail downtime never keeps the old approval valid.
 
-Use “pausar acompanhamento”, “retomar acompanhamento”, “verificar agora”,
-“mudar frequência para 15, 30 ou 45 minutos” or “mostrar configuração”. A manual check
+Use “pause monitoring”, “resume monitoring”, “check now”, “change frequency to
+15, 30, or 45 minutes”, or “show configuration”. A manual check
 can run outside working hours without changing the recurring schedule. Check
 status for the native job's last run/delivery error and any unavailable sources.
 
 Monitor notifications are attached to the private founder conversation. Replying
-“aprovar” or “approve” refers to the suggestion in that notification; the agent
+“approve” refers to the suggestion in that notification; the agent
 still rechecks the conversation and calendar before executing it. Technical cron
 headers, job ids and management footers are disabled for cron notifications in
 this installation.
@@ -218,9 +217,9 @@ Acceptance check, using test contacts you control:
 4. Pause, restart Docker, and confirm it stays paused; resume and verify there
    is still only one job. If Plow delivery fails, the notice stays unconfirmed
    until read-back/reconciliation; it is not blindly resent.
-5. During onboarding choose “sim” for Gmail drafts, prepare a reply, and verify
+5. During onboarding choose “yes” for Gmail drafts, prepare a reply, and verify
    that the same recipient, subject, body, and thread appear as a real draft in
-   the founder's inbox. Choosing “não” must leave only the internal ledger
+   the founder's inbox. Choosing “no” must leave only the internal ledger
    record; neither path sends the message.
 
 Existing installs remain disabled until configured. Normal updates retain
