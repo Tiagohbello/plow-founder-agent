@@ -45,7 +45,7 @@ class MonitorTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.home = Path(self.tmp.name)
-        self.environment = patch.dict(os.environ, {"HERMES_HOME": str(self.home)})
+        self.environment = patch.dict(os.environ, {"HERMES_HOME": str(self.home), "PLOW_HOME_CHANNEL": "cht_test_owner"})
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.path = self.home / "founder-agent/founder-agent.db"
@@ -56,8 +56,6 @@ class MonitorTests(unittest.TestCase):
             "csv_path": "~/Plow/pipeline.csv", "csv_verified_ref": "read:file:1",
             "mapping": {"name": "Name", "email": "Email", "phone": "Phone", "status": "Stage", "type": "Type"},
             "timezone": "America/Los_Angeles", "interval_minutes": 30,
-            "deliver": "plow_chat:cht_test_owner",
-            "owner_chat_verified_ref": "chat:owner-only:1",
             "sources": {"gmail": {"status": "available", "evidence": "read:mail:1"},
                         "messages": {"status": "blocked", "evidence": "permission denied"}},
         }
@@ -170,11 +168,16 @@ class MonitorTests(unittest.TestCase):
                        {"interval_minutes": 60}, {"weekdays": []},
                        {"start": "18:00", "end": "09:00"}, {"csv_verified_ref": ""},
                        {"sources": {"gmail": {"status": "blocked", "evidence": "403"}}},
-                       {"deliver": "all"}, {"owner_chat_verified_ref": ""}):
+                       {"csv_path": "relative.csv"}):
             with self.subTest(change=change), self.assertRaises((ValueError, KeyError)):
                 monitor.configure(self.db, {**self.config, **change}, self.scheduler)
-        with self.assertRaisesRegex(ValueError, "cannot be silently changed"):
-            monitor.configure(self.db, {**self.config, "deliver": "plow_chat:another"}, self.scheduler)
+        result = monitor.configure(self.db, {**self.config, "deliver": "plow_chat:group",
+                                   "owner_chat_verified_ref": "untrusted assertion"}, self.scheduler)
+        self.assertEqual(result["config"]["deliver"], "plow_chat:cht_test_owner")
+        self.assertNotIn("owner_chat_verified_ref", result["config"])
+        with patch.dict(os.environ, {"PLOW_HOME_CHANNEL": ""}):
+            with self.assertRaisesRegex(ValueError, "PLOW_HOME_CHANNEL"):
+                monitor.configure(self.db, self.config, self.scheduler)
 
     def test_contacts_phones_duplicates_and_no_csv_mutation(self):
         original = self.csv.read_bytes()

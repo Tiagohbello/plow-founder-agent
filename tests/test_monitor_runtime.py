@@ -18,7 +18,9 @@ from unittest.mock import patch
 class NativeRuntimeTests(unittest.TestCase):
     def test_native_cron_lifecycle_silence_delivery_and_restart(self):
         sys.path.insert(0, "/opt/hermes")
-        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {"HERMES_HOME": temporary}):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, {
+            "HERMES_HOME": temporary, "PLOW_HOME_CHANNEL": "cht_test_owner"
+        }):
             # The normal plow-init boot enables this shipped platform plugin.
             # Reproduce only that non-secret config in our isolated home.
             (Path(temporary) / "config.yaml").write_text("plugins:\n  enabled:\n    - plow-chat-platform\n")
@@ -37,8 +39,6 @@ class NativeRuntimeTests(unittest.TestCase):
                 "csv_path": "~/Plow/example.csv", "csv_verified_ref": "fixture:csv",
                 "mapping": {"name": "Name", "email": "Email"},
                 "timezone": "America/Los_Angeles", "interval_minutes": 30,
-                "deliver": "plow_chat:cht_test_owner",
-                "owner_chat_verified_ref": "fixture:private-owner-chat",
                 "sources": {"gmail": {"status": "available", "evidence": "fixture:mail"}},
             }
             monitor.configure(db, config, native)

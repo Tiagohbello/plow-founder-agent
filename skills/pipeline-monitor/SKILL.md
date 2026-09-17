@@ -52,8 +52,10 @@ columns without asking. The existing investor format maps `name` to `Investor`,
 
 Verify Gmail, Messages through Latch, and the agent's Plow conversations using
 their published skills and bounded reads. Record available/blocked/unconfigured
-with evidence. Resolve the private, owner-only Plow conversation from live chat
-metadata, never a group or an investor thread. Record evidence of that check.
+with evidence. The helper derives the destination from the boot-verified
+`PLOW_HOME_CHANNEL` (the owner/self DM). Do not supply a delivery chat or a
+caller-written private-chat attestation. If the runtime home is unavailable,
+restore the runtime configuration before enabling the monitor.
 Tell the founder which sources are unavailable; at least one must work.
 
 Use the helper with an argument list, never interpolate CSV/messages into shell
@@ -73,8 +75,6 @@ configuration or payloads. Example configuration (synthetic values):
   "end": "18:00",
   "interval_minutes": 30,
   "meeting_format": "video",
-  "deliver": "plow_chat:cht_example",
-  "owner_chat_verified_ref": "verified owner-only chat membership",
   "sources": {
     "gmail": {"status": "available", "evidence": "verified account read"},
     "messages": {"status": "blocked", "evidence": "Latch reports unavailable"},

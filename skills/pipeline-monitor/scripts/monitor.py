@@ -80,6 +80,14 @@ def database_path():
     return Path(os.environ.get("HERMES_HOME", "/var/lib/hermes")) / "founder-agent" / "founder-agent.db"
 
 
+def home_destination():
+    # plow-init selects exactly one active owner/self DM and exports this value.
+    chat = required(os.environ.get("PLOW_HOME_CHANNEL"), "boot-verified PLOW_HOME_CHANNEL")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", chat):
+        raise ValueError("invalid boot-verified PLOW_HOME_CHANNEL")
+    return f"plow_chat:{chat}"
+
+
 def connect(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -167,9 +175,9 @@ def validate_config(data):
     data.setdefault("meeting_format", "ask")
     if data["meeting_format"] not in ("video", "phone", "in_person", "ask"):
         raise ValueError("meeting_format must be video, phone, in_person or ask")
-    if not re.fullmatch(r"plow_chat:[A-Za-z0-9_-]+", required(data.get("deliver"), "deliver")):
-        raise ValueError("deliver must be the verified private founder plow_chat:<chat-id>")
-    required(data.get("owner_chat_verified_ref"), "private founder chat evidence")
+    # Ignore legacy caller-provided routing/evidence; the runtime owns routing.
+    data.pop("owner_chat_verified_ref", None)
+    data["deliver"] = home_destination()
     sources = data.get("sources")
     if not isinstance(sources, dict) or not sources or set(sources) - SOURCES:
         raise ValueError("sources must contain gmail, messages and/or plow")
@@ -238,14 +246,14 @@ def sync_job(db, scheduler, enabled):
         job_id = matches[0]["job_id"]
         scheduler.call("pause", job_id=job_id)
         scheduler.call("update", job_id=job_id, name=JOB_NAME, prompt=PROMPT,
-                       schedule=f"{config['interval_minutes']}m", deliver=config["deliver"],
+                       schedule=f"{config['interval_minutes']}m", deliver=home_destination(),
                        skills=["pipeline-monitor"], attach_to_session=True)
     else:
         result = scheduler.call("create", name=JOB_NAME, prompt=PROMPT,
-                                schedule=f"{config['interval_minutes']}m", deliver=config["deliver"],
+                                schedule=f"{config['interval_minutes']}m", deliver=home_destination(),
                                 skills=["pipeline-monitor"], attach_to_session=True)
         job_id = result["job_id"]
-    db.execute("UPDATE monitor_config SET job_id=? WHERE id=1", (job_id,))
+    db.execute("UPDATE monitor_config SET job_id=?,config=? WHERE id=1", (job_id, canonical(config)))
     db.commit()
     scheduler.call("resume" if enabled else "pause", job_id=job_id)
     db.execute("UPDATE monitor_config SET enabled=?,updated_at=? WHERE id=1", (int(enabled), stamp()))
@@ -256,8 +264,6 @@ def sync_job(db, scheduler, enabled):
 def configure(db, data, scheduler):
     config = validate_config(data)
     previous = show(db)
-    if previous["configured"] and previous["config"]["deliver"] != config["deliver"]:
-        raise ValueError("the private founder delivery target cannot be silently changed")
     # Fail closed during reconfiguration; a failed native update leaves the gate off.
     db.execute("UPDATE monitor_config SET enabled=0 WHERE id=1")
     db.commit()
@@ -283,6 +289,8 @@ def gate(db, current=None, manual=False):
     if not state["configured"]:
         return {"run": False, "reason": "unconfigured"}
     cfg = state["config"]
+    if cfg.get("deliver") != home_destination():
+        return {"run": False, "reason": "resume_required_to_bind_private_home"}
     local = current.astimezone(ZoneInfo(cfg["timezone"]))
     within = local.weekday() in cfg["weekdays"] and cfg["start"] <= local.strftime("%H:%M") < cfg["end"]
     run = manual or (state["enabled"] and within)
