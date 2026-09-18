@@ -351,8 +351,10 @@ archived copy back:
 
 ```
 docker compose exec --user hermes agent sh -c 'd=/var/lib/hermes; a=$d/.retired/investor-pipeline; \
+  s=$d/skills/investor-pipeline; \
   if [ ! -d "$a" ]; then echo "nothing archived to restore"; exit 0; fi; \
-  mv "$a" "$d/skills/investor-pipeline"'
+  if [ -e "$s" ]; then echo "$s already exists; move it aside first" >&2; exit 1; fi; \
+  mv "$a" "$s"'
 ```
 
 ## Stop or uninstall
