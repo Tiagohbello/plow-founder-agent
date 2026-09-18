@@ -184,7 +184,8 @@ response is also saved as a verified real draft in the founder's inbox; it is
 never sent automatically. There is no automatic invitation, hold deletion or
 CSV write; a check's recommended next step reaches the founder in its notice,
 and the sheet on the approved write that follows. Each notice carries the most urgent one or two suggestions rather than every
-outstanding one; the rest arrive in later checks as these are resolved. There
+outstanding one; the rest arrive in later checks once the current notice is
+delivered, whether or not its suggestions have been acted on. There
 are no repeated reminders for unchanged pending suggestions. A new reply
 invalidates the old suggestion's approval.
 The calendar operations must exactly match the plan displayed in that notice.
