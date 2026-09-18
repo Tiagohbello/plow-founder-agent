@@ -310,8 +310,10 @@ moved into the wiki. Remove its seeded copy once, per install:
 
 ```
 docker compose exec --user hermes agent sh -c 'd=/var/lib/hermes; s=$d/skills/investor-pipeline; \
+  a=$d/.retired/investor-pipeline; \
   if [ ! -d "$s" ]; then echo "already retired"; exit 0; fi; \
-  mkdir -p "$d/.retired" && mv "$s" "$d/.retired/investor-pipeline"'
+  if [ -e "$a" ]; then echo "$a already exists; move it aside first" >&2; exit 1; fi; \
+  mkdir -p "$d/.retired" && mv "$s" "$a"'
 docker compose exec agent ls /var/lib/hermes/skills/investor-pipeline   # expect: No such file
 ```
 
@@ -332,7 +334,10 @@ Moving rather than deleting keeps the copy recoverable, which is what the
 rollback below needs. The archive has a fixed name, so there is never more than
 one, and a missing skill exits early: running this on a fresh install, or twice,
 says `already retired` and changes nothing. A `mv` that genuinely fails still
-fails, rather than being reported as nothing to do.
+fails, rather than being reported as nothing to do. The archive is refused if it
+somehow already exists alongside the skill: `mv` would otherwise nest the skill
+*inside* it and exit 0, which is the same silent wrong answer in a new costume.
+Refusing rather than overwriting, because an existing archive is someone's copy.
 
 Before significant changes, back up the persistent volume with the agent stopped.
 For rollback, run the prior image/version against the same volume.
