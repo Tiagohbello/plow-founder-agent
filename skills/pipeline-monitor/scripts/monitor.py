@@ -344,6 +344,13 @@ def contacts(db, vault):
         slug = entry.stem
         if slug == "index":
             continue
+        if slug.startswith("source:"):
+            # `source:` is this database's namespace for blockers that belong to a
+            # feed rather than a person. A page claiming it would be read as one and
+            # skip the removal, approval and effect-time checks that key off the
+            # prefix, so the namespace is reserved rather than shared.
+            unlinked.append({"contact_key": slug, "reason": "`source:` is reserved for internal blockers"})
+            continue
         fields = page(vault, PIPELINE_ROOT, slug)
         if isinstance(fields, str):
             unlinked.append({"contact_key": slug, "reason": fields})

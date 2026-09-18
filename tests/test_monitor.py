@@ -214,8 +214,13 @@ class MonitorTests(unittest.TestCase):
 
         found = monitor.contacts(self.db, self.vault)
         self.assertEqual([c["contact_key"] for c in found["contacts"]], ["alex"])
+        # A page cannot claim the namespace the database uses for feed blockers.
+        self.write_contact("source:gmail", email="spoof@example.com")
+        found = monitor.contacts(self.db, self.vault)
         self.assertEqual(sorted(u["contact_key"] for u in found["unlinked"]),
-                         ["dana", "kit", "robin", "sam"])
+                         ["dana", "kit", "robin", "sam", "source:gmail"])
+        self.assertIn("reserved", next(u for u in found["unlinked"]
+                                       if u["contact_key"] == "source:gmail")["reason"])
         self.assertIn("cannot be read", next(u for u in found["unlinked"] if u["contact_key"] == "sam")["reason"])
 
     def test_reconfiguring_keeps_the_work_already_prepared(self):
@@ -249,7 +254,7 @@ class MonitorTests(unittest.TestCase):
 
         # Approval does not expire on its own. If a later read unlinks the contact,
         # the already-approved suggestion must not still authorize an external effect.
-        guard = self.sibling_guard()
+        guard = monitor.sibling("external-action", "monitor_guard.py")
         self.assertTrue(guard.monitor_item(self.db, item["id"], approved=True))
         entry.write_text("---\nunclosed: block\n")
         monitor.contacts(self.db, self.vault)
@@ -260,8 +265,6 @@ class MonitorTests(unittest.TestCase):
         # must not be blocked by the same gate.
         self.assertTrue(guard.monitor_item(self.db, item["id"]))
 
-    def sibling_guard(self):
-        return monitor.sibling("external-action", "monitor_guard.py")
 
     def test_an_entry_that_leaves_the_pipeline_supersedes_its_suggestion(self):
         monitor.observe(self.db, self.observation())
