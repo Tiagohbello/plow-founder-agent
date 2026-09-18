@@ -49,7 +49,7 @@ is pinned by commit and checksum and runs hourly beside the gateway. See the
 
 The agent works when asked, with one opt-in exception: a single pipeline monitor
 can check your scheduling contacts every 15, 30, or 45 minutes during
-your selected working hours. It reads the CSV and available conversations,
+your selected working hours. It reads your wiki pipeline and available conversations,
 prepares local suggestions/drafts, and notifies you in your private Plow chat
 only about new actionable evidence or blockers. During onboarding, you choose
 the frequency explicitly and whether prepared Gmail replies should also be saved

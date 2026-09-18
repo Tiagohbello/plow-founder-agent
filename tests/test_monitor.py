@@ -53,16 +53,28 @@ class MonitorTests(unittest.TestCase):
         self.addCleanup(lambda: self.db.close())
         self.scheduler = Scheduler()
         self.config = {
-            "csv_path": "~/Plow/pipeline.csv", "csv_verified_ref": "read:file:1",
-            "mapping": {"name": "Name", "email": "Email", "phone": "Phone", "status": "Stage", "type": "Type"},
+            "wiki_verified_ref": "read:wiki:1",
             "timezone": "America/Los_Angeles", "interval_minutes": 30,
             "sources": {"gmail": {"status": "available", "evidence": "read:mail:1"},
                         "messages": {"status": "blocked", "evidence": "permission denied"}},
         }
         monitor.configure(self.db, self.config, self.scheduler)
-        self.csv = self.home / "snapshot.csv"
-        self.csv.write_text("Name,Email,Phone,Stage,Type,Notes\nAlex,alex@example.com,+1 415 555 0100,Times sent,customer,Keep me\n")
-        self.contact = monitor.contacts(self.db, self.csv)["contacts"][0]
+        self.vault = self.home / "vault"
+        self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100")
+        self.contact = monitor.contacts(self.db, self.vault)["contacts"][0]
+
+    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent"):
+        """One pipeline entry and, unless suppressed, the person page it points at."""
+        entry = self.vault / monitor.PIPELINE_ROOT / f"{slug}.md"
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        entry.write_text(f'---\ntype: "PipelineEntry"\nperson: "{slug}"\nstatus: "{status}"\n'
+                         f'next_step: ""\n---\n\nNotes about {slug}.\n')
+        if person:
+            page = self.vault / monitor.PEOPLE_ROOT / f"{slug}.md"
+            page.parent.mkdir(parents=True, exist_ok=True)
+            page.write_text(f'---\ntype: "Person"\ntitle: "{slug.title()}"\n'
+                            f'email: "{email}"\nphone: "{phone}"\n---\n\nWho {slug} is.\n')
+        return entry
 
     def observation(self, **changes):
         value = {
@@ -171,9 +183,8 @@ class MonitorTests(unittest.TestCase):
     def test_invalid_configuration_and_private_destination(self):
         for change in ({"timezone": "Invalid/Zone"}, {"interval_minutes": 1}, {"interval_minutes": 5},
                        {"interval_minutes": 60}, {"weekdays": []},
-                       {"start": "18:00", "end": "09:00"}, {"csv_verified_ref": ""},
-                       {"sources": {"gmail": {"status": "blocked", "evidence": "403"}}},
-                       {"csv_path": "relative.csv"}):
+                       {"start": "18:00", "end": "09:00"}, {"wiki_verified_ref": ""},
+                       {"sources": {"gmail": {"status": "blocked", "evidence": "403"}}}):
             with self.subTest(change=change), self.assertRaises((ValueError, KeyError)):
                 monitor.configure(self.db, {**self.config, **change}, self.scheduler)
         result = monitor.configure(self.db, {**self.config, "deliver": "plow_chat:group",
@@ -184,15 +195,82 @@ class MonitorTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "PLOW_HOME_CHANNEL"):
                 monitor.configure(self.db, self.config, self.scheduler)
 
-    def test_contacts_phones_duplicates_and_no_csv_mutation(self):
-        original = self.csv.read_bytes()
-        self.assertEqual(self.contact["handles"], ["+14155550100", "alex@example.com"])
+    def test_an_entry_is_reachable_only_through_a_person_the_wiki_knows(self):
+        self.assertEqual(self.contact["handles"], ["+1 415 555 0100", "alex@example.com"])
+        self.assertEqual(self.contact["contact_key"], "alex")
+        vault_before = sorted((p, p.read_bytes()) for p in self.vault.rglob("*.md"))
         monitor.observe(self.db, self.observation())
-        self.assertEqual(self.csv.read_bytes(), original)
-        self.csv.write_text(original.decode() + "Another,alex@example.com,,Interested,investor,\nLocal,,4155550101,New,customer,\n")
-        found = monitor.contacts(self.db, self.csv)
+        self.assertEqual(sorted((p, p.read_bytes()) for p in self.vault.rglob("*.md")), vault_before,
+                         "reading the pipeline must not write to the vault")
+
+        self.write_contact("dana", person=False)                      # entry with no person page
+        self.write_contact("robin", email="", phone="")               # person page with no handles
+        # entities/people is shared and edited in Obsidian, so a half-written page is
+        # ordinary. It must cost that one contact, never the whole check.
+        self.write_contact("sam", email="sam@example.com")
+        (self.vault / monitor.PEOPLE_ROOT / "sam.md").write_text("# no frontmatter yet\n")
+        self.write_contact("kit", email="kit@example.com")
+        (self.vault / monitor.PIPELINE_ROOT / "kit.md").write_text("---\nunclosed: block\n")
+
+        found = monitor.contacts(self.db, self.vault)
+        self.assertEqual([c["contact_key"] for c in found["contacts"]], ["alex"])
+        # A page cannot claim the namespace the database uses for feed blockers.
+        self.write_contact("source:gmail", email="spoof@example.com")
+        found = monitor.contacts(self.db, self.vault)
+        self.assertEqual(sorted(u["contact_key"] for u in found["unlinked"]),
+                         ["dana", "kit", "robin", "sam", "source:gmail"])
+        self.assertIn("reserved", next(u for u in found["unlinked"]
+                                       if u["contact_key"] == "source:gmail")["reason"])
+        self.assertIn("cannot be read", next(u for u in found["unlinked"] if u["contact_key"] == "sam")["reason"])
+
+    def test_reconfiguring_keeps_the_work_already_prepared(self):
+        # The root is fixed, so no reconfigure changes which pipeline this is.
+        # Re-proving the read must not throw away pending suggestions or cursors.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        monitor.configure(self.db, {**self.config, "wiki_verified_ref": "read:wiki:2"}, self.scheduler)
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+        self.assertTrue(self.db.execute("SELECT 1 FROM monitor_contact").fetchone())
+
+    def test_an_unlinked_contact_can_recover_but_cannot_execute(self):
+        # The two halves of the same rule: its suggestion survives an unreadable
+        # page, and cannot be approved while the pipeline cannot place the contact.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        entry = self.vault / monitor.PIPELINE_ROOT / "alex.md"
+        good = entry.read_text()
+        notice = monitor.notice(self.db)
+        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview")
+        decision = {"evidence_refs": item["payload"]["evidence_refs"], "notice_id": notice["notice_id"],
+                    "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"}
+
+        entry.write_text("---\nunclosed: block\n")
+        monitor.contacts(self.db, self.vault)
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+        with self.assertRaisesRegex(ValueError, "not in the latest verified pipeline read"):
+            monitor.decide(self.db, item["id"], decision)
+
+        entry.write_text(good)
+        monitor.contacts(self.db, self.vault)
+        self.assertEqual(monitor.decide(self.db, item["id"], decision)["status"], "approved")
+
+        # Approval does not expire on its own. If a later read unlinks the contact,
+        # the already-approved suggestion must not still authorize an external effect.
+        guard = monitor.sibling("external-action", "monitor_guard.py")
+        self.assertTrue(guard.monitor_item(self.db, item["id"], approved=True))
+        entry.write_text("---\nunclosed: block\n")
+        monitor.contacts(self.db, self.vault)
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "approved")
+        with self.assertRaisesRegex(ValueError, "not in the latest verified pipeline read"):
+            guard.monitor_item(self.db, item["id"], approved=True)
+        # Staging and reconciling a local record is not an external effect, so it
+        # must not be blocked by the same gate.
+        self.assertTrue(guard.monitor_item(self.db, item["id"]))
+
+
+    def test_an_entry_that_leaves_the_pipeline_supersedes_its_suggestion(self):
+        monitor.observe(self.db, self.observation())
+        (self.vault / monitor.PIPELINE_ROOT / "alex.md").unlink()
+        found = monitor.contacts(self.db, self.vault)
         self.assertEqual(found["contacts"], [])
-        self.assertEqual(len(found["ambiguous"]), 3)
         self.assertEqual(monitor.suggestion(self.db, 1)["status"], "superseded")
 
     def test_window_overlap_failure_and_source_isolation(self):
@@ -343,7 +421,7 @@ class MonitorTests(unittest.TestCase):
         for script in ("drafts.py", "operations.py"):
             self.helper("external-action", script, "list")
         profile = self.helper("founder-context", "profile.py", "show")
-        self.assertEqual(profile["pipeline_monitor"]["config"]["csv_path"], self.config["csv_path"])
+        self.assertEqual(profile["pipeline_monitor"]["config"]["wiki_verified_ref"], self.config["wiki_verified_ref"])
         self.assertFalse(profile["pipeline_monitor"]["enabled"])
         self.assertEqual(profile["preferences"], {})
         updated = self.helper("founder-context", "profile.py", "set-preference",
