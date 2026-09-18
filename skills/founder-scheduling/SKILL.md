@@ -16,7 +16,9 @@ them, confirming a pick, sweeping stale holds, and repurposing a hold to
 another investor. This skill owns the workflow only. It delegates
 availability reads to Latch's `google-workspace`, calendar writes to
 `founder-calendar`/`external-action`, email to `gmail`, and the record to the
-contact's page in the wiki pipeline root. It never sends anything on its own. Only `pipeline-monitor`
+contact's page in the pipeline root, through `pipeline-monitor`'s write-back
+protocol — one destination, so an approved action cannot leave the page stale.
+It never sends anything on its own. Only `pipeline-monitor`
 may configure the explicitly opted-in background check; that check prepares
 suggestions only. Foreground execution of a monitor suggestion requires its
 specific founder approval and fresh evidence, with `--suggestion-id` on calendar

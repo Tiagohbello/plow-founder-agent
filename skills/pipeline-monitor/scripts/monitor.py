@@ -435,6 +435,14 @@ def page_update(db, suggestion_id):
     slug = item["contact_key"]
     if slug.startswith("source:"):
         raise ValueError("a source blocker has no pipeline page")
+    newer = db.execute("""SELECT id FROM monitor_suggestion WHERE contact_key=? AND id>?
+                          AND status IN ('pending','approved') ORDER BY id DESC LIMIT 1""",
+                       (slug, suggestion_id)).fetchone()
+    if newer:
+        # Two active conversations for one contact would otherwise leave the page
+        # showing whichever was processed last. The newest active suggestion is the
+        # current advice, and the code says so rather than the running order.
+        raise ValueError(f"suggestion {newer['id']} is this contact's current advice")
     return {"slug": slug, "path": f"{PIPELINE_ROOT}/{slug}.md",
             "changes": {"next_step": item["payload"]["next_step"]}}
 
@@ -511,6 +519,14 @@ def decide(db, sid, data):
         item = suggestion(db, sid)
         if item["status"] not in ("pending", "approved"):
             raise ValueError("suggestion is no longer actionable")
+        # Keeping an unlinked contact's suggestion pending is what makes a page that
+        # would not parse recoverable. It must not also make it executable: the last
+        # read could not connect this contact to a person, and the skill says such a
+        # contact cannot execute. Said here too, because approval is the gate before
+        # any external effect and prose is not a gate.
+        if not item["contact_key"].startswith("source:") and not db.execute(
+                "SELECT 1 FROM monitor_contact WHERE contact_key=?", (item["contact_key"],)).fetchone():
+            raise ValueError("contact is not in the latest verified pipeline read; re-read it first")
         if digest(sorted(set(data["evidence_refs"]))) != item["evidence_key"]:
             raise ValueError("evidence changed: observe the new facts and request fresh approval")
         shown = db.execute("SELECT * FROM monitor_notice WHERE id=? AND status='delivered'",

@@ -242,6 +242,27 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
         self.assertTrue(self.db.execute("SELECT 1 FROM monitor_contact").fetchone())
 
+    def test_an_unlinked_contact_can_recover_but_cannot_execute(self):
+        # The two halves of the same rule: its suggestion survives an unreadable
+        # page, and cannot be approved while the pipeline cannot place the contact.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        entry = self.vault / monitor.PIPELINE_ROOT / "alex.md"
+        good = entry.read_text()
+        notice = monitor.notice(self.db)
+        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview")
+        decision = {"evidence_refs": item["payload"]["evidence_refs"], "notice_id": notice["notice_id"],
+                    "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"}
+
+        entry.write_text("---\nunclosed: block\n")
+        monitor.contacts(self.db, self.vault)
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+        with self.assertRaisesRegex(ValueError, "not in the latest verified pipeline read"):
+            monitor.decide(self.db, item["id"], decision)
+
+        entry.write_text(good)
+        monitor.contacts(self.db, self.vault)
+        self.assertEqual(monitor.decide(self.db, item["id"], decision)["status"], "approved")
+
     def test_an_entry_that_leaves_the_pipeline_supersedes_its_suggestion(self):
         monitor.observe(self.db, self.observation())
         (self.vault / monitor.PIPELINE_ROOT / "alex.md").unlink()
@@ -261,6 +282,19 @@ class MonitorTests(unittest.TestCase):
         monitor.supersede(self.db, item["id"])
         with self.assertRaisesRegex(ValueError, "no current advice"):
             monitor.page_update(self.db, item["id"])
+
+    def test_the_newest_active_suggestion_is_the_contact_s_current_advice(self):
+        # Two live conversations for one contact must not leave the page showing
+        # whichever happened to be processed last.
+        first = monitor.observe(self.db, self.observation())["suggestion"]
+        second = monitor.observe(self.db, self.observation(
+            conversation_ref="gmail:second-thread", evidence_refs=["gmail:message-9"],
+            action="new_options", summary="Alex proposed two new times.",
+            next_step="Check both against the calendar. Approve?"))["suggestion"]
+        with self.assertRaisesRegex(ValueError, f"suggestion {second['id']} is this contact"):
+            monitor.page_update(self.db, first["id"])
+        self.assertEqual(monitor.page_update(self.db, second["id"])["changes"]["next_step"],
+                         "Check both against the calendar. Approve?")
 
     def test_a_source_blocker_has_no_page_to_write(self):
         blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
