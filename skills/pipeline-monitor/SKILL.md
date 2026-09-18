@@ -135,13 +135,16 @@ blockers, which is how advice went stale in one and errored in the other.
    not to read a page that does not exist.
 2. Read the page through Latch. A page that will not read is reported, not
    overwritten.
-3. Run `page-update --id N`. **After the read, never before** — it answers for
-   the contact rather than for the suggestion, so anything written between the
-   two is reflected instead of erased by an older answer.
-4. `wiki_page.merge` the `changes` it returns into the copy you read — and, on a
-   `completed` action, the factual fields you actually verified, in that same
-   merge. Nothing else: never a `next_step` you composed yourself, and never a
-   factual field on an unattended check, which has verified nothing.
+3. For monitor-originated work, run `page-update --id N`. **After the read, never
+   before** — it answers for the contact rather than for the suggestion, so
+   anything written between the two is reflected instead of erased by an older
+   answer. A direct founder request has no suggestion and so no advice to
+   derive: skip this step rather than inventing an id, and leave `next_step`
+   exactly as the page has it.
+4. `wiki_page.merge` into the copy you read: the `changes` step 3 returned, if it
+   ran, plus the factual fields you actually verified. Nothing else — never a
+   `next_step` you composed yourself, and never a factual field on an unattended
+   check, which has verified nothing.
 5. Immediately before writing, read the page again and compare it byte for byte
    with the copy you merged from. Different means someone wrote it while you
    worked: abort without writing and start again from step 2, re-running
