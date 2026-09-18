@@ -309,8 +309,9 @@ discovering and running it. `investor-pipeline` was retired when the pipeline
 moved into the wiki. Remove its seeded copy once, per install:
 
 ```
-docker compose exec agent sh -c 'mkdir -p /var/lib/hermes/.retired && \
-  mv /var/lib/hermes/skills/investor-pipeline /var/lib/hermes/.retired/investor-pipeline-$(date +%F)'
+docker compose exec agent sh -c 'd=/var/lib/hermes; s=$d/skills/investor-pipeline; \
+  [ -d "$s" ] && mkdir -p $d/.retired && rm -rf $d/.retired/investor-pipeline && \
+  mv "$s" $d/.retired/investor-pipeline || echo "already retired"'
 docker compose exec agent ls /var/lib/hermes/skills/investor-pipeline   # expect: No such file
 ```
 
@@ -322,7 +323,9 @@ to reset."* The boot log's `1 cleaned from manifest` refers to the manifest
 entry, not the directory, which stays until something moves it.
 
 Moving rather than deleting keeps the copy recoverable, which is what the
-rollback below needs. A fresh install has nothing to move.
+rollback below needs. The archive has a fixed name and the move is guarded, so
+running this on a fresh install, or twice, says `already retired` and changes
+nothing.
 
 Before significant changes, back up the persistent volume with the agent stopped.
 For rollback, run the prior image/version against the same volume.
@@ -335,8 +338,9 @@ Rolling back past the wiki pipeline therefore takes one more step — move the
 archived copy back:
 
 ```
-docker compose exec agent sh -c 'mv /var/lib/hermes/.retired/investor-pipeline-* \
-  /var/lib/hermes/skills/investor-pipeline'
+docker compose exec agent sh -c 'd=/var/lib/hermes; \
+  [ -d "$d/.retired/investor-pipeline" ] && mv $d/.retired/investor-pipeline \
+  $d/skills/investor-pipeline || echo "nothing archived to restore"'
 ```
 
 ## Stop or uninstall
