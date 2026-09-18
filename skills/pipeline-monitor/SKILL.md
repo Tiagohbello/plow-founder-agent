@@ -304,11 +304,13 @@ never reuse their approval. Then follow existing `external-action`:
   verified execution, through the same read/merge/write/read-back path. If the
   page changed under you, leave the write-back pending and report it; never repeat
   an already completed calendar operation to retry a page write.
-- Before `finish`, replace the page's `next_step` with what the founder
-  should do next — empty when nothing is pending — through the same
-  fresh-read/diff/write/read-back path, carried in the same write as the
-  verified factual columns on `completed`. A resolved suggestion left standing
-  as the current recommendation is the sheet lying about what is outstanding.
+- Before `finish`, run `page-update --contact <slug>` and apply what it returns
+  through the same read/merge/compare/write path, carried in the same write as
+  the verified factual fields on `completed`. Do not compose the next step
+  yourself: it answers with whatever advice is left standing for that contact,
+  empty when nothing is, so resolving an older suggestion cannot overwrite a
+  newer one's. A resolved suggestion left standing as the current recommendation
+  is the page lying about what is outstanding.
 - Run `finish --id N --outcome completed|uncertain|dismissed --ref <evidence>`.
   Uncertain suggestions are not automatically re-approved. Inspect/reconcile
   their linked ledgers and obtain a new concrete founder decision before any
