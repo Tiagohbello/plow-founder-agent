@@ -114,9 +114,12 @@ tie (never guess or merge them yourself).
 
 ## Keep it current
 
-Scheduled `pipeline-monitor` checks never write this file. Their pending next
-steps are private SQLite suggestions, not factual CSV status changes. The
-write-back below applies to foreground requests and approved, verified actions.
+Scheduled `pipeline-monitor` checks never write this file — not even the
+advisory `next_step`: the upload above replaces the file whole, and the only
+thing that makes that safe is asking the founder to close the sheet, which an
+unattended check cannot do. Their pending next steps reach the founder in the
+notice. The write-back below applies to foreground requests and approved,
+verified actions, `next_step` among them.
 
 An update is part of the action, not a follow-up: whenever this skill is
 asked to record a change to a row — a status update, a hold, a proposal —

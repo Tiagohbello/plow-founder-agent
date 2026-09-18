@@ -86,6 +86,8 @@ class PipelineTests(unittest.TestCase):
             "short row": ("Investor,Contact info,Firm,Status\nJane Doe,jane@example.com\n",
                           ["--investor", "Jane Doe", "--status", "x"], "row 2"),
             "formula-leading status": (LEGACY, ["--investor", "Cy Placeholder", "--status", "=cmd"], "Status"),
+            "next_step without a mapping": (LEGACY, ["--investor", "Cy Placeholder", "--next-step", "call her"],
+                                            "unmapped field"),
         }
         for name, (content, flags, message) in cases.items():
             with self.subTest(case=name):
@@ -105,14 +107,17 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(every["columns"][-2:], ["Holds", "Proposed"])
 
     def test_generic_mapping_preserves_headers_unknown_columns_and_phones(self) -> None:
-        self.csv.write_text('Name,Email,Phone,Stage,Type,Notes\nAlex,alex@example.com,,Warm,customer,"keep, quoted"\n')
-        mapping = json.dumps({"name": "Name", "email": "Email", "phone": "Phone", "status": "Stage", "type": "Type"})
+        self.csv.write_text('Name,Email,Phone,Stage,Type,Notes,Next\nAlex,alex@example.com,,Warm,customer,"keep, quoted",\n')
+        mapping = json.dumps({"name": "Name", "email": "Email", "phone": "Phone", "status": "Stage",
+                              "type": "Type", "next_step": "Next"})
         result = self.run_helper("set", str(self.csv), "--mapping", mapping, "--investor", "Alex",
-                                 "--phone", "+1 (415) 555-0100", "--status", "confirmed")
+                                 "--phone", "+1 (415) 555-0100", "--status", "confirmed",
+                                 "--next-step", "Send the deck by Friday")
         self.assertEqual(result.returncode, 0, result.stderr)
         row = self.rows()[0]
-        self.assertEqual(list(row), ["Name", "Email", "Phone", "Stage", "Type", "Notes"])
+        self.assertEqual(list(row), ["Name", "Email", "Phone", "Stage", "Type", "Notes", "Next"])
         self.assertEqual(row["Phone"], "+1 (415) 555-0100")
+        self.assertEqual(row["Next"], "Send the deck by Friday")
         self.assertEqual(row["Type"], "customer")
         self.assertEqual(row["Notes"], "keep, quoted")
         shown = self.run_helper("show", str(self.csv), "--mapping", mapping, "--investor", "Alex")

@@ -12,12 +12,12 @@ from pathlib import Path
 
 COLUMNS = ("Investor", "Contact info", "Firm", "Status", "Holds", "Proposed")
 FIELDS = {"contact": "Contact info", "firm": "Firm", "status": "Status", "holds": "Holds", "proposed": "Proposed"}
-MAPPING_FIELDS = ("name", "contact", "email", "phone", "firm", "status", "type", "holds", "proposed")
+MAPPING_FIELDS = ("name", *FIELDS, "email", "phone", "type", "next_step")
 
 
 def validate_mapping(mapping: dict) -> dict:
     if not isinstance(mapping, dict) or set(mapping) - set(MAPPING_FIELDS):
-        raise ValueError("mapping must use name/contact/email/phone/firm/status/type/holds/proposed")
+        raise ValueError("mapping must use " + "/".join(MAPPING_FIELDS))
     if not mapping.get("name") or not any(mapping.get(k) for k in ("contact", "email", "phone")):
         raise ValueError("mapping needs name and at least one contact/email/phone column")
     if any(not isinstance(v, str) or not v.strip() for v in mapping.values()):
@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     for name in MAPPING_FIELDS:
         if name == "name":
             continue
-        change.add_argument(f"--{name}")
+        change.add_argument(f"--{name.replace('_', '-')}")
     args = parser.parse_args(argv)
     try:
         result = show(args) if args.command == "show" else set_row(args)
