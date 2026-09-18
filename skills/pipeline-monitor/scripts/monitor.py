@@ -22,7 +22,17 @@ from zoneinfo import ZoneInfo
 
 JOB_NAME = "founder-pipeline-monitor"
 SOURCES = {"gmail", "messages", "plow"}
-ACTIONS = {"accepted", "new_options", "modality", "cancellation", "conflict", "clarification", "blocked"}
+# Most urgent first: the declaration order IS the priority. `observe` validates
+# membership against it and `stage_notice` ranks by position, so a founder's
+# accepted slot outranks a clarification without a second ranking input to keep
+# in agreement with this one.
+ACTIONS = ("accepted", "cancellation", "conflict", "new_options", "modality", "clarification", "blocked")
+# One check surfaces the few things worth doing now; the rest stay pending and
+# are reconsidered next run. Strict tiers, so a clarification waits behind any
+# steady stream of accepted slots -- intended at one founder's volume, where a
+# few checks an hour clear the queue and the buried item is the one that could
+# afford to wait. Revisit if a real pipeline ever outruns it.
+NOTICE_LIMIT = 2
 INTERVAL_MINUTES = (15, 30, 45)
 PROMPT = """Run the configured Founder Agent pipeline monitor. Read the pipeline-monitor
 skill and run monitor.py gate first. Respect its persisted configuration, working
@@ -510,9 +520,13 @@ def stage_notice(db):
     covered = set()
     for row in db.execute("SELECT suggestion_ids FROM monitor_notice WHERE status='delivered'"):
         covered.update(json.loads(row[0]))
-    items = [suggestion(db, r[0]) for r in db.execute("SELECT id FROM monitor_suggestion WHERE status='pending' ORDER BY id") if r[0] not in covered]
-    if not items:
+    pending = [suggestion(db, r[0]) for r in db.execute("SELECT id FROM monitor_suggestion WHERE status='pending' ORDER BY id") if r[0] not in covered]
+    if not pending:
         return {"body": "[SILENT]"}
+    # Oldest evidence first within a tier, so the item that has waited longest
+    # goes first; the id keeps two identical tiers deterministically ordered.
+    items = sorted(pending, key=lambda item: (ACTIONS.index(item["payload"]["action"]),
+                                              item["evidence_at"], item["id"]))[:NOTICE_LIMIT]
     body = "\n\n".join(render_suggestion(item) for item in items)
     with db:
         cursor = db.execute("INSERT INTO monitor_notice(suggestion_ids,body,created_at) VALUES (?,?,?)",

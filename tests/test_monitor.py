@@ -316,18 +316,25 @@ class MonitorTests(unittest.TestCase):
         monitor.receipt(self.db, retry["notice_id"], "delivered", "plow:verified-message-1")
         self.assertEqual(monitor.notice(self.db)["body"], "[SILENT]")
 
-    def test_sam_scenarios_produce_consolidated_suggestions_without_external_writes(self):
+    def test_a_notice_carries_the_most_urgent_few_and_holds_the_rest_without_external_writes(self):
         accepted = self.observation(draft=None)
         modality = self.observation(conversation_ref="gmail:other-thread", evidence_refs=["gmail:phone-offer"],
             action="modality", summary="Alex offered a phone call; you prefer video.",
             next_step="Reply with two verified video options. Approve?",
             draft={"channel": "gmail", "thread_id": "other-thread", "recipient": "alex@example.com",
                    "body": "Could we meet by video Tuesday at 14:00 or Wednesday at 10:00 PT?"})
-        monitor.observe(self.db, accepted)
-        monitor.observe(self.db, modality)
+        clarification = self.observation(conversation_ref="gmail:third-thread", evidence_refs=["gmail:ambiguous"],
+            action="clarification", draft=None, summary="Alex named a day with no time.",
+            next_step="Ask which hour they meant. Approve?")
+        for item in (clarification, modality, accepted):   # least urgent observed first
+            monitor.observe(self.db, item)
         result = monitor.notice(self.db)
         self.assertIn("two sibling holds", result["body"])
         self.assertIn("prefer video", result["body"])
+        self.assertLess(result["body"].index("two sibling holds"), result["body"].index("prefer video"))
+        self.assertNotIn("named a day with no time", result["body"])
+        monitor.receipt(self.db, result["notice_id"], "delivered", "plow:verified-message-1")
+        self.assertIn("named a day with no time", monitor.notice(self.db)["body"])
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM draft WHERE status='draft'").fetchone()[0], 1)
         self.assertFalse(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='external_operation'").fetchone())
 
