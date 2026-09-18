@@ -323,14 +323,15 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(update["path"], f"{monitor.PIPELINE_ROOT}/alex.md")
         self.assertEqual(update["changes"]["next_step"], "")
 
-    def test_a_source_blocker_has_no_page_to_write(self):
+    def test_a_source_blocker_yields_no_page_update(self):
         blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
                                    calendar_plan=[], conversation_ref="source:gmail",
                                    evidence_refs=["gmail:auth-failure"],
                                    summary="Gmail access is blocked.", next_step="Reconnect Gmail. Approve?")
         item = monitor.observe(self.db, blocked)["suggestion"]
-        with self.assertRaisesRegex(ValueError, "no pipeline page"):
-            monitor.page_update(self.db, item["id"])
+        # No page rather than an error, so both workflows can ask unconditionally
+        # and neither needs its own eligibility rule.
+        self.assertIsNone(monitor.page_update(self.db, item["id"]))
 
     def test_window_overlap_failure_and_source_isolation(self):
         key = self.contact["contact_key"]

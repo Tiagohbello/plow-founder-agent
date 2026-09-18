@@ -123,6 +123,27 @@ fields named and refuses a value or key that would break out of the frontmatter 
 Never write a page whose `generated: true`, and never hand-edit a table `wiki index`
 keeps under a heading.
 
+## Writing a contact's page
+
+One protocol, for the scheduled check and for completion alike. Both used to
+carry their own copy of it and the copies disagreed about ordering and about
+blockers, which is how advice went stale in one and errored in the other.
+
+1. Read the page through Latch. A page that will not read is reported, not
+   overwritten.
+2. Run `page-update --id N`. **After the read, never before** — it answers for
+   the contact rather than for the suggestion, so anything written between the
+   two is reflected instead of erased by an older answer. `null` means there is
+   no page to write, which is the case for a `source:` blocker; stop there.
+3. `wiki_page.merge` exactly the `changes` it returns into the copy you read.
+   Never widen that field set, and never compose the next step yourself.
+4. Immediately before writing, read the page again and compare it byte for byte
+   with the copy you merged from. Different means someone wrote it while you
+   worked: abort without writing and start again from step 1, re-running
+   `page-update` — the write replaces the page whole and would otherwise put
+   their fields back.
+5. Write, then read back to confirm.
+
 ## Each check
 
 1. Run `gate` first. Only a founder-requested manual check uses `gate --manual`.
@@ -166,15 +187,8 @@ keeps under a heading.
    identity/title/start time. Do not assume the page alone proves a proposal sent.
 6. Persist each actionable change with `observe --file <observation.json>`.
    Its local ledger draft is created atomically with the suggestion; only claim
-   “prepared” when it returns a real `draft_id`. Then run `page-update --id N`
-   and apply exactly the `changes` it returns to the page at the `path` it names.
-   Read that page through Latch, `wiki_page.merge` the change in, then — immediately
-   before writing — read the page again and compare it byte for byte with the copy
-   you merged from. Different means a foreground turn wrote it while you worked:
-   abort without writing and redo the read/merge, because the write replaces the
-   page whole and would otherwise put that turn's factual fields back. Read it back
-   after to confirm. Never widen the field set `page-update` gives you. A page that
-   cannot be read is reported, not overwritten. For a Gmail draft, read Founder
+   “prepared” when it returns a real `draft_id`. Then write the page by
+   § Writing a contact's page. For a Gmail draft, read Founder
    Profile: when `save_gmail_drafts=true`, follow Gmail's draft reuse and
    read-back protocol using this linked ledger draft. Reuse its verified
    `external_draft_id`; when absent, reconcile existing mailbox drafts before
@@ -308,14 +322,10 @@ never reuse their approval. Then follow existing `external-action`:
   Uncertain suggestions are not automatically re-approved. Inspect/reconcile
   their linked ledgers and obtain a new concrete founder decision before any
   replacement action. Preserve completed external effects in subsequent plans.
-- Then update the page, in the same write as the verified factual fields on
-  `completed`: read it, run `page-update --id N`, merge what it returns, compare
-  and write. Ask **after** the read, not before — it answers for the contact
-  rather than for the suggestion, so a scheduled check that wrote between the two
-  is reflected rather than erased by an older answer. Re-run it on a compare
-  retry for the same reason. Do not compose the next step yourself. A resolved
-  suggestion left standing as the current recommendation is the page lying about
-  what is outstanding.
+- Then write the page by § Writing a contact's page, carrying the verified
+  factual fields in the same write on `completed`. A resolved suggestion left
+  standing as the current recommendation is the page lying about what is
+  outstanding.
 
 These instructions and local guards complement Latch/provider permissions;
 they are not a separate sandbox or an alternate messaging client.
