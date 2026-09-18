@@ -48,12 +48,23 @@ class WikiPageTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     wiki_page.merge(PAGE, {field: hostile})
 
-    def test_a_field_the_page_already_held_is_checked_too(self) -> None:
-        # Written before this guard existed: re-emitting it inside fresh quotes
-        # would break the page while changing something else entirely.
-        older = PAGE.replace("title: Ada Example", 'title: The "Big" Deal Corp')
+    def test_lines_it_does_not_change_come_through_byte_for_byte(self) -> None:
+        # A boolean stays a boolean and an awkward pre-existing value survives:
+        # re-serializing every field would turn `generated: true` into "true" and
+        # wrap the embedded quotes in another pair.
+        page = PAGE.replace("title: Ada Example",
+                            'title: The "Big" Deal Corp\ngenerated: true\ncount: 3')
+        out = wiki_page.merge(page, {"next_step": "Reply Thursday"})
+        self.assertIn('title: The "Big" Deal Corp', out)
+        self.assertIn("generated: true", out)
+        self.assertIn("count: 3", out)
+        self.assertIn('next_step: "Reply Thursday"', out)
+
+    def test_a_trailing_newline_cannot_slip_past_the_guard(self) -> None:
+        # `$` matches before a final newline, so `match` would accept this and emit
+        # frontmatter that read() then refuses.
         with self.assertRaises(ValueError):
-            wiki_page.merge(older, {"next_step": "Reply Thursday"})
+            wiki_page.merge(PAGE, {"next_step": "Reply Thursday\n"})
 
     def test_a_page_without_frontmatter_is_refused_rather_than_guessed(self) -> None:
         with self.assertRaises(ValueError):

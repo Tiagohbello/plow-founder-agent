@@ -106,6 +106,10 @@ fix the reported problem, then `resume`. Do not change Hermes global timezone.
 
 ## The pipeline root
 
+Nothing reads this yet: checks still use the configured CSV until the migration
+that swaps them lands. It is written down first so the root, the schema and the
+slug rule are settled before any code depends on them.
+
 Pipeline entries are pages under `projects/founder-agent/pipeline`, one per contact,
 whose `wiki.toml` writer is `founder-agent`. Read `wiki.toml` and
 `_meta/schemas/projects/founder-agent/pipeline.md` before the first write of a session;
