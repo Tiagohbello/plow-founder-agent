@@ -331,6 +331,15 @@ class MonitorTests(unittest.TestCase):
         monitor.supersede(self.db, newer["id"])
         self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"], "")
 
+    def test_asking_before_the_suggestion_resolves_returns_its_own_advice(self):
+        # Why the skill says to ask after `finish`: asked while it is still active,
+        # the answer is the advice for the very thing being completed.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"],
+                         item["payload"]["next_step"])
+        monitor.supersede(self.db, item["id"])
+        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"], "")
+
     def test_a_source_blocker_has_no_page_to_write(self):
         blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
                                    calendar_plan=[], conversation_ref="source:gmail",
