@@ -36,8 +36,7 @@ class NativeRuntimeTests(unittest.TestCase):
             self.addCleanup(db.close)
             native = monitor.Hermes()
             config = {
-                "csv_path": "~/Plow/example.csv", "csv_verified_ref": "fixture:csv",
-                "mapping": {"name": "Name", "email": "Email"},
+                "wiki_verified_ref": "fixture:wiki",
                 "timezone": "America/Los_Angeles", "interval_minutes": 30,
                 "sources": {"gmail": {"status": "available", "evidence": "fixture:mail"}},
             }

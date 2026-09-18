@@ -37,9 +37,7 @@ travel, medical, school logistics, or otherwise marked do-not-overbook) or
 soft (internal standups, household services, optional blocks). Apply the
 request's own rules — blackout days, deadlines, duration — and offer N
 options in the counterparty's timezone, none overlapping another investor's
-live holds in the configured pipeline (legacy fallback
-`~/Plow/investors/pipeline.csv`). Read its mapped fields from Founder Profile's
-`pipeline_monitor.config` when configured. Explain a soft overlap to
+live holds in the pipeline root. Read the contact's page for them. Explain a soft overlap to
 the founder privately; never name it in outgoing text.
 
 ## Hold

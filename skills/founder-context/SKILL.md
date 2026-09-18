@@ -27,7 +27,7 @@ enough context exists to produce useful work. Collect, in order:
 5. Gmail, GitHub, and Sentry availability;
 6. allowed product operations;
 7. optional proactive pipeline monitoring: offer to follow scheduling replies in
-   one CSV using `pipeline-monitor`. Reuse calendar timezone, working hours and
+   the wiki pipeline root using `pipeline-monitor`. Reuse calendar timezone, working hours and
    meeting preferences; confirm the timezone and verify the selected sources and
    private founder Plow destination. Show 15, 30 and 45 minutes and require an
    explicit choice; never assume a frequency. Declining or skipping this step

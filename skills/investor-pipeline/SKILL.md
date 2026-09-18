@@ -17,9 +17,9 @@ file's `Holds`/`Proposed` columns; this skill owns the file and helper.
 
 ## File
 
-First read Founder Profile's `pipeline_monitor.config`. If configured, use its
-`csv_path` as the source of truth and its field-to-column `mapping`. Pass that
-mapping as JSON using the helper's `--mapping` argument on both `show` and `set`.
+Ask the founder which file and which columns; the monitor reads the wiki now and
+carries neither. Pass the mapping as JSON using the helper's `--mapping` argument
+on both `show` and `set`.
 It preserves the original headers/order and writes only mapped fields. `--investor`
 continues to select the mapped name for compatibility; `--email`, `--phone` and
 `--type` can edit their mapped columns. Missing optional columns are not appended
