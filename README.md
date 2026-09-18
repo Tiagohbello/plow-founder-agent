@@ -32,7 +32,7 @@ result, or a tested draft PR.
 | External Action | Records approval, idempotency, and reconciliation of external writes |
 | Investor Pipeline | Reads and updates a mapped scheduling CSV for investors, customers, and other contacts; preserves the legacy investor format |
 | Founder Scheduling | Runs the investor hold lifecycle: options → holds → send → confirm → sweep |
-| Pipeline Monitor | Opt-in checks during working hours; prepares next steps and notifies you privately in Plow, with approval before external actions |
+| Pipeline Monitor | Opt-in checks during working hours; prepares the most urgent one or two next steps and notifies you privately in Plow, with approval before external actions |
 
 ## Runtime and integrations
 

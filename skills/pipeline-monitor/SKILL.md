@@ -174,6 +174,10 @@ fix the reported problem, then `resume`. Do not change Hermes global timezone.
    run; do not claim the entire file was checked. Retry configured blocked sources
    on subsequent runs; unchanged blockers produce no repeated alert.
 8. Run `notice` and return its `body` verbatim, including `[SILENT]` when empty.
+   It carries only the most urgent one or two suggestions — ranked by action,
+   longest-waiting first within a tier. The rest stay pending and are
+   reconsidered next check, so the founder gets what to do now instead of
+   everything outstanding. Never summarize or append the ones it left out.
    Before staging it, run `gmail-cleanup` (also returned by `gate` as
    `gmail_drafts_to_reconcile`), including after CSV removal or new observations.
    Follow Gmail's obsolete-draft protocol for each item. Scheduled checks never
