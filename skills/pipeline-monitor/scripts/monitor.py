@@ -284,11 +284,6 @@ def configure(db, data, scheduler):
     if previous.get("job_id"):
         scheduler.call("pause", job_id=previous["job_id"])
     with db:
-        if previous.get("config") and previous["config"].get("wiki_verified_ref") != config["wiki_verified_ref"]:
-            for row in db.execute("SELECT id FROM monitor_suggestion WHERE status IN ('pending','approved')").fetchall():
-                supersede(db, row["id"])
-            db.execute("DELETE FROM monitor_contact")
-            db.execute("DELETE FROM monitor_cursor")
         db.execute("""INSERT INTO monitor_config(id,config,updated_at) VALUES(1,?,?)
                       ON CONFLICT(id) DO UPDATE SET config=excluded.config,updated_at=excluded.updated_at""",
                    (canonical(config), stamp()))
@@ -367,9 +362,13 @@ def contacts(db, vault):
         valid.append({"contact_key": slug, "name": person.get("title") or slug,
                       "handles": handles, "fields": fields})
     with db:
-        keys = {c["contact_key"] for c in valid}
+        # Superseding is one-way -- `observe` returns the existing row for identical
+        # evidence whatever its status -- so only an entry that has actually left the
+        # root earns it. One that merely would not parse this run is still in the
+        # pipeline, and says so again next run.
+        present = {c["contact_key"] for c in valid} | {u["contact_key"] for u in unlinked}
         for old in db.execute("SELECT id,contact_key FROM monitor_suggestion WHERE status IN ('pending','approved')").fetchall():
-            if old["contact_key"] not in keys and not old["contact_key"].startswith("source:"):
+            if old["contact_key"] not in present and not old["contact_key"].startswith("source:"):
                 supersede(db, old["id"])
         db.execute("DELETE FROM monitor_contact")
         db.executemany("INSERT INTO monitor_contact VALUES (?,?)", [(c["contact_key"], canonical(c)) for c in valid])

@@ -218,6 +218,30 @@ class MonitorTests(unittest.TestCase):
                          ["dana", "kit", "robin", "sam"])
         self.assertIn("cannot be read", next(u for u in found["unlinked"] if u["contact_key"] == "sam")["reason"])
 
+    def test_an_unreadable_page_does_not_supersede_and_recovers(self):
+        # Superseding is one-way: observe returns the existing row for identical
+        # evidence whatever its status, so a page that merely would not parse this
+        # run must keep its suggestion or the founder never sees it again.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        entry = self.vault / monitor.PIPELINE_ROOT / "alex.md"
+        good = entry.read_text()
+        entry.write_text("---\nunclosed: block\n")
+        found = monitor.contacts(self.db, self.vault)
+        self.assertEqual(found["contacts"], [])
+        self.assertEqual([u["contact_key"] for u in found["unlinked"]], ["alex"])
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+        entry.write_text(good)
+        self.assertEqual([c["contact_key"] for c in monitor.contacts(self.db, self.vault)["contacts"]], ["alex"])
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+
+    def test_reconfiguring_keeps_the_work_already_prepared(self):
+        # The root is fixed, so no reconfigure changes which pipeline this is.
+        # Re-proving the read must not throw away pending suggestions or cursors.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        monitor.configure(self.db, {**self.config, "wiki_verified_ref": "read:wiki:2"}, self.scheduler)
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+        self.assertTrue(self.db.execute("SELECT 1 FROM monitor_contact").fetchone())
+
     def test_an_entry_that_leaves_the_pipeline_supersedes_its_suggestion(self):
         monitor.observe(self.db, self.observation())
         (self.vault / monitor.PIPELINE_ROOT / "alex.md").unlink()
