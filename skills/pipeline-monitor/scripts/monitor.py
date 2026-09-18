@@ -455,7 +455,9 @@ def page_update(db, suggestion_id):
     it out of the root."""
     item = suggestion(db, suggestion_id)
     if item["contact_key"].startswith("source:"):
-        raise ValueError("a source blocker has no pipeline page")
+        # No page rather than an error: both callers ask unconditionally, and a
+        # blocker that belongs to a feed simply has nothing to write.
+        return None
     return current_advice(db, item["contact_key"])
 
 
