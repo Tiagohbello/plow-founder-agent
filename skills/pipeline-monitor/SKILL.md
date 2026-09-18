@@ -129,20 +129,25 @@ One protocol, for the scheduled check and for completion alike. Both used to
 carry their own copy of it and the copies disagreed about ordering and about
 blockers, which is how advice went stale in one and errored in the other.
 
-1. Read the page through Latch. A page that will not read is reported, not
+1. A `source:` blocker has no page and none of this applies to it — stop before
+   reading anything. `page-update --id N` returns `null` for one if you ask,
+   which is the authority; the prefix is only how you recognise it early enough
+   not to read a page that does not exist.
+2. Read the page through Latch. A page that will not read is reported, not
    overwritten.
-2. Run `page-update --id N`. **After the read, never before** — it answers for
+3. Run `page-update --id N`. **After the read, never before** — it answers for
    the contact rather than for the suggestion, so anything written between the
-   two is reflected instead of erased by an older answer. `null` means there is
-   no page to write, which is the case for a `source:` blocker; stop there.
-3. `wiki_page.merge` exactly the `changes` it returns into the copy you read.
-   Never widen that field set, and never compose the next step yourself.
-4. Immediately before writing, read the page again and compare it byte for byte
+   two is reflected instead of erased by an older answer.
+4. `wiki_page.merge` the `changes` it returns into the copy you read — and, on a
+   `completed` action, the factual fields you actually verified, in that same
+   merge. Nothing else: never a `next_step` you composed yourself, and never a
+   factual field on an unattended check, which has verified nothing.
+5. Immediately before writing, read the page again and compare it byte for byte
    with the copy you merged from. Different means someone wrote it while you
-   worked: abort without writing and start again from step 1, re-running
+   worked: abort without writing and start again from step 2, re-running
    `page-update` — the write replaces the page whole and would otherwise put
    their fields back.
-5. Write, then read back to confirm.
+6. Write, then read back to confirm.
 
 ## Each check
 
@@ -322,8 +327,8 @@ never reuse their approval. Then follow existing `external-action`:
   Uncertain suggestions are not automatically re-approved. Inspect/reconcile
   their linked ledgers and obtain a new concrete founder decision before any
   replacement action. Preserve completed external effects in subsequent plans.
-- Then write the page by § Writing a contact's page, carrying the verified
-  factual fields in the same write on `completed`. A resolved suggestion left
+- Then write the page by § Writing a contact's page, whose step 4 carries the
+  factual fields you verified in the same merge. A resolved suggestion left
   standing as the current recommendation is the page lying about what is
   outstanding.
 
