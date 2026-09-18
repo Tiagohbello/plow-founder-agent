@@ -20,7 +20,8 @@ contact's page in the pipeline root, through `pipeline-monitor`'s write-back
 protocol — one destination, so an approved action cannot leave the page stale.
 It never sends anything on its own. Only `pipeline-monitor`
 may configure the explicitly opted-in background check; that check prepares
-suggestions only. Foreground execution of a monitor suggestion requires its
+suggestions and writes only the contact page's `next_step`, never a factual
+field. Foreground execution of a monitor suggestion requires its
 specific founder approval and fresh evidence, with `--suggestion-id` on calendar
 ledger preparations. Use its existing linked draft for a communication send.
 Every step leaves each contact's page it touches true of
@@ -106,9 +107,9 @@ sibling hold events, clear `holds` (merge it empty), and set `status` to
 `confirmed`. A date agreed without a time is not confirmed — say so and
 ask for the time. A partial or uncertain operation stops the remaining steps:
 reconcile the existing ledger records, never recreate a verified invitation.
-Write only the fields the schema names and leave the rest of the page alone —
-`wiki_page.merge` does that for you. If a needed field is absent from the schema,
-ask for it rather than inventing one. Private suggestion state already lives in SQLite.
+Write only the fields the page's schema names and leave the rest of the page
+alone — `wiki_page.merge` does that for you. If a needed field is absent from
+the schema, ask for it rather than inventing one. Private suggestion state already lives in SQLite.
 
 ## Sweep
 
