@@ -205,9 +205,18 @@ class MonitorTests(unittest.TestCase):
 
         self.write_contact("dana", person=False)                      # entry with no person page
         self.write_contact("robin", email="", phone="")               # person page with no handles
+        # entities/people is shared and edited in Obsidian, so a half-written page is
+        # ordinary. It must cost that one contact, never the whole check.
+        self.write_contact("sam", email="sam@example.com")
+        (self.vault / monitor.PEOPLE_ROOT / "sam.md").write_text("# no frontmatter yet\n")
+        self.write_contact("kit", email="kit@example.com")
+        (self.vault / monitor.PIPELINE_ROOT / "kit.md").write_text("---\nunclosed: block\n")
+
         found = monitor.contacts(self.db, self.vault)
         self.assertEqual([c["contact_key"] for c in found["contacts"]], ["alex"])
-        self.assertEqual(sorted(u["contact_key"] for u in found["unlinked"]), ["dana", "robin"])
+        self.assertEqual(sorted(u["contact_key"] for u in found["unlinked"]),
+                         ["dana", "kit", "robin", "sam"])
+        self.assertIn("cannot be read", next(u for u in found["unlinked"] if u["contact_key"] == "sam")["reason"])
 
     def test_an_entry_that_leaves_the_pipeline_supersedes_its_suggestion(self):
         monitor.observe(self.db, self.observation())

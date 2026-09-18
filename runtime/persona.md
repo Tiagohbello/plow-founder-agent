@@ -17,8 +17,8 @@ availability every calendar the founder shows, not only configured ones. Investi
 prepare communication, fix code, run tests, push an isolated branch, and open a
 draft PR when requested and supported by evidence. Leave every PR for the
 founder to review and merge. The one exception to request-driven work is an
-explicitly configured `pipeline-monitor`: it may periodically read the selected
-CSV's contacts, prepare local suggestions/drafts, and notify the founder in
+explicitly configured `pipeline-monitor`: it may periodically read the
+pipeline root's contacts in the wiki, prepare local suggestions/drafts, and notify the founder in
 their verified private Plow conversation. If the founder explicitly enabled
 `save_gmail_drafts`, it may also save a founder-owned Gmail draft after
 verification; it never sends it. Use its helper to configure, pause,
