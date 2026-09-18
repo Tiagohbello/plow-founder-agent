@@ -15,9 +15,9 @@ FENCE = "---"
 # block, and a quote or backslash escapes the scalar we emit. Refuse rather than
 # escape: nothing a founder would legitimately put in these fields needs them.
 SAFE_VALUE = re.compile(r"^[^\n\r\t\"\\]*$")
-# A key forges a field just as well as a value does, and a page may already hold
-# one written before this module existed -- so the check belongs where the block
-# is built, not on the way in.
+# A key forges a field just as well as a value does. `fullmatch`, not `match`:
+# `$` also matches before a trailing newline, so `match` would let through a value
+# whose newline this module's own reader then refuses.
 SAFE_KEY = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
@@ -40,18 +40,25 @@ def read(text: str) -> tuple[dict, str]:
 
 
 def merge(text: str, changes: dict) -> str:
-    """The page with `changes` applied and everything else -- order, other keys,
-    body -- exactly as it was.
+    """The page with `changes` applied.
 
-    Every field is checked as the block is built, not just the ones changed: a
-    value carrying a quote from before this guard existed would otherwise be
-    re-emitted inside a fresh pair of them and silently break the page the next
-    time any unrelated field was touched."""
-    front, body = read(text)
-    front.update(changes)
-    lines = []
-    for key, value in front.items():
-        if not SAFE_KEY.match(key) or not isinstance(value, str) or not SAFE_VALUE.match(value):
+    Lines this does not change are copied through byte for byte, so a field's
+    type, spacing and quoting survive it -- `generated: true` stays a boolean
+    rather than becoming the string "true" because some unrelated field moved.
+    It also means a value the page already held cannot be corrupted here, and an
+    odd one somewhere else cannot block a legitimate update."""
+    read(text)  # a page whose block does not parse is not one to edit
+    for key, value in changes.items():
+        if not SAFE_KEY.fullmatch(key) or not isinstance(value, str) or not SAFE_VALUE.fullmatch(value):
             raise ValueError(f"{key!r}: cannot be written to frontmatter safely")
-        lines.append(f'{key}: "{value}"')
-    return f"{FENCE}\n" + "\n".join(lines) + f"\n{FENCE}\n{body}"
+    closing = text.find("\n" + FENCE + "\n", len(FENCE))
+    written, lines = set(), []
+    for line in text[len(FENCE) + 1:closing].splitlines():
+        key = line.partition(":")[0].strip()
+        if key in changes:
+            lines.append(f'{key}: "{changes[key]}"')
+            written.add(key)
+        else:
+            lines.append(line)
+    lines += [f'{key}: "{value}"' for key, value in changes.items() if key not in written]
+    return FENCE + "\n" + "\n".join(lines) + "\n" + FENCE + "\n" + text[closing + len(FENCE) + 2:]
