@@ -6,7 +6,7 @@ author: Founder Agent
 metadata:
   hermes:
     tags: [founder, investors, scheduling, calendar, holds]
-    related_skills: [founder-context, founder-calendar, external-action, gmail, investor-pipeline, pipeline-monitor]
+    related_skills: [founder-context, founder-calendar, external-action, gmail, pipeline-monitor]
 ---
 
 # Founder Scheduling
@@ -17,9 +17,8 @@ another investor. This skill owns the workflow only. It delegates
 availability reads to Latch's `google-workspace`, calendar writes to
 `founder-calendar`/`external-action`, email to `gmail`, and the record to the
 contact's page in the pipeline root, through `pipeline-monitor`'s write-back
-protocol. `investor-pipeline` is for a legacy CSV only and never carries the
-record for monitor-originated work — two destinations would leave the page
-stale. It never sends anything on its own. Only `pipeline-monitor`
+protocol — one destination, so an approved action cannot leave the page stale.
+It never sends anything on its own. Only `pipeline-monitor`
 may configure the explicitly opted-in background check; that check prepares
 suggestions and writes only the contact page's `next_step`, never a factual
 field. Foreground execution of a monitor suggestion requires its
@@ -125,10 +124,9 @@ show the founder the thread and ask before deleting. A hold with no
 matching page falls back to the same evidence check before asking — that
 hold has no page to write back to, so the record stays untouched. For a
 hold matched to a pipeline page, verify
-each delete from the API's own response, then update that page with
-the page's `holds` merged so it lists only what survives — empty
-if nothing does — and re-read the window to confirm the
-rest remain.
+each delete from the API's own response, then merge `holds` on that page so it
+lists only what survives — empty if nothing does — and re-read the window to
+confirm the rest remain.
 
 ## Repurpose
 

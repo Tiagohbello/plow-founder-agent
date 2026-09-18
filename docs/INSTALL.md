@@ -303,9 +303,31 @@ deleted in the home (by you or the agent) stays as you left it. Databases,
 credentials, and session history in the persistent volume are untouched by
 this reconciliation.
 
+That last rule cuts both ways on an upgrade: a skill **removed** from the image
+is not removed from a home that already has it, so an existing install keeps
+discovering and running it. `investor-pipeline` was retired when the pipeline
+moved into the wiki. Remove its seeded copy once, per install:
+
+```
+docker compose exec agent hermes skills uninstall investor-pipeline --yes
+docker compose exec agent ls /var/lib/hermes/skills/investor-pipeline   # expect: No such file
+```
+
+A fresh install has nothing to remove. Skip it if the command reports the skill
+is already absent.
+
 Before significant changes, back up the persistent volume with the agent stopped.
 For rollback, run the prior image/version against the same volume.
 Do not remove the volume as part of a normal update.
+
+The same rule makes that removal outlive a rollback: the home records the skill
+as deleted, and reconciliation honours a deletion however it got there, so the
+prior image comes back without the skill its scheduling workflow depends on.
+Rolling back past the wiki pipeline therefore takes one more step:
+
+```
+docker compose exec agent hermes skills reset investor-pipeline --restore --yes
+```
 
 ## Stop or uninstall
 

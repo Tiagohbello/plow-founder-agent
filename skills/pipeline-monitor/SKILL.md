@@ -6,7 +6,7 @@ author: Founder Agent
 metadata:
   hermes:
     tags: [founder, pipeline, scheduling, cron, onboarding]
-    related_skills: [founder-context, investor-pipeline, founder-scheduling, external-action, gmail, founder-calendar]
+    related_skills: [founder-context, founder-scheduling, external-action, gmail, founder-calendar]
 ---
 
 # Pipeline Monitor
