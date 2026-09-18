@@ -15,8 +15,11 @@ Use for the contact hold lifecycle (investors, customers, and other contacts): p
 them, confirming a pick, sweeping stale holds, and repurposing a hold to
 another investor. This skill owns the workflow only. It delegates
 availability reads to Latch's `google-workspace`, calendar writes to
-`founder-calendar`/`external-action`, email to `gmail`, and the record to
-`investor-pipeline`. It never sends anything on its own. Only `pipeline-monitor`
+`founder-calendar`/`external-action`, email to `gmail`, and the record to the
+contact's page in the pipeline root, through `pipeline-monitor`'s write-back
+protocol. `investor-pipeline` is for a legacy CSV only and never carries the
+record for monitor-originated work — two destinations would leave the page
+stale. It never sends anything on its own. Only `pipeline-monitor`
 may configure the explicitly opted-in background check; that check prepares
 suggestions only. Foreground execution of a monitor suggestion requires its
 specific founder approval and fresh evidence, with `--suggestion-id` on calendar
