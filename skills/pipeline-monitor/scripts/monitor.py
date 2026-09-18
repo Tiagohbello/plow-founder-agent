@@ -435,15 +435,16 @@ def page_update(db, suggestion_id):
     slug = item["contact_key"]
     if slug.startswith("source:"):
         raise ValueError("a source blocker has no pipeline page")
-    newer = db.execute("""SELECT id FROM monitor_suggestion WHERE contact_key=? AND id>?
-                          AND status IN ('pending','approved') ORDER BY id DESC LIMIT 1""",
-                       (slug, suggestion_id)).fetchone()
-    if newer:
-        # Two active conversations for one contact would otherwise leave the page
-        # showing whichever was processed last. The newest active suggestion is the
-        # current advice, and the code says so rather than the running order.
-        raise ValueError(f"suggestion {newer['id']} is this contact's current advice")
-    return {"slug": slug, "path": f"{PIPELINE_ROOT}/{slug}.md",
+    # Two active conversations for one contact would otherwise leave the page showing
+    # whichever was processed last. Rank by when the evidence happened, not when the
+    # row was written -- an older thread read later still carries older advice -- and
+    # fall back to the id only to break a genuine tie.
+    current = db.execute("""SELECT id FROM monitor_suggestion WHERE contact_key=?
+                            AND status IN ('pending','approved')
+                            ORDER BY evidence_at DESC, id DESC LIMIT 1""", (slug,)).fetchone()
+    if current and current["id"] != suggestion_id:
+        raise ValueError(f"suggestion {current['id']} is this contact's current advice")
+    return {"path": f"{PIPELINE_ROOT}/{slug}.md",
             "changes": {"next_step": item["payload"]["next_step"]}}
 
 

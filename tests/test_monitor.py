@@ -296,6 +296,23 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(monitor.page_update(self.db, second["id"])["changes"]["next_step"],
                          "Check both against the calendar. Approve?")
 
+    def test_older_evidence_read_later_is_not_the_current_advice(self):
+        # Reading an old thread after a new one gives it the larger id. Recency is
+        # when the evidence happened, not when the row was written.
+        recent = monitor.observe(self.db, self.observation(
+            evidence_at="2026-09-17T18:00:00Z", evidence_refs=["gmail:recent"],
+            next_step="Confirm Thursday. Approve?"))["suggestion"]
+        stale = monitor.observe(self.db, self.observation(
+            conversation_ref="gmail:old-thread", evidence_refs=["gmail:from-last-week"],
+            evidence_at="2026-09-10T09:00:00Z", action="new_options",
+            summary="An older thread offered times.",
+            next_step="Reply to the old thread. Approve?"))["suggestion"]
+        self.assertGreater(stale["id"], recent["id"])
+        with self.assertRaisesRegex(ValueError, f"suggestion {recent['id']} is this contact"):
+            monitor.page_update(self.db, stale["id"])
+        self.assertEqual(monitor.page_update(self.db, recent["id"])["changes"]["next_step"],
+                         "Confirm Thursday. Approve?")
+
     def test_a_source_blocker_has_no_page_to_write(self):
         blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
                                    calendar_plan=[], conversation_ref="source:gmail",
