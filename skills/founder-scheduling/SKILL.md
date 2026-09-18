@@ -23,7 +23,7 @@ may configure the explicitly opted-in background check; that check prepares
 suggestions only. Foreground execution of a monitor suggestion requires its
 specific founder approval and fresh evidence, with `--suggestion-id` on calendar
 ledger preparations. Use its existing linked draft for a communication send.
-Every step leaves each contact's row it touches true of
+Every step leaves each contact's page it touches true of
 the calendar by the end of the same turn: `holds` lists exactly the events
 that still exist, `proposed` describes what was actually sent, and `status`
 is one of this skill's own words. A blank `proposed` is never
@@ -49,7 +49,7 @@ Only on an explicit hold request. Through `founder-calendar`/
 account and calendar the founder named, or the configured work default
 when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`
 (drop ` / <Firm>` when `Firm` is blank), description `Tentative — no
-invitation sent`, notifications off. Record the times — read the row's
+invitation sent`, notifications off. Record the times — read the page's
 existing `holds` first and pass the complete `; `-joined value, the same
 append Repurpose uses, so a second hold request never drops the events the
 first one left standing — and set `status` to `held`. Holding is never
@@ -120,8 +120,8 @@ a blank-`proposed` hold — found evidence means it was sent, so ask the
 founder rather than delete; no evidence means delete the event, through
 `founder-calendar`/`external-action`, and report it. `proposed` set means
 show the founder the thread and ask before deleting. A hold with no
-matching row falls back to the same evidence check before asking — that
-hold has no row to write back to, so the record stays untouched. For a
+matching page falls back to the same evidence check before asking — that
+hold has no page to write back to, so the record stays untouched. For a
 hold matched to a pipeline page, verify
 each delete from the API's own response, then merge `holds` on that page so it
 lists only what survives — empty if nothing does — and re-read the window to
@@ -134,7 +134,7 @@ description), through `founder-calendar`/`external-action`, and appends
 them to the destination page's existing `holds` — read first, `; `-joined
 with what is already there, never overwritten — setting its `status` to
 `held` unless it is already further along (e.g. `confirmed`), then clears
-them from the source row's `holds` in the same turn — remaining entries
+them from the source page's `holds` in the same turn — remaining entries
 kept (`; `-joined), the field emptied when nothing is
 left, the same write-back Sweep uses; attendees stay empty and
 notifications stay off. Before moving a blank-`proposed` hold, check
@@ -143,5 +143,5 @@ conversations (`session_search`) for that investor at those exact times
 — evidence found means ask the founder first, same as when `proposed` is
 set; no evidence means it moves freely. When `proposed` is set, the
 times were sent to the first investor: ask the founder before taking
-them, and on a yes, set the source row's `status` to `withdrawn` and
+them, and on a yes, set the source page's `status` to `withdrawn` and
 leave `proposed` standing as the record of what was offered.
