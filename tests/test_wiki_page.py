@@ -35,13 +35,25 @@ class WikiPageTests(unittest.TestCase):
         self.assertEqual(front["holds"], "Fri 9/18 12:00-13:00 PT")
         self.assertEqual(front["status"], "Awaiting reply")
 
-    def test_a_value_that_could_break_out_of_the_block_is_refused(self) -> None:
-        # These arrive from email. Each one forges a field or escapes the block.
-        for hostile in ("---\ntype: Policy", "line one\nstatus: held", 'quote " then: colon',
-                        "trailing backslash \\", "\ttab-led"):
-            with self.subTest(value=hostile):
+    def test_anything_that_could_break_out_of_the_block_is_refused(self) -> None:
+        # Values arrive from email; a key forges a field just as well as a value.
+        for field, hostile in [("next_step", "---\ntype: Policy"),
+                               ("next_step", "line one\nstatus: held"),
+                               ("next_step", 'quote " then: colon'),
+                               ("next_step", "trailing backslash \\"),
+                               ("next_step", "\ttab-led"),
+                               ("rogue\nstatus", "held"),
+                               ("rogue: colon", "held")]:
+            with self.subTest(field=field, value=hostile):
                 with self.assertRaises(ValueError):
-                    wiki_page.merge(PAGE, {"next_step": hostile})
+                    wiki_page.merge(PAGE, {field: hostile})
+
+    def test_a_field_the_page_already_held_is_checked_too(self) -> None:
+        # Written before this guard existed: re-emitting it inside fresh quotes
+        # would break the page while changing something else entirely.
+        older = PAGE.replace("title: Ada Example", 'title: The "Big" Deal Corp')
+        with self.assertRaises(ValueError):
+            wiki_page.merge(older, {"next_step": "Reply Thursday"})
 
     def test_a_page_without_frontmatter_is_refused_rather_than_guessed(self) -> None:
         with self.assertRaises(ValueError):

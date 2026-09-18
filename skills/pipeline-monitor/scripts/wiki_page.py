@@ -15,6 +15,10 @@ FENCE = "---"
 # block, and a quote or backslash escapes the scalar we emit. Refuse rather than
 # escape: nothing a founder would legitimately put in these fields needs them.
 SAFE_VALUE = re.compile(r"^[^\n\r\t\"\\]*$")
+# A key forges a field just as well as a value does, and a page may already hold
+# one written before this module existed -- so the check belongs where the block
+# is built, not on the way in.
+SAFE_KEY = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def read(text: str) -> tuple[dict, str]:
@@ -37,11 +41,17 @@ def read(text: str) -> tuple[dict, str]:
 
 def merge(text: str, changes: dict) -> str:
     """The page with `changes` applied and everything else -- order, other keys,
-    body -- exactly as it was."""
+    body -- exactly as it was.
+
+    Every field is checked as the block is built, not just the ones changed: a
+    value carrying a quote from before this guard existed would otherwise be
+    re-emitted inside a fresh pair of them and silently break the page the next
+    time any unrelated field was touched."""
     front, body = read(text)
-    for key, value in changes.items():
-        if not isinstance(value, str) or not SAFE_VALUE.match(value):
-            raise ValueError(f"{key}: value cannot be written to frontmatter safely")
-        front[key] = value
-    lines = "\n".join(f'{key}: "{value}"' for key, value in front.items())
-    return f"{FENCE}\n{lines}\n{FENCE}\n{body}"
+    front.update(changes)
+    lines = []
+    for key, value in front.items():
+        if not SAFE_KEY.match(key) or not isinstance(value, str) or not SAFE_VALUE.match(value):
+            raise ValueError(f"{key!r}: cannot be written to frontmatter safely")
+        lines.append(f'{key}: "{value}"')
+    return f"{FENCE}\n" + "\n".join(lines) + f"\n{FENCE}\n{body}"
