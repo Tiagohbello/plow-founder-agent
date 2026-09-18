@@ -30,8 +30,7 @@ result, or a tested draft PR.
 | Google Calendar | Manages availability, events, recurrence, guests, and scheduling preferences |
 | Product Access | Operates your admin or application through the Latch browser and vault |
 | External Action | Records approval, idempotency, and reconciliation of external writes |
-| Investor Pipeline | Reads and updates the pipeline root in your wiki: one page per investor, customer or other scheduling contact |
-| Founder Scheduling | Runs the investor hold lifecycle: options → holds → send → confirm → sweep |
+| Founder Scheduling | Runs the investor hold lifecycle — options → holds → send → confirm → sweep — against the pipeline root in your wiki, one page per contact |
 | Pipeline Monitor | Opt-in checks during working hours; prepares the most urgent one or two next steps and notifies you privately in Plow, with approval before external actions |
 
 ## Runtime and integrations
@@ -93,7 +92,7 @@ verifies external accounts or proves that a user workflow completed.
   home, on every boot.
 - `skills/founder-context/`: onboarding, company/codebase context, memory, and
   status guidance; its helpers live under `skills/founder-context/scripts/`.
-- `skills/engineering-assist/`, `skills/gmail/`, `skills/founder-calendar/`, `skills/product-access/`, `skills/investor-pipeline/`, `skills/founder-scheduling/`: work skills.
+- `skills/engineering-assist/`, `skills/gmail/`, `skills/founder-calendar/`, `skills/product-access/`, `skills/founder-scheduling/`: work skills.
 - `skills/external-action/`: approval and external-effect guidance; its helpers live under `skills/external-action/scripts/`.
 - `skills/pipeline-monitor/`: opt-in native Hermes cron setup, source-read progress, deduplicated suggestions, and notification reconciliation in the shared database.
 - `image/`, `Dockerfile`, `compose.yml`: runtime packaging.
