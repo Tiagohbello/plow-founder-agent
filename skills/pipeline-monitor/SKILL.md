@@ -147,8 +147,8 @@ blockers, which is how advice went stale in one and errored in the other.
    check, which has verified nothing.
 5. Immediately before writing, read the page again and compare it byte for byte
    with the copy you merged from. Different means someone wrote it while you
-   worked: abort without writing and start again from step 2, re-running
-   `page-update` — the write replaces the page whole and would otherwise put
+   worked: abort without writing and start again from step 2, re-running step 3
+   if it applied — the write replaces the page whole and would otherwise put
    their fields back.
 6. Write, then read back to confirm.
 
