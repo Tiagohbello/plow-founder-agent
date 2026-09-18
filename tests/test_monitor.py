@@ -256,6 +256,9 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "approved")
         with self.assertRaisesRegex(ValueError, "not in the latest verified pipeline read"):
             guard.monitor_item(self.db, item["id"], approved=True)
+        # Staging and reconciling a local record is not an external effect, so it
+        # must not be blocked by the same gate.
+        self.assertTrue(guard.monitor_item(self.db, item["id"]))
 
     def sibling_guard(self):
         return monitor.sibling("external-action", "monitor_guard.py")
