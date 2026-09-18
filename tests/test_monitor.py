@@ -313,6 +313,33 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(monitor.page_update(self.db, recent["id"])["changes"]["next_step"],
                          "Confirm Thursday. Approve?")
 
+    def test_resolving_one_suggestion_leaves_the_other_s_advice_standing(self):
+        # Completion used to compose next_step by hand, so finishing an older
+        # suggestion could overwrite a newer one's advice. Both callers now go
+        # through the same selection.
+        older = monitor.observe(self.db, self.observation(
+            evidence_at="2026-09-10T09:00:00Z", evidence_refs=["gmail:older"],
+            next_step="Reply to the old thread. Approve?"))["suggestion"]
+        newer = monitor.observe(self.db, self.observation(
+            conversation_ref="gmail:second-thread", evidence_refs=["gmail:newer"],
+            evidence_at="2026-09-17T18:00:00Z", action="new_options",
+            summary="Alex proposed two new times.",
+            next_step="Check both against the calendar. Approve?"))["suggestion"]
+        monitor.supersede(self.db, older["id"])
+        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"],
+                         "Check both against the calendar. Approve?")
+        monitor.supersede(self.db, newer["id"])
+        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"], "")
+
+    def test_asking_before_the_suggestion_resolves_returns_its_own_advice(self):
+        # Why the skill says to ask after `finish`: asked while it is still active,
+        # the answer is the advice for the very thing being completed.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"],
+                         item["payload"]["next_step"])
+        monitor.supersede(self.db, item["id"])
+        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"], "")
+
     def test_a_source_blocker_has_no_page_to_write(self):
         blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
                                    calendar_plan=[], conversation_ref="source:gmail",

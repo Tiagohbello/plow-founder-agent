@@ -420,15 +420,31 @@ def suggestion(db, suggestion_id):
     return result
 
 
-def page_update(db, suggestion_id):
+def page_update(db, suggestion_id=None, contact_key=None):
     """The change a scheduled check may write to the founder's wiki: the advice,
     and nothing else.
+
+    Ask by `contact_key` instead of a suggestion after resolving one, and this
+    answers with whatever advice is left standing -- empty when nothing is. Both
+    callers go through the same selection, so completing an older suggestion cannot
+    overwrite a newer one's advice with guidance composed by hand.
 
     The field set is decided here rather than by the agent composing it from the
     payload. The write is unattended and its content is derived from email, so
     "only the advisory column" has to be something the code guarantees, not
     something the prompt asks for. Status, holds and proposed are claims about the
     world and still move only after verified execution of an approved suggestion."""
+    if (suggestion_id is None) == (contact_key is None):
+        raise ValueError("ask page_update for one suggestion or one contact, not both or neither")
+    if contact_key is not None:
+        if contact_key.startswith("source:"):
+            raise ValueError("a source blocker has no pipeline page")
+        left = db.execute("""SELECT id FROM monitor_suggestion WHERE contact_key=?
+                             AND status IN ('pending','approved')
+                             ORDER BY evidence_at DESC, id DESC LIMIT 1""", (contact_key,)).fetchone()
+        if left is None:
+            return {"path": f"{PIPELINE_ROOT}/{contact_key}.md", "changes": {"next_step": ""}}
+        suggestion_id = left["id"]
     item = suggestion(db, suggestion_id)
     if item["status"] not in ("pending", "approved"):
         raise ValueError("a suggestion in this state has no current advice to write")
@@ -613,7 +629,9 @@ def parser():
     gate_parser = commands.add_parser("gate")
     gate_parser.add_argument("--manual", action="store_true")
     commands.add_parser("contacts").add_argument("--vault", required=True, type=Path)
-    commands.add_parser("page-update").add_argument("--id", required=True, type=int)
+    page = commands.add_parser("page-update")
+    page.add_argument("--id", type=int)
+    page.add_argument("--contact")
     window_parser = commands.add_parser("window")
     window_parser.add_argument("--contact-key", required=True)
     window_parser.add_argument("--source", required=True, choices=sorted(SOURCES))
@@ -647,7 +665,7 @@ def run(args):
         if args.command == "gmail-cleanup": return {"drafts": gmail_cleanup(db)}
         if args.command == "gate": return gate(db, manual=args.manual)
         if args.command == "contacts": return contacts(db, args.vault)
-        if args.command == "page-update": return page_update(db, args.id)
+        if args.command == "page-update": return page_update(db, args.id, args.contact)
         if args.command == "window": return window(db, args.contact_key, args.source)
         if args.command == "checkpoint": return checkpoint(db, data)
         if args.command == "observe": return observe(db, data)
