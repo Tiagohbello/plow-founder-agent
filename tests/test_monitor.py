@@ -214,25 +214,14 @@ class MonitorTests(unittest.TestCase):
 
         found = monitor.contacts(self.db, self.vault)
         self.assertEqual([c["contact_key"] for c in found["contacts"]], ["alex"])
-        self.assertEqual(sorted(u["contact_key"] for u in found["unlinked"]),
-                         ["dana", "kit", "robin", "sam"])
-        self.assertIn("cannot be read", next(u for u in found["unlinked"] if u["contact_key"] == "sam")["reason"])
-
-    def test_an_unreadable_page_does_not_supersede_and_recovers(self):
-        # Superseding is one-way: observe returns the existing row for identical
-        # evidence whatever its status, so a page that merely would not parse this
-        # run must keep its suggestion or the founder never sees it again.
-        item = monitor.observe(self.db, self.observation())["suggestion"]
-        entry = self.vault / monitor.PIPELINE_ROOT / "alex.md"
-        good = entry.read_text()
-        entry.write_text("---\nunclosed: block\n")
+        # A page cannot claim the namespace the database uses for feed blockers.
+        self.write_contact("source:gmail", email="spoof@example.com")
         found = monitor.contacts(self.db, self.vault)
-        self.assertEqual(found["contacts"], [])
-        self.assertEqual([u["contact_key"] for u in found["unlinked"]], ["alex"])
-        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
-        entry.write_text(good)
-        self.assertEqual([c["contact_key"] for c in monitor.contacts(self.db, self.vault)["contacts"]], ["alex"])
-        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+        self.assertEqual(sorted(u["contact_key"] for u in found["unlinked"]),
+                         ["dana", "kit", "robin", "sam", "source:gmail"])
+        self.assertIn("reserved", next(u for u in found["unlinked"]
+                                       if u["contact_key"] == "source:gmail")["reason"])
+        self.assertIn("cannot be read", next(u for u in found["unlinked"] if u["contact_key"] == "sam")["reason"])
 
     def test_reconfiguring_keeps_the_work_already_prepared(self):
         # The root is fixed, so no reconfigure changes which pipeline this is.
@@ -262,6 +251,20 @@ class MonitorTests(unittest.TestCase):
         entry.write_text(good)
         monitor.contacts(self.db, self.vault)
         self.assertEqual(monitor.decide(self.db, item["id"], decision)["status"], "approved")
+
+        # Approval does not expire on its own. If a later read unlinks the contact,
+        # the already-approved suggestion must not still authorize an external effect.
+        guard = monitor.sibling("external-action", "monitor_guard.py")
+        self.assertTrue(guard.monitor_item(self.db, item["id"], approved=True))
+        entry.write_text("---\nunclosed: block\n")
+        monitor.contacts(self.db, self.vault)
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "approved")
+        with self.assertRaisesRegex(ValueError, "not in the latest verified pipeline read"):
+            guard.monitor_item(self.db, item["id"], approved=True)
+        # Staging and reconciling a local record is not an external effect, so it
+        # must not be blocked by the same gate.
+        self.assertTrue(guard.monitor_item(self.db, item["id"]))
+
 
     def test_an_entry_that_leaves_the_pipeline_supersedes_its_suggestion(self):
         monitor.observe(self.db, self.observation())
@@ -296,9 +299,10 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(monitor.page_update(self.db, second["id"])["changes"]["next_step"],
                          "Check both against the calendar. Approve?")
 
-    def test_older_evidence_read_later_is_not_the_current_advice(self):
-        # Reading an old thread after a new one gives it the larger id. Recency is
-        # when the evidence happened, not when the row was written.
+    def test_current_advice_follows_evidence_and_empties_when_nothing_is_left(self):
+        # One lifecycle: an old thread read after a new one does not outrank it,
+        # resolving the stale one leaves the recent advice standing, and resolving
+        # that one empties the page.
         recent = monitor.observe(self.db, self.observation(
             evidence_at="2026-09-17T18:00:00Z", evidence_refs=["gmail:recent"],
             next_step="Confirm Thursday. Approve?"))["suggestion"]
@@ -308,37 +312,36 @@ class MonitorTests(unittest.TestCase):
             summary="An older thread offered times.",
             next_step="Reply to the old thread. Approve?"))["suggestion"]
         self.assertGreater(stale["id"], recent["id"])
+
         with self.assertRaisesRegex(ValueError, f"suggestion {recent['id']} is this contact"):
             monitor.page_update(self.db, stale["id"])
         self.assertEqual(monitor.page_update(self.db, recent["id"])["changes"]["next_step"],
                          "Confirm Thursday. Approve?")
 
-    def test_resolving_one_suggestion_leaves_the_other_s_advice_standing(self):
-        # Completion used to compose next_step by hand, so finishing an older
-        # suggestion could overwrite a newer one's advice. Both callers now go
-        # through the same selection.
-        older = monitor.observe(self.db, self.observation(
-            evidence_at="2026-09-10T09:00:00Z", evidence_refs=["gmail:older"],
-            next_step="Reply to the old thread. Approve?"))["suggestion"]
-        newer = monitor.observe(self.db, self.observation(
-            conversation_ref="gmail:second-thread", evidence_refs=["gmail:newer"],
-            evidence_at="2026-09-17T18:00:00Z", action="new_options",
-            summary="Alex proposed two new times.",
-            next_step="Check both against the calendar. Approve?"))["suggestion"]
-        monitor.supersede(self.db, older["id"])
-        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"],
-                         "Check both against the calendar. Approve?")
-        monitor.supersede(self.db, newer["id"])
-        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"], "")
+        for resolved, remaining in ((stale, "Confirm Thursday. Approve?"), (recent, "")):
+            with self.subTest(resolved=resolved["id"]):
+                monitor.supersede(self.db, resolved["id"])
+                self.assertEqual(monitor.current_advice(self.db, "alex")["changes"]["next_step"], remaining)
 
-    def test_asking_before_the_suggestion_resolves_returns_its_own_advice(self):
-        # Why the skill says to ask after `finish`: asked while it is still active,
-        # the answer is the advice for the very thing being completed.
+    def test_finish_projects_the_page_update_itself(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
-        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"],
-                         item["payload"]["next_step"])
-        monitor.supersede(self.db, item["id"])
-        self.assertEqual(monitor.page_update(self.db, contact_key="alex")["changes"]["next_step"], "")
+        self.approve(item)
+        done = self.helper("pipeline-monitor", "monitor.py", "finish", "--id", str(item["id"]),
+                           "--outcome", "completed", "--ref", "calendar:invite-1")
+        # Projected from the row just resolved, so nothing composes a destination
+        # and the order cannot be got wrong.
+        self.assertEqual(done["page_update"]["path"], f"{monitor.PIPELINE_ROOT}/alex.md")
+        self.assertEqual(done["page_update"]["changes"]["next_step"], "")
+
+    def test_finishing_a_source_blocker_has_no_page_to_update(self):
+        blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
+                                   calendar_plan=[], conversation_ref="source:gmail",
+                                   evidence_refs=["gmail:auth-failure"],
+                                   summary="Gmail access is blocked.", next_step="Reconnect Gmail. Approve?")
+        item = monitor.observe(self.db, blocked)["suggestion"]
+        done = self.helper("pipeline-monitor", "monitor.py", "finish", "--id", str(item["id"]),
+                           "--outcome", "dismissed", "--ref", "founder:dismissed")
+        self.assertIsNone(done["page_update"])
 
     def test_a_source_blocker_has_no_page_to_write(self):
         blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
