@@ -110,6 +110,24 @@ fix the reported problem, then `resume`. Do not change Hermes global timezone.
 | Check now, including outside working hours | `run-now`, then perform Each check in this foreground turn; does not change recurring hours or resume a paused job |
 | Review pending actions | `list` |
 
+## The pipeline root
+
+Pipeline entries are pages under `projects/founder-agent/pipeline`, one per contact,
+whose `wiki.toml` writer is `founder-agent`. Read `wiki.toml` and
+`_meta/schemas/projects/founder-agent/pipeline.md` before the first write of a session;
+a missing root or schema is a setup failure to report, never something to create
+mid-check.
+
+A pipeline page's slug is the slug of the `entities/people/` page it links to, so one
+person is one identity across both roots. A contact with no person page gets one created
+in `entities/people/` first — that root is `shared`, so read it and fold into it rather
+than overwriting.
+
+Change a page with `wiki_page.merge` (`scripts/wiki_page.py`), which replaces only the
+fields named and refuses a value or key that would break out of the frontmatter block.
+Never write a page whose `generated: true`, and never hand-edit a table `wiki index`
+keeps under a heading.
+
 ## Each check
 
 1. Run `gate` first. Only a founder-requested manual check uses `gate --manual`.
