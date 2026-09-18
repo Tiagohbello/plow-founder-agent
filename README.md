@@ -41,7 +41,7 @@ browser, vault, and Google operations. The public Compose configuration inherits
 the official image defaults for Plow inference. No separate Gemini key is required.
 
 The official [Agent Index client](https://github.com/plow-pbc/agent-index-client)
-is pinned by commit and checksum and runs hourly beside the gateway. See the
+is pinned by commit and checksum and runs every 5 minutes beside the gateway. See the
 [tutorial](docs/INSTALL.md#verify-agent-index-reporting) for collection checks.
 
 ## Autonomy

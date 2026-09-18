@@ -268,7 +268,7 @@ those connections.
 
 ## Verify Agent Index reporting
 
-The supervised reporter attempts registration and reports usage hourly. It uses
+The supervised reporter attempts registration and reports usage every 5 minutes. It uses
 the official client pinned in `vendor/client.pin`. After a real conversation:
 
 ```sh
