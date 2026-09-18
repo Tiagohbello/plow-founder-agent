@@ -149,7 +149,8 @@ keeps under a heading.
 3. Copy the pipeline root and `entities/people` fresh through Latch, then run
    `contacts`. A page is an identity, so there is nothing to disambiguate: the slug
    is the key. What it returns as `unlinked` is skipped — prepare one clarification
-   alert for those, deduplicated by the slug. No wiki write during checks.
+   alert for those, deduplicated by the slug. No wiki write while enumerating; the
+   only write a check makes is step 6's.
 4. For each valid contact and configured source, run `window --contact-key KEY
    --source gmail|messages|plow`. Read the returned window, plus threads referenced
    by the row even when older. First read covers 30 days; subsequent reads overlap
@@ -166,10 +167,14 @@ keeps under a heading.
 6. Persist each actionable change with `observe --file <observation.json>`.
    Its local ledger draft is created atomically with the suggestion; only claim
    “prepared” when it returns a real `draft_id`. Then run `page-update --id N`
-   and apply exactly the `changes` it returns to the page at the `path` it names:
-   read that page through Latch, `wiki_page.merge` the change in, write it back,
-   and read it back to confirm. Never widen the field set it gives you. A page
-   that cannot be read is reported, not overwritten. For a Gmail draft, read Founder
+   and apply exactly the `changes` it returns to the page at the `path` it names.
+   Read that page through Latch, `wiki_page.merge` the change in, then — immediately
+   before writing — read the page again and compare it byte for byte with the copy
+   you merged from. Different means a foreground turn wrote it while you worked:
+   abort without writing and redo the read/merge, because the write replaces the
+   page whole and would otherwise put that turn's factual fields back. Read it back
+   after to confirm. Never widen the field set `page-update` gives you. A page that
+   cannot be read is reported, not overwritten. For a Gmail draft, read Founder
    Profile: when `save_gmail_drafts=true`, follow Gmail's draft reuse and
    read-back protocol using this linked ledger draft. Reuse its verified
    `external_draft_id`; when absent, reconcile existing mailbox drafts before

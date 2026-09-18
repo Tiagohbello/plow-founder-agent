@@ -262,6 +262,19 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no current advice"):
             monitor.page_update(self.db, item["id"])
 
+    def test_the_newest_active_suggestion_is_the_contact_s_current_advice(self):
+        # Two live conversations for one contact must not leave the page showing
+        # whichever happened to be processed last.
+        first = monitor.observe(self.db, self.observation())["suggestion"]
+        second = monitor.observe(self.db, self.observation(
+            conversation_ref="gmail:second-thread", evidence_refs=["gmail:message-9"],
+            action="new_options", summary="Alex proposed two new times.",
+            next_step="Check both against the calendar. Approve?"))["suggestion"]
+        with self.assertRaisesRegex(ValueError, f"suggestion {second['id']} is this contact"):
+            monitor.page_update(self.db, first["id"])
+        self.assertEqual(monitor.page_update(self.db, second["id"])["changes"]["next_step"],
+                         "Check both against the calendar. Approve?")
+
     def test_a_source_blocker_has_no_page_to_write(self):
         blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
                                    calendar_plan=[], conversation_ref="source:gmail",
