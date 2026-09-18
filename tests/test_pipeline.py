@@ -128,6 +128,29 @@ class PipelineTests(unittest.TestCase):
             self.assertNotEqual(rejected.returncode, 0)
             self.assertEqual(self.csv.read_bytes(), before)
 
+    def test_explicit_next_step_column_and_existing_row_only(self) -> None:
+        self.csv.write_text('Name,Email,Notes\nAlex,alex@example.com,"Keep, this"\n')
+        before = self.csv.read_bytes()
+        self.assertNotEqual(self.run_helper("add-column", str(self.csv)).returncode, 0)
+        self.assertEqual(self.csv.read_bytes(), before)
+        result = self.run_helper("add-column", str(self.csv), "--approval-ref", "founder:add-column")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        mapping = json.dumps({"name": "Name", "email": "Email", "next_step": "Next step"})
+        advice = 'Review "Tuesday"; $(not-a-command)\nthen send explicitly'
+        result = self.run_helper("set", str(self.csv), "--mapping", mapping, "--investor", "Alex",
+                                 "--existing-only", "--next-step", advice)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.rows()[0]["Notes"], "Keep, this")
+        self.assertEqual(self.rows()[0]["Next step"], advice)
+        before = self.csv.read_bytes()
+        for name, value in (("Missing", "Review"), ("Alex", "=formula")):
+            result = self.run_helper("set", str(self.csv), "--mapping", mapping, "--investor", name,
+                                     "--existing-only", "--next-step", value)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(self.csv.read_bytes(), before)
+        self.run_helper("add-column", str(self.csv), "--approval-ref", "founder:add-column")
+        self.assertEqual(self.csv.read_bytes(), before)
+
 
 if __name__ == "__main__":
     unittest.main()

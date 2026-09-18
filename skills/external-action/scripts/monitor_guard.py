@@ -1,6 +1,7 @@
 """Narrow approval guard shared by both external-action ledgers."""
 
 import json
+from monitor_autonomy import authorize_hold
 
 
 def add_monitor_column(connection, table):
@@ -26,7 +27,11 @@ def monitor_item(connection, suggestion_id, approved=False):
     return row
 
 
-def monitor_operation(connection, suggestion_id, scope, target, operation, intent, approved=False):
+def monitor_operation(connection, suggestion_id, scope, target, operation, intent, approved=False, validation=None):
+    if operation == "create_private_hold":
+        if suggestion_id is None or scope != "calendar":
+            raise ValueError("private hold requires a monitor suggestion and calendar scope")
+        return authorize_hold(connection, suggestion_id, target, intent, validation or {})
     row = monitor_item(connection, suggestion_id, approved=approved)
     if row is None:
         return

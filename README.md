@@ -32,7 +32,7 @@ result, or a tested draft PR.
 | External Action | Records approval, idempotency, and reconciliation of external writes |
 | Investor Pipeline | Reads and updates a mapped scheduling CSV for investors, customers, and other contacts; preserves the legacy investor format |
 | Founder Scheduling | Runs the investor hold lifecycle: options → holds → send → confirm → sweep |
-| Pipeline Monitor | Opt-in checks during working hours; prepares the most urgent one or two next steps and notifies you privately in Plow, with approval before external actions |
+| Pipeline Monitor | Opt-in checks, next-step CSV updates and private holds under separate grants; private notices with the most urgent one or two updates, explicit approval before sends/invitations |
 
 ## Runtime and integrations
 
@@ -53,9 +53,12 @@ your selected working hours. It reads the CSV and available conversations,
 prepares local suggestions/drafts, and notifies you in your private Plow chat
 only about new actionable evidence or blockers. During onboarding, you choose
 the frequency explicitly and whether prepared Gmail replies should also be saved
-as verified real drafts in your inbox. Monitoring never sends to third parties,
-changes calendars, or edits the CSV; those actions require your specific approval
-and fresh checks, even with broader calendar autonomy enabled. Pause, resume,
+as verified real drafts in your inbox. Separate explicit grants allow automatic
+Next step updates in your CSV and private busy holds without guests or
+notifications. CSV writes require an agreed window without concurrent editing.
+Monitor invitations and hold changes/removals require specific approval; sending
+a message/email requires an explicit send instruction. Broader calendar autonomy
+does not expand these grants. Pause, resume,
 check now, and change frequency through chat. See [setup and acceptance checks](docs/INSTALL.md#optional-proactive-scheduling).
 
 For requested work, the agent can observe

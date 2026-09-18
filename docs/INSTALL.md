@@ -155,12 +155,14 @@ Tell the agent:
 
 > Monitor replies from the contacts in this CSV. Show me the frequency options
 > (15, 30, or 45 minutes) so I can choose during onboarding. Then monitor them
-> during my working hours. Prepare next steps and notify me in Plow. Ask for
-> approval before sending messages, creating invitations, or removing holds.
+> during my working hours. Update Next step in the CSV, prepare drafts and
+> create private holds without guests or notifications. Notify me when updated.
+> Ask before changing/removing holds or creating invitations. Send messages or
+> emails only when I explicitly tell you to send that exact draft.
 
 Provide the CSV's exact Mac path. It can stay in its current cloud directory;
 Latch must have access. The agent verifies the file and maps name, email/phone,
-organization and status, plus optional contact type/holds/proposals, without
+organization and status, plus optional contact type/holds/proposals/next step, without
 renaming headers or creating another copy. Investors and customers can share the
 same CSV. Ambiguous contacts are skipped and reported for clarification.
 
@@ -171,6 +173,14 @@ asks whether every prepared email should be saved as a real Gmail draft in the
 founder's inbox for review. The explicit yes/no answer is persisted as
 `save_gmail_drafts`; a real Gmail draft is reported only after provider
 read-back verification.
+CSV updates and private holds have separate permissions, disabled until explicitly
+authorized. The request above provides that authorization; setup records it and
+confirms the exact calendar and column mapping. If Next step is missing, the
+agent offers to add it with your permission. Holds/Status columns are also needed
+to record created holds; missing columns are added only with setup permission.
+Agree not to edit the sheet during checks. Latch replaces the whole CSV: the
+agent compares before upload and verifies afterward, but cannot prevent an edit
+saved during the upload itself. A detected conflict leaves write-back pending.
 Existing calendar preferences are reused. Available Gmail, Messages through
 Latch, and agent Plow conversations can be checked; unavailable sources are
 reported rather than treated as empty. Verify the destination is your private
@@ -181,13 +191,14 @@ Subsequent checks use each contact/source's successful-read cursor with a
 one-hour overlap. New evidence produces a suggestion and, where useful, a local
 ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox; it is
-never sent automatically. There is no automatic invitation, hold deletion or
-CSV write; a check's recommended next step reaches the founder in its notice,
-and the sheet on the approved write that follows. Each notice carries the most urgent one or two suggestions rather than every
-outstanding one; the rest arrive in later checks once the current notice is
-delivered, whether or not its suggestions have been acted on. There
-are no repeated reminders for unchanged pending suggestions. A new reply
-invalidates the old suggestion's approval.
+never sent automatically. With their separate grants, Next step is updated and
+private holds are created and verified before the notification. Status/Holds
+record only verified effects; Proposed remains the record of actual sends.
+There is no automatic invitation or hold change/removal. Each notice carries
+the most urgent one or two updates; the rest arrive in later checks after delivery,
+whether or not the displayed suggestions have been acted on. Unchanged suggestions
+are not repeated; a pending write that later succeeds produces an updated notice.
+A new reply invalidates the old suggestion's approval.
 The calendar operations must exactly match the plan displayed in that notice.
 Obsolete Gmail drafts enter a persistent reconciliation queue: the agent flags
 them and asks before removing an unchanged draft. Edited or unverifiable drafts
@@ -199,10 +210,12 @@ can run outside working hours without changing the recurring schedule. Check
 status for the native job's last run/delivery error and any unavailable sources.
 
 Monitor notifications are attached to the private founder conversation. Replying
-“approve” refers to the suggestion in that notification; the agent
+“approve” refers to its non-send actions; the agent
 still rechecks the conversation and calendar before executing it. Technical cron
 headers, job ids and management footers are disabled for cron notifications in
 this installation.
+Sending a prepared message/email requires a separate explicit instruction such
+as “send this email”, tied to its exact content, recipient and conversation.
 
 Docker/Hermes must be running, and Latch and the selected sources must be
 reachable on the Mac. The interval job wakes outside working hours too, but its
@@ -225,6 +238,13 @@ Acceptance check, using test contacts you control:
    that the same recipient, subject, body, and thread appear as a real draft in
    the founder's inbox. Choosing “no” must leave only the internal ledger
    record; neither path sends the message.
+6. Authorize CSV updates and private holds. Supply a scheduling reply with a
+   conflict-free option. Verify Next step and a busy private hold appear, with
+   no guests, invitation or message sent. The Plow notice must reflect actual
+   verified results. Repeat the check and restart: no duplicate hold/draft/notice.
+7. Edit the CSV between the initial read and pre-upload comparison. Expect a
+   pending write and preserved edits; retrying the write must not recreate a hold.
+   Revoke each grant and confirm new automatic effects stop.
 
 Existing installs remain disabled until configured. A chat started before this
 capability shipped may still refuse to configure it because its system prompt
@@ -233,6 +253,9 @@ contains the old persona. Start a fresh conversation and ask for
 Normal updates retain monitor state in the existing volume. To roll back to an image without this
 feature, pause the monitor first; restoring an older image alone does not
 remove its persisted Hermes job.
+New autonomy grants remain disabled after an upgrade until authorized. Before
+rolling back this autonomy extension, pause the monitor; the saved job and action
+records outlive an image change.
 
 ## 7. Complete your first real task
 
@@ -328,6 +351,21 @@ conversation is not a fresh session. Preserve the volume and history; do not
 edit Hermes session records to work around this. Runtime session refresh is
 tracked upstream in
 [plow-hermes-agent#125](https://github.com/plow-pbc/plow-hermes-agent/issues/125).
+
+The native monitor job also stores its own prompt. After upgrading, synchronize
+it with the shipped version (including when paused):
+
+```sh
+docker compose exec --user hermes -e HOME=/var/lib/hermes -e HERMES_HOME=/var/lib/hermes agent /opt/hermes/.venv/bin/python3 /var/lib/hermes/skills/pipeline-monitor/scripts/monitor.py sync
+```
+
+This preserves the existing job's identity, schedule, destination and paused
+state; it does not enable new grants or create a job for a never-enabled setup.
+If synchronization fails, monitoring stays paused. Fix the reported problem
+before explicitly resuming. In a fresh conversation, ask the agent to show
+configuration and verify the native job, then run the scheduling acceptance
+checks above with contacts you control. Locally edited skills still require the
+explicit restore workflow in Troubleshooting before they use the shipped helper.
 
 Before significant changes, back up the persistent volume with the agent stopped.
 For rollback, run the prior image/version against the same volume.

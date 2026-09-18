@@ -17,8 +17,9 @@ another investor. This skill owns the workflow only. It delegates
 availability reads to Latch's `google-workspace`, calendar writes to
 `founder-calendar`/`external-action`, email to `gmail`, and the record to
 `investor-pipeline`. It never sends anything on its own. Only `pipeline-monitor`
-may configure the explicitly opted-in background check; that check prepares
-suggestions only. Foreground execution of a monitor suggestion requires its
+may configure the explicitly opted-in background check; separate persisted
+grants allow updating Next step and creating private holds through its guarded
+protocol. Other execution of a monitor suggestion requires its
 specific founder approval and fresh evidence, with `--suggestion-id` on calendar
 ledger preparations. Use its existing linked draft for a communication send.
 Every step leaves each contact's row it touches true of
@@ -44,7 +45,8 @@ the founder privately; never name it in outgoing text.
 
 ## Hold
 
-Only on an explicit hold request. Through `founder-calendar`/
+On an explicit hold request, or under the monitor's specific private-hold grant.
+The monitor uses its structured hold ledger protocol; otherwise use `founder-calendar`/
 `external-action`, create one busy, attendee-free event per option on the
 account and calendar the founder named, or the configured work default
 when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`

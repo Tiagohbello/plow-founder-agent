@@ -125,6 +125,11 @@ through the cancelled ledger record.
 
 ## Send only after approval
 
+For a pipeline-monitor draft, generic approval of next steps is insufficient.
+Require an explicit instruction to send the exact email and pass its message
+reference as both `--approval-ref` and `--send-request-ref` to `drafts.py approve`.
+The monitor's automatic CSV/hold grants never authorize sending.
+
 Only an explicit founder instruction such as `Send it` authorizes sending the
 specific displayed draft. Before clicking Send, restate thread, recipient,
 subject, and draft; if any differs, stop and ask. Mark the ledger approved,

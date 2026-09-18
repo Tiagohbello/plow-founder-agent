@@ -34,7 +34,11 @@ enough context exists to produce useful work. Collect, in order:
    leaves monitoring disabled;
 8. ask whether every prepared Gmail response should also be saved as a real draft
    in the founder's inbox for review. Persist the explicit answer as
-   `save_gmail_drafts=true|false`. This controls founder-owned drafts only and
+   `save_gmail_drafts=true|false`. Offer separate monitor grants for CSV Next step
+   updates and private-hold creation; record explicit consent, the no-edit window,
+   mapped columns and destination calendar through pipeline-monitor. Reuse an
+   explicit request already made; missing grants stay disabled after upgrades.
+   The Gmail preference controls founder-owned drafts only and
    never grants send permission. No product repo is required if scheduling is the
    founder's first useful task.
 

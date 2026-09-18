@@ -12,6 +12,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from monitor_guard import add_monitor_column, monitor_operation
+from monitor_autonomy import hold_key
 
 
 SCOPES = ("calendar", "product")
@@ -108,6 +109,11 @@ def connect(path: Path) -> sqlite3.Connection:
     )
     migrate_legacy(connection, path)
     add_monitor_column(connection, "external_operation")
+    with connection:
+        connection.execute("BEGIN IMMEDIATE")
+        columns = {r[1] for r in connection.execute("PRAGMA table_info(external_operation)")}
+        if "monitor_authorization" not in columns:
+            connection.execute("ALTER TABLE external_operation ADD COLUMN monitor_authorization TEXT NOT NULL DEFAULT '{}'")
     # Keep the shared compatibility version at 1 so the previous image can use
     # this volume; component changes use founder_agent_migration markers.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -163,6 +169,7 @@ def resolve_policy(connection: sqlite3.Connection, scope: str, operation: str, a
 
 
 def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    connection.execute("BEGIN IMMEDIATE")
     target = required(args.target, "target")
     operation = required(args.external_operation, "external_operation")
     intent = required(args.intent, "intent")
@@ -170,15 +177,28 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     if policy == "forbidden":
         raise ValueError("operation is forbidden by Founder Profile or global policy")
     monitor_id = getattr(args, "suggestion_id", None)
-    monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
+    hold = monitor_operation(connection, monitor_id, args.scope, target, operation, intent,
+                             validation=getattr(args, "validation", None))
     if monitor_id is not None:
         policy = "approval"
     key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
     if monitor_id is not None:
         key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"
+    if hold:
+        parameters, item, authorization = hold
+        key = hold_key(item["contact_key"], parameters)
+        policy = "autonomous"
     existing = connection.execute("SELECT * FROM external_operation WHERE idempotency_key=?", (key,)).fetchone()
     if existing:
-        return {"created": False, "duplicate": True, "operation": as_dict(existing)}
+        if hold:
+            if existing["status"] == "cancelled" and not existing["evidence"] and not existing["external_ref"]:
+                connection.execute("UPDATE external_operation SET status='approved',monitor_suggestion_id=?,intent=?,updated_at=? WHERE id=?",
+                                   (monitor_id, intent, now(), existing["id"]))
+                connection.execute("UPDATE external_operation SET monitor_authorization=? WHERE id=?",
+                                   (json.dumps(authorization), existing["id"]))
+            connection.execute("INSERT OR IGNORE INTO monitor_hold_link VALUES (?,?)", (monitor_id, existing["id"]))
+        connection.commit()
+        return {"created": False, "duplicate": True, "operation": as_dict(resolve(connection, existing["id"]))}
     status = "approved" if policy == "autonomous" else "pending"
     timestamp = now()
     cursor = connection.execute(
@@ -187,6 +207,10 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
            VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (args.scope, target, operation, intent, policy, status, key, timestamp, timestamp, monitor_id),
     )
+    if hold:
+        connection.execute("INSERT OR IGNORE INTO monitor_hold_link VALUES (?,?)", (monitor_id, cursor.lastrowid))
+        connection.execute("UPDATE external_operation SET monitor_authorization=? WHERE id=?",
+                           (json.dumps(authorization), cursor.lastrowid))
     connection.commit()
     return {"created": True, "duplicate": False, "approval_required": status == "pending",
             "operation": as_dict(resolve(connection, cursor.lastrowid))}
@@ -205,21 +229,26 @@ def approve(connection: sqlite3.Connection, operation_id: int) -> dict:
     return {"approved": True, "already_approved": False, "operation": as_dict(resolve(connection, operation_id))}
 
 
-def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
+def claim(connection: sqlite3.Connection, operation_id: int, validation=None) -> dict:
     connection.execute("BEGIN IMMEDIATE")
     try:
         row = resolve(connection, operation_id)
-        monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
-                          row["operation"], row["intent"], approved=True)
         if row["status"] == "completed":
             connection.rollback()
             return {"claimed": False, "already_completed": True, "operation": as_dict(row)}
         if row["status"] in {"executing", "uncertain"}:
             connection.rollback()
             return {"claimed": False, "reconciliation_required": True, "operation": as_dict(row)}
+        hold = monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
+                                 row["operation"], row["intent"], approved=True, validation=validation)
+        if row["scope"] == "calendar" and resolve_policy(connection, "calendar", row["operation"], None) == "forbidden":
+            raise ValueError("calendar operations are forbidden")
         if row["status"] != "approved":
             connection.rollback()
             raise ValueError("operation must be approved before execution")
+        if hold:
+            connection.execute("UPDATE external_operation SET monitor_authorization=? WHERE id=?",
+                               (json.dumps(hold[2]), operation_id))
         connection.execute("UPDATE external_operation SET status='executing',updated_at=? WHERE id=?", (now(), operation_id))
         connection.commit()
         return {"claimed": True, "operation": as_dict(resolve(connection, operation_id))}
@@ -233,6 +262,8 @@ def finish(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "executing":
         raise ValueError("only an executing operation can be finished")
+    if row["operation"] == "create_private_hold" and args.outcome == "completed":
+        required(args.external_ref, "verified hold event id")
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
@@ -245,6 +276,8 @@ def reconcile(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "uncertain":
         raise ValueError("only an uncertain operation can be reconciled")
+    if row["operation"] == "create_private_hold" and args.outcome == "completed":
+        required(args.external_ref, "verified hold event id")
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
@@ -272,8 +305,10 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--operation", dest="external_operation", required=True); create.add_argument("--intent", required=True)
     create.add_argument("--access-name"); create.add_argument("--idempotency-key")
     create.add_argument("--suggestion-id", type=int, help="Required for actions originating in a monitor suggestion")
+    create.add_argument("--validation-file", type=Path, help="Fresh validation JSON for an autonomous private hold")
     approval = commands.add_parser("approve"); approval.add_argument("--id", required=True, type=int)
     execution = commands.add_parser("claim"); execution.add_argument("--id", required=True, type=int)
+    execution.add_argument("--validation-file", type=Path)
     done = commands.add_parser("finish"); done.add_argument("--id", required=True, type=int)
     done.add_argument("--outcome", required=True, choices=("completed", "uncertain")); done.add_argument("--external-ref"); done.add_argument("--evidence", required=True)
     repaired = commands.add_parser("reconcile"); repaired.add_argument("--id", required=True, type=int)
@@ -285,9 +320,10 @@ def parser() -> argparse.ArgumentParser:
 def run(args: argparse.Namespace) -> dict:
     connection = connect(Path(args.db).expanduser() if args.db else database_path())
     try:
+        args.validation = json.loads(args.validation_file.read_text()) if getattr(args, "validation_file", None) else None
         if args.command == "prepare": return prepare(connection, args)
         if args.command == "approve": return approve(connection, args.id)
-        if args.command == "claim": return claim(connection, args.id)
+        if args.command == "claim": return claim(connection, args.id, args.validation)
         if args.command == "finish": return finish(connection, args)
         if args.command == "reconcile": return reconcile(connection, args)
         if args.command == "list": return listing(connection, args)

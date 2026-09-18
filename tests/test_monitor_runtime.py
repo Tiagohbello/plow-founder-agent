@@ -24,7 +24,7 @@ class NativeRuntimeTests(unittest.TestCase):
             # The normal plow-init boot enables this shipped platform plugin.
             # Reproduce only that non-secret config in our isolated home.
             (Path(temporary) / "config.yaml").write_text("plugins:\n  enabled:\n    - plow-chat-platform\n")
-            from cron import jobs, scheduler
+            from cron import jobs, scheduler, scheduler_preflight
             root = Path(__file__).resolve().parents[1]
             shutil.copytree(root / "skills", Path(temporary) / "skills", dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns("__pycache__"))
@@ -49,7 +49,7 @@ class NativeRuntimeTests(unittest.TestCase):
             self.assertEqual(job["deliver"], "plow_chat:cht_test_owner")
             self.assertEqual(job["skills"], ["pipeline-monitor"])
             self.assertTrue(job["attach_to_session"])
-            self.assertIsNone(scheduler._preflight_check_skills(job))
+            self.assertIsNone(scheduler_preflight._preflight_check_skills(job))
             target = scheduler._resolve_delivery_targets(job)
             self.assertEqual(target[0]["platform"], "plow_chat")
             self.assertEqual(target[0]["chat_id"], "cht_test_owner")
@@ -57,13 +57,18 @@ class NativeRuntimeTests(unittest.TestCase):
             self.assertEqual(len([j for j in jobs.list_jobs(True) if j["name"] == monitor.JOB_NAME]), 1)
             self.assertEqual(jobs.get_job(job_id)["schedule"]["minutes"], 45)
             self.assertTrue(jobs.get_job(job_id)["attach_to_session"])
+            self.assertIn("private holds", jobs.get_job(job_id)["prompt"])
 
             def fire(response, error=None):
                 claimed = jobs.claim_job_for_fire(job_id, return_job=True)
                 self.assertIsInstance(claimed, dict)
                 # A parallel scheduler/manual run cannot claim this occurrence.
                 self.assertFalse(jobs.claim_job_for_fire(job_id, return_job=True))
-                with patch.object(scheduler, "run_job", return_value=(True, response, response, None)), \
+                # The pinned runtime can dispatch a detached process. Keep the
+                # real runner/store in this process so LLM and delivery mocks
+                # cannot be bypassed by that subprocess boundary.
+                with patch.object(scheduler, "_launch_external_cron_worker", return_value=False), \
+                     patch.object(scheduler, "run_job", return_value=(True, response, response, None)), \
                      patch.object(scheduler, "_deliver_result", return_value=error) as delivery:
                     self.assertTrue(scheduler.run_one_job(claimed))
                     if response == "[SILENT]":
@@ -81,6 +86,10 @@ class NativeRuntimeTests(unittest.TestCase):
             self.assertEqual(fire("New suggestion", "simulated Plow unavailable")["last_delivery_error"], "simulated Plow unavailable")
             monitor.sync_job(db, native, False)
             self.assertFalse(jobs.get_job(job_id)["enabled"])
+            monitor.refresh_job(db, native)
+            self.assertFalse(jobs.get_job(job_id)["enabled"])
+            self.assertEqual(monitor.show(db)["job_id"], job_id)
+            self.assertIn("private holds", jobs.get_job(job_id)["prompt"])
             db.close()
             reopened = monitor.connect(path)
             try:

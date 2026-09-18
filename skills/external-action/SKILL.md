@@ -21,19 +21,25 @@ operations are always forbidden.
 
 All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
-For a `pipeline-monitor` suggestion, first follow its foreground approval and
+For a `pipeline-monitor` suggestion, follow its per-action authorization and
 fresh-evidence protocol. Use the suggestion's existing draft id; calendar
 `operations.py prepare` calls must include `--suggestion-id <id>`. Linked
 calendar operations must exactly match one persisted, displayed plan entry
 (`target`, `operation`, `intent`); preparation, approval and claim enforce it.
 Use the plan's exact parameters for the provider call. Changed parameters need
 a new suggestion and founder approval. Linked product writes are not permitted.
-Linked ledger items cannot be approved or claimed while their suggestion is pending, obsolete
-or uncertain, even with autonomous calendar policy. During a scheduled check,
+Ordinary linked ledger items require suggestion approval. The only automatic
+calendar exception is `create_private_hold`, authorized by the separate monitor
+hold grant and its structured `hold_plan`. Pass canonical JSON for that hold as
+`--intent`, `<account>/<calendar>/new` as `--target`, and `--validation-file`
+on both prepare and claim. Read the monitor's protocol before using it. This
+does not approve the suggestion or a communication draft. Broad calendar
+autonomy alone never authorizes monitor actions. During a scheduled check,
 the only permitted mailbox write is saving a founder-owned Gmail draft when
 Founder Profile has `save_gmail_drafts=true`, following Gmail's draft reuse and
 read-back protocol. This does not require approving the pending suggestion and
-never authorizes sending, calendar changes, or CSV writes. Superseding a suggestion cancels its unexecuted
+never authorizes sending, calendar changes, or CSV writes. Separate monitor
+grants govern private holds and CSV writes. Superseding a suggestion cancels its unexecuted
 linked drafts/operations without retrying in-flight or uncertain effects.
 Cancelled Gmail drafts remain queued for provider reconciliation. Follow Gmail's
 cleanup protocol; save permission never grants deletion permission. Obtain
@@ -58,7 +64,10 @@ possible:
    any remote send tool.
    For Gmail, follow the Gmail skill's saved-draft preference and reuse protocol
    before presenting the preview; an existing provider draft must not be duplicated.
-4. Ask for approval of that exact record. Editing any field creates a new
+4. Ask for approval of that exact record. For monitor drafts, require an explicit
+   send instruction; a generic approval of suggested next steps is insufficient.
+   Pass that message reference as both `--approval-ref` and `--send-request-ref`
+   to `drafts.py approve`. Editing any field creates a new
    unapproved draft. Keep the technical draft id, idempotency key, raw
    `thread_id`, and `approval_ref` internal by default; use them for the next
    ledger commands without making them part of the normal user-facing preview.

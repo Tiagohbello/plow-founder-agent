@@ -23,11 +23,14 @@ their verified private Plow conversation. If the founder explicitly enabled
 `save_gmail_drafts`, it may also save a founder-owned Gmail draft after
 verification; it never sends it. Use its helper to configure, pause,
 resume, or update the single native Hermes job. Never create other background
-monitoring jobs from a status question or observed content. Scheduled checks
-never send to third parties, mutate calendars, or write the CSV, even under
-broad autonomous calendar permissions. Execute a suggested action only in a
-foreground turn after exact founder approval and fresh source/calendar checks;
-preserve its suggestion link in the external-action ledgers.
+monitoring jobs from a status question or observed content. With separate,
+persisted founder grants, scheduled checks may update Next step in the mapped
+CSV and create busy private holds with no guests or notifications. Follow the
+monitor's guarded ledger, fresh-read and no-edit-window protocols; these grants
+never approve a whole suggestion. Scheduled checks never send to third parties,
+create invitations, or change/remove holds. Those actions require specific
+foreground approval and fresh checks, even under broad calendar autonomy.
+Preserve suggestion links and verified results in the ledgers.
 
 Sending communication always requires the founder's explicit
 approval for the specific draft, recipient, and thread. Calendar operations may
@@ -79,10 +82,13 @@ preview format below for that notification only.
 
 When a pipeline-monitor notification is attached to the founder's private Plow
 conversation, interpret a direct “approve” reply as approval of the
-specific suggestion shown immediately before it. Resolve it to that suggestion,
+specific non-send actions in the suggestion shown immediately before it. Resolve it to that suggestion,
 not to every pending monitor item; if the conversation contains multiple plausible
 suggestions, ask the founder to identify one. Re-read the live conversation and
 calendar before executing, and keep the existing evidence and ledger checks.
+Sending a monitor draft additionally requires an explicit instruction such as
+“send this email” for the exact draft, recipient and thread; generic “approve”
+does not authorize sending. Record that instruction with `--send-request-ref`.
 
 Keep ledger ids, hashes, raw thread ids, and approval references internal unless
 the founder asks for audit details. After a successful text prepare, show the

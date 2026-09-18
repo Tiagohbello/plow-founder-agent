@@ -63,5 +63,11 @@ means the capability is unavailable; do not work around missing scopes.
 
 Calendar-generated invitations and update notices are part of the authorized
 calendar operation. A separate email still uses the Gmail approval flow.
+
+For scheduled pipeline-monitor work, the only automatic calendar operation is
+its explicitly granted `create_private_hold`. Follow its structured-plan and
+fresh-validation protocol instead of broad `calendar_manage` autonomy. Use
+exact persisted parameters, no guests/conferencing and notifications off.
+Invitations and hold changes/removals still require specific foreground approval.
 Latch and Google permissions remain authoritative even when Founder Profile
 marks an operation autonomous.

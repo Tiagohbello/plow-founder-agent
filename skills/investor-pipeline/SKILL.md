@@ -22,7 +22,8 @@ First read Founder Profile's `pipeline_monitor.config`. If configured, use its
 mapping as JSON using the helper's `--mapping` argument on both `show` and `set`.
 It preserves the original headers/order and writes only mapped fields. `--investor`
 continues to select the mapped name for compatibility; `--email`, `--phone` and
-`--type` can edit their mapped columns. Missing optional columns are not appended
+`--type` can edit their mapped columns. `--next-step` edits the separately mapped
+`next_step` field. Missing optional columns are not appended
 in mapped mode: ask before adding them. The CSV does not move or become a second
 copy. Existing hold titles remain unchanged; `<Investor>`/`<Firm>` below mean
 the mapped name/organization for any contact type.
@@ -114,12 +115,18 @@ tie (never guess or merge them yourself).
 
 ## Keep it current
 
-Scheduled `pipeline-monitor` checks never write this file — not even the
-advisory `next_step`: the upload above replaces the file whole, and the only
-thing that makes that safe is asking the founder to close the sheet, which an
-unattended check cannot do. Their pending next steps reach the founder in the
-notice. The write-back below applies to foreground requests and approved,
-verified actions, `next_step` among them.
+Scheduled `pipeline-monitor` checks may write Next step only with the specific
+CSV grant and agreed no-edit window. They use its prepare/claim/reconcile CSV
+protocol, which patches only an existing unambiguous row and preserves other
+cells. Verified holds also update mapped Holds/Status; intentions never become
+sent proposals or confirmed meetings. Without the grant, suggestions stay local.
+
+During setup, map an existing next-step column or obtain authorization to add
+one. Run `pipeline.py add-column <temporary-snapshot> --column "Next step"
+--approval-ref <founder-message>`, upload using the fresh-read/diff/read-back
+workflow above, and only then save its mapping. This command changes a local
+snapshot, not the Mac file. Never add columns during a scheduled check. The
+same explicit setup operation may add Holds/Status if needed and authorized.
 
 An update is part of the action, not a follow-up: whenever this skill is
 asked to record a change to a row — a status update, a hold, a proposal —

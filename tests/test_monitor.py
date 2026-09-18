@@ -220,7 +220,7 @@ class MonitorTests(unittest.TestCase):
     def test_new_evidence_cancels_draft_approval_and_pending_calendar_actions(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
         self.approve(item)
-        self.helper("external-action", "drafts.py", "approve", "--id", str(item["draft_id"]), "--approval-ref", "founder:approve:1")
+        self.helper("external-action", "drafts.py", "approve", "--id", str(item["draft_id"]), "--approval-ref", "founder:send:1", "--send-request-ref", "founder:send:1")
         operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar", "--target", "work/calendar/new",
                                 "--operation", "create", "--intent", "Tuesday 14:00", "--suggestion-id", str(item["id"]))["operation"]
         newer = self.observation(evidence_refs=["gmail:message-2"], evidence_at="2026-09-17T15:00:00Z", action="modality")

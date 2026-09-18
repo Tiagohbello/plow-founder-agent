@@ -310,12 +310,15 @@ def require_active_channel(row: sqlite3.Row) -> None:
         raise ValueError(f"channel {row['channel']} is read-only")
 
 
-def approve_draft(connection: sqlite3.Connection, draft_id: int, approval_ref: str) -> dict[str, object]:
+def approve_draft(connection: sqlite3.Connection, draft_id: int, approval_ref: str, send_request_ref: str | None = None) -> dict[str, object]:
     approval_ref = required_text(approval_ref, "approval_ref")
     connection.execute("BEGIN IMMEDIATE")
     try:
         row = resolve(connection, draft_id)
         monitor_item(connection, row["monitor_suggestion_id"], approved=True)
+        if row["monitor_suggestion_id"] is not None:
+            if required_text(send_request_ref, "explicit send_request_ref (not a generic suggestion approval)") != approval_ref:
+                raise ValueError("approval_ref must identify the explicit instruction to send this draft")
         require_active_channel(row)
         if row["status"] == "approved":
             connection.rollback()
@@ -516,6 +519,7 @@ def build_parser() -> argparse.ArgumentParser:
     approve = subparsers.add_parser("approve")
     approve.add_argument("--id", required=True, type=int)
     approve.add_argument("--approval-ref", required=True)
+    approve.add_argument("--send-request-ref", help="Required for monitor drafts: the explicit instruction to send this exact message")
 
     revise = subparsers.add_parser("revise")
     revise.add_argument("--id", required=True, type=int)
@@ -563,7 +567,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         if args.operation == "prepare":
             return prepare_draft(connection, args)
         if args.operation == "approve":
-            return approve_draft(connection, args.id, args.approval_ref)
+            return approve_draft(connection, args.id, args.approval_ref, args.send_request_ref)
         if args.operation == "revise":
             return revise_draft(connection, args)
         if args.operation == "claim-send":

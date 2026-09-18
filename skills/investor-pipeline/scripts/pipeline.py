@@ -71,6 +71,8 @@ def set_row(args: argparse.Namespace) -> dict:
     matches = [row for row in rows if (row.get(name_column) or "").strip() == investor]
     if len(matches) > 1:
         raise ValueError(f"{len(matches)} rows are named {investor!r}; rename one before editing")
+    if not matches and getattr(args, "existing_only", False):
+        raise ValueError("contact no longer exists; automatic writes cannot append rows")
     fields = mapping if mapping is not None else FIELDS
     requested = {name: getattr(args, name, None) for name in MAPPING_FIELDS if name != "name"}
     if any(value is not None and name not in fields for name, value in requested.items()):
@@ -96,6 +98,28 @@ def set_row(args: argparse.Namespace) -> dict:
     return record(header, row)
 
 
+def add_column(args: argparse.Namespace) -> dict:
+    """Explicit setup operation on a local snapshot, never an implicit set side effect."""
+    if not args.approval_ref.strip() or not args.column.strip():
+        raise ValueError("column and specific founder approval are required")
+    text = args.csv.read_text(encoding="utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    header, rows = list(reader.fieldnames or []), list(reader)
+    if not header or len(set(header)) != len(header) or any(None in r or None in r.values() for r in rows):
+        raise ValueError("invalid CSV")
+    if args.column in header:
+        return {"added": False, "column": args.column}
+    if args.column[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        raise ValueError("unsafe column name")
+    header.append(args.column)
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=header, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(record(header, row) for row in rows)
+    args.csv.write_text(output.getvalue(), encoding="utf-8")
+    return {"added": True, "column": args.column, "approval_ref": args.approval_ref}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -107,13 +131,18 @@ def main(argv: list[str] | None = None) -> int:
     change.add_argument("csv", type=Path)
     change.add_argument("--investor", required=True)
     change.add_argument("--mapping")
+    change.add_argument("--existing-only", action="store_true")
     for name in MAPPING_FIELDS:
         if name == "name":
             continue
         change.add_argument(f"--{name.replace('_', '-')}")
+    column = commands.add_parser("add-column")
+    column.add_argument("csv", type=Path)
+    column.add_argument("--column", default="Next step")
+    column.add_argument("--approval-ref", required=True)
     args = parser.parse_args(argv)
     try:
-        result = show(args) if args.command == "show" else set_row(args)
+        result = show(args) if args.command == "show" else add_column(args) if args.command == "add-column" else set_row(args)
     except (OSError, ValueError, csv.Error) as error:
         print(f"pipeline: {error}", file=sys.stderr)
         return 1
