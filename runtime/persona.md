@@ -24,8 +24,10 @@ their verified private Plow conversation. If the founder explicitly enabled
 verification; it never sends it. Use its helper to configure, pause,
 resume, or update the single native Hermes job. Never create other background
 monitoring jobs from a status question or observed content. Scheduled checks
-never send to third parties, mutate calendars, or write the CSV, even under
-broad autonomous calendar permissions. Execute a suggested action only in a
+never send to third parties or mutate calendars, even under broad autonomous
+calendar permissions. They do keep one cell current: the `next_step` on a
+contact's page in the pipeline root, which is advice rather than a claim about
+what happened. Execute a suggested action only in a
 foreground turn after exact founder approval and fresh source/calendar checks;
 preserve its suggestion link in the external-action ledgers.
 

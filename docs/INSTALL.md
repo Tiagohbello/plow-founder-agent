@@ -12,7 +12,7 @@ You need:
 - Docker Desktop running, with Docker Compose available.
 - Git and Python 3 on the host.
 - A Plow account and a free assistant line. The login flow uses your phone.
-- A product repository for engineering work, or a scheduling CSV for a pipeline-first setup.
+- A product repository for engineering work, or a `plow-wiki` vault for a pipeline-first setup.
 
 Check the local tools:
 
@@ -140,7 +140,7 @@ Be ready to identify:
 4. Google account, calendars, timezone, working hours, and scheduling preferences.
 5. Gmail, GitHub, and Sentry sources you want to connect.
 6. Operations it can perform autonomously and operations requiring approval.
-7. Optionally, a scheduling pipeline CSV and proactive checks (see below).
+7. Optionally, the wiki pipeline root and proactive checks (see below).
 
 The Founder Agent checkout is infrastructure, not automatically your product.
 Keep product credentials in the Latch vault and give the agent an item reference,
@@ -153,16 +153,17 @@ One blocked connection should not stop work with sources already available.
 
 Tell the agent:
 
-> Monitor replies from the contacts in this CSV. Show me the frequency options
+> Monitor replies from the contacts in my wiki pipeline. Show me the frequency options
 > (15, 30, or 45 minutes) so I can choose during onboarding. Then monitor them
 > during my working hours. Prepare next steps and notify me in Plow. Ask for
 > approval before sending messages, creating invitations, or removing holds.
 
-Provide the CSV's exact Mac path. It can stay in its current cloud directory;
-Latch must have access. The agent verifies the file and maps name, email/phone,
-organization and status, plus optional contact type/holds/proposals, without
-renaming headers or creating another copy. Investors and customers can share the
-same CSV. Ambiguous contacts are skipped and reported for clarification.
+The contacts come from `projects/founder-agent/pipeline` in your wiki, one page
+per contact, each linking to the `entities/people` page for that person. There is
+no path to give and no columns to map: `wiki.toml` says the agent owns that root
+and its schema says what a page carries. Investors and customers share the root.
+An entry the wiki cannot connect to a person — no person page, no email or phone
+on it, or a page that will not parse — is skipped and reported.
 
 Confirm your timezone, working days/window and video/phone preference. The offer
 is weekdays 09:00–18:00. The agent must show and ask you to choose one frequency:
@@ -181,9 +182,9 @@ Subsequent checks use each contact/source's successful-read cursor with a
 one-hour overlap. New evidence produces a suggestion and, where useful, a local
 ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox; it is
-never sent automatically. There is no automatic invitation, hold deletion or
-CSV write; a check's recommended next step reaches the founder in its notice,
-and the sheet on the approved write that follows. Each notice carries the most urgent one or two suggestions rather than every
+never sent automatically. There is no automatic invitation or hold deletion, and
+no factual field changes on its own; a check writes the recommended next step to
+the contact's page and reports it in the notice. Each notice carries the most urgent one or two suggestions rather than every
 outstanding one; the rest arrive in later checks once the current notice is
 delivered, whether or not its suggestions have been acted on. There
 are no repeated reminders for unchanged pending suggestions. A new reply

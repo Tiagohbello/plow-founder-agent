@@ -225,6 +225,28 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(found["contacts"], [])
         self.assertEqual(monitor.suggestion(self.db, 1)["status"], "superseded")
 
+    def test_a_check_may_write_the_advice_and_nothing_else(self):
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        update = monitor.page_update(self.db, item["id"])
+        self.assertEqual(update["path"], f"{monitor.PIPELINE_ROOT}/alex.md")
+        # The payload carries a calendar plan and a draft; none of that is a fact
+        # about the world an unattended check gets to assert in the founder's wiki.
+        self.assertEqual(list(update["changes"]), ["next_step"])
+        self.assertEqual(update["changes"]["next_step"], self.observation()["next_step"])
+        # ... and it stays advice even when the suggestion is approved and executing.
+        monitor.supersede(self.db, item["id"])
+        with self.assertRaisesRegex(ValueError, "no current advice"):
+            monitor.page_update(self.db, item["id"])
+
+    def test_a_source_blocker_has_no_page_to_write(self):
+        blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
+                                   calendar_plan=[], conversation_ref="source:gmail",
+                                   evidence_refs=["gmail:auth-failure"],
+                                   summary="Gmail access is blocked.", next_step="Reconnect Gmail. Approve?")
+        item = monitor.observe(self.db, blocked)["suggestion"]
+        with self.assertRaisesRegex(ValueError, "no pipeline page"):
+            monitor.page_update(self.db, item["id"])
+
     def test_window_overlap_failure_and_source_isolation(self):
         key = self.contact["contact_key"]
         now = datetime(2026, 1, 31, tzinfo=timezone.utc)

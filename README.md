@@ -30,7 +30,7 @@ result, or a tested draft PR.
 | Google Calendar | Manages availability, events, recurrence, guests, and scheduling preferences |
 | Product Access | Operates your admin or application through the Latch browser and vault |
 | External Action | Records approval, idempotency, and reconciliation of external writes |
-| Investor Pipeline | Reads and updates a mapped scheduling CSV for investors, customers, and other contacts; preserves the legacy investor format |
+| Investor Pipeline | Reads and updates the pipeline root in your wiki: one page per investor, customer or other scheduling contact |
 | Founder Scheduling | Runs the investor hold lifecycle: options → holds → send → confirm → sweep |
 | Pipeline Monitor | Opt-in checks during working hours; prepares the most urgent one or two next steps and notifies you privately in Plow, with approval before external actions |
 
@@ -49,13 +49,16 @@ is pinned by commit and checksum and runs hourly beside the gateway. See the
 
 The agent works when asked, with one opt-in exception: a single pipeline monitor
 can check your scheduling contacts every 15, 30, or 45 minutes during
-your selected working hours. It reads the CSV and available conversations,
-prepares local suggestions/drafts, and notifies you in your private Plow chat
-only about new actionable evidence or blockers. During onboarding, you choose
+your selected working hours. It reads your wiki pipeline and available conversations,
+prepares local suggestions/drafts, keeps each contact's suggested next step
+current in your wiki, and notifies you in your private Plow chat only about new
+actionable evidence or blockers. During onboarding, you choose
 the frequency explicitly and whether prepared Gmail replies should also be saved
-as verified real drafts in your inbox. Monitoring never sends to third parties,
-changes calendars, or edits the CSV; those actions require your specific approval
-and fresh checks, even with broader calendar autonomy enabled. Pause, resume,
+as verified real drafts in your inbox. Monitoring never sends to third parties or
+changes calendars, and the only thing it writes is the suggested next step —
+advice you can ignore. Sending, calendar changes and every factual field require
+your specific approval and fresh checks, even with broader calendar autonomy
+enabled. Pause, resume,
 check now, and change frequency through chat. See [setup and acceptance checks](docs/INSTALL.md#optional-proactive-scheduling).
 
 For requested work, the agent can observe
