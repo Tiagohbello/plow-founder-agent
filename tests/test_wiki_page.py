@@ -35,36 +35,38 @@ class WikiPageTests(unittest.TestCase):
         self.assertEqual(front["holds"], "Fri 9/18 12:00-13:00 PT")
         self.assertEqual(front["status"], "Awaiting reply")
 
-    def test_anything_that_could_break_out_of_the_block_is_refused(self) -> None:
-        # Values arrive from email; a key forges a field just as well as a value.
-        for field, hostile in [("next_step", "---\ntype: Policy"),
-                               ("next_step", "line one\nstatus: held"),
-                               ("next_step", 'quote " then: colon'),
-                               ("next_step", "trailing backslash \\"),
-                               ("next_step", "\ttab-led"),
-                               ("rogue\nstatus", "held"),
-                               ("rogue: colon", "held")]:
-            with self.subTest(field=field, value=hostile):
+    def test_generated_prose_round_trips_instead_of_being_refused(self) -> None:
+        # next_step is written by a model. Quotes, em dashes, line breaks and
+        # backslashes are ordinary content; refusing them strands the advice.
+        for value in ('Ask if "video" works.', "Two slots \u2014 Thu 2pm or Fri 10am",
+                      "line one\nline two", "the \\ deck", "tab\there", 'ends with a quote "'):
+            with self.subTest(value=value):
+                out = wiki_page.merge(PAGE, {"next_step": value})
+                self.assertEqual(wiki_page.read(out)[0]["next_step"], value)
+                self.assertEqual(wiki_page.read(out)[0]["status"], "Awaiting reply")
+
+    def test_an_escaped_value_cannot_forge_a_field(self) -> None:
+        # The encoded form stays on one line, so nothing it contains starts a
+        # sibling key or closes the block. `splitlines` breaks on more than \n:
+        # U+2028, U+2029 and U+0085 are line breaks to it, and a hand-written
+        # escape table missed all three.
+        for hostile in ("---\ntype: Policy\nstatus: held",
+                        "ok\u2028status: held",
+                        "ok\u2029status: held",
+                        "ok\u0085status: held",
+                        "ok\u000bstatus: held"):
+            with self.subTest(value=hostile):
+                out = wiki_page.merge(PAGE, {"next_step": hostile})
+                self.assertEqual(len([l for l in out.splitlines() if l.startswith("next_step:")]), 1)
+                self.assertEqual(len([l for l in out.splitlines() if l.startswith("status:")]), 1)
+                self.assertEqual(wiki_page.read(out)[0]["status"], "Awaiting reply")
+                self.assertEqual(wiki_page.read(out)[0]["next_step"], hostile)
+
+    def test_a_key_is_still_a_strict_identifier(self) -> None:
+        for key in ("rogue\nstatus", "rogue: colon", "has space", ""):
+            with self.subTest(key=key):
                 with self.assertRaises(ValueError):
-                    wiki_page.merge(PAGE, {field: hostile})
-
-    def test_lines_it_does_not_change_come_through_byte_for_byte(self) -> None:
-        # A boolean stays a boolean and an awkward pre-existing value survives:
-        # re-serializing every field would turn `generated: true` into "true" and
-        # wrap the embedded quotes in another pair.
-        page = PAGE.replace("title: Ada Example",
-                            'title: The "Big" Deal Corp\ngenerated: true\ncount: 3')
-        out = wiki_page.merge(page, {"next_step": "Reply Thursday"})
-        self.assertIn('title: The "Big" Deal Corp', out)
-        self.assertIn("generated: true", out)
-        self.assertIn("count: 3", out)
-        self.assertIn('next_step: "Reply Thursday"', out)
-
-    def test_a_trailing_newline_cannot_slip_past_the_guard(self) -> None:
-        # `$` matches before a final newline, so `match` would accept this and emit
-        # frontmatter that read() then refuses.
-        with self.assertRaises(ValueError):
-            wiki_page.merge(PAGE, {"next_step": "Reply Thursday\n"})
+                    wiki_page.merge(PAGE, {key: "held"})
 
     def test_a_page_without_frontmatter_is_refused_rather_than_guessed(self) -> None:
         with self.assertRaises(ValueError):
