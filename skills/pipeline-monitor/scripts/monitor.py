@@ -491,6 +491,14 @@ def decide(db, sid, data):
         item = suggestion(db, sid)
         if item["status"] not in ("pending", "approved"):
             raise ValueError("suggestion is no longer actionable")
+        # Keeping an unlinked contact's suggestion pending is what makes a page that
+        # would not parse recoverable. It must not also make it executable: the last
+        # read could not connect this contact to a person, and the skill says such a
+        # contact cannot execute. Said here too, because approval is the gate before
+        # any external effect and prose is not a gate.
+        if not item["contact_key"].startswith("source:") and not db.execute(
+                "SELECT 1 FROM monitor_contact WHERE contact_key=?", (item["contact_key"],)).fetchone():
+            raise ValueError("contact is not in the latest verified pipeline read; re-read it first")
         if digest(sorted(set(data["evidence_refs"]))) != item["evidence_key"]:
             raise ValueError("evidence changed: observe the new facts and request fresh approval")
         shown = db.execute("SELECT * FROM monitor_notice WHERE id=? AND status='delivered'",
