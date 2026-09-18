@@ -24,9 +24,9 @@ suggestions only. Foreground execution of a monitor suggestion requires its
 specific founder approval and fresh evidence, with `--suggestion-id` on calendar
 ledger preparations. Use its existing linked draft for a communication send.
 Every step leaves each contact's row it touches true of
-the calendar by the end of the same turn: `Holds` lists exactly the events
-that still exist, `Proposed` describes what was actually sent, and `Status`
-is one of this skill's own words. A blank `Proposed` is never
+the calendar by the end of the same turn: `holds` lists exactly the events
+that still exist, `proposed` describes what was actually sent, and `status`
+is one of this skill's own words. A blank `proposed` is never
 proof that nothing went out — verify before acting on it. Every step
 records what actually happened, never what was intended.
 
@@ -50,9 +50,9 @@ account and calendar the founder named, or the configured work default
 when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`
 (drop ` / <Firm>` when `Firm` is blank), description `Tentative — no
 invitation sent`, notifications off. Record the times — read the row's
-existing `Holds` first and pass the complete `; `-joined value, the same
+existing `holds` first and pass the complete `; `-joined value, the same
 append Repurpose uses, so a second hold request never drops the events the
-first one left standing — and set `Status` to `held`. Holding is never
+first one left standing — and set `status` to `held`. Holding is never
 sending.
 
 ## Send
@@ -80,11 +80,11 @@ not claim or send; prepare the changed record and request approval again.
 After a successful claim, send once and retain `message_id` from the successful
 `plow_send_message` receipt. That receipt is not verification: separately read
 the message back from that exact conversation and verify its body before
-passing the retained id to `mark-sent`, recording `Proposed`, and setting
-`Status` to `sent`. If the send receipt, its id, or the body read-back is
+passing the retained id to `mark-sent`, recording `proposed`, and setting
+`status` to `sent`. If the send receipt, its id, or the body read-back is
 ambiguous or unavailable — including a warning that the message was not
 mirrored or no live session owns the chat — mark the draft uncertain, record
-`Proposed` noting the send was not confirmed, and set `Status` to `unverified`;
+`proposed` noting the send was not confirmed, and set `status` to `unverified`;
 never report success or retry. A claim reporting `already_sent` or
 `verification_required` never authorizes another send.
 
@@ -102,7 +102,7 @@ meeting format and stored preference; do not substitute phone for requested vide
 and omit a conferencing link for an explicitly approved phone/in-person meeting.
 Fetch and verify the
 created invitation before deleting any holds. Then delete only the matching
-sibling hold events, clear `Holds` (`"--holds", ""`), and set `Status` to
+sibling hold events, clear `holds` (merge it empty), and set `status` to
 `confirmed`. A date agreed without a time is not confirmed — say so and
 ask for the time. A partial or uncertain operation stops the remaining steps:
 reconcile the existing ledger records, never recreate a verified invitation.
@@ -113,12 +113,12 @@ ask for it rather than inventing one. Private suggestion state already lives in 
 ## Sweep
 
 On "are any of these holds real?" or "clear them", list the `HOLD —` events
-in the window and find each one's pipeline row by title. Check email,
+in the window and find each one's pipeline page by title. Check email,
 texts (Messages through Latch), and the agent's own Plow conversations
 (`session_search`) for that investor at those exact times before deleting
-a blank-`Proposed` hold — found evidence means it was sent, so ask the
+a blank-`proposed` hold — found evidence means it was sent, so ask the
 founder rather than delete; no evidence means delete the event, through
-`founder-calendar`/`external-action`, and report it. `Proposed` set means
+`founder-calendar`/`external-action`, and report it. `proposed` set means
 show the founder the thread and ask before deleting. A hold with no
 matching row falls back to the same evidence check before asking — that
 hold has no row to write back to, so the record stays untouched. For a
@@ -131,17 +131,17 @@ confirm the rest remain.
 
 Moving held times to another investor renames the events (title and
 description), through `founder-calendar`/`external-action`, and appends
-them to the destination row's existing `Holds` — read first, `; `-joined
-with what is already there, never overwritten — setting its `Status` to
+them to the destination page's existing `holds` — read first, `; `-joined
+with what is already there, never overwritten — setting its `status` to
 `held` unless it is already further along (e.g. `confirmed`), then clears
-them from the source row's `Holds` in the same turn — remaining entries
-kept (`; `-joined), the cell emptied (`"--holds", ""`) when nothing is
+them from the source row's `holds` in the same turn — remaining entries
+kept (`; `-joined), the field emptied when nothing is
 left, the same write-back Sweep uses; attendees stay empty and
-notifications stay off. Before moving a blank-`Proposed` hold, check
+notifications stay off. Before moving a blank-`proposed` hold, check
 email, texts (Messages through Latch), and the agent's own Plow
 conversations (`session_search`) for that investor at those exact times
-— evidence found means ask the founder first, same as when `Proposed` is
-set; no evidence means it moves freely. When `Proposed` is set, the
+— evidence found means ask the founder first, same as when `proposed` is
+set; no evidence means it moves freely. When `proposed` is set, the
 times were sent to the first investor: ask the founder before taking
-them, and on a yes, set the source row's `Status` to `withdrawn` and
-leave `Proposed` standing as the record of what was offered.
+them, and on a yes, set the source row's `status` to `withdrawn` and
+leave `proposed` standing as the record of what was offered.
