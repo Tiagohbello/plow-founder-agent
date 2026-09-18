@@ -114,11 +114,12 @@ tie (never guess or merge them yourself).
 
 ## Keep it current
 
-Scheduled `pipeline-monitor` checks write one column of this file: the mapped
-`next_step`, which is advice the founder can ignore. Every factual column stays
-closed to them — a pending suggestion is not a status change, a hold, or a sent
-proposal. The write-back below applies to foreground requests and approved,
-verified actions.
+Scheduled `pipeline-monitor` checks never write this file — not even the
+advisory `next_step`: the upload above replaces the file whole, and the only
+thing that makes that safe is asking the founder to close the sheet, which an
+unattended check cannot do. Their pending next steps reach the founder in the
+notice. The write-back below applies to foreground requests and approved,
+verified actions, `next_step` among them.
 
 An update is part of the action, not a follow-up: whenever this skill is
 asked to record a change to a row — a status update, a hold, a proposal —
