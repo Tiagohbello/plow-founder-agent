@@ -114,9 +114,11 @@ tie (never guess or merge them yourself).
 
 ## Keep it current
 
-Scheduled `pipeline-monitor` checks never write this file. Their pending next
-steps are private SQLite suggestions, not factual CSV status changes. The
-write-back below applies to foreground requests and approved, verified actions.
+Scheduled `pipeline-monitor` checks write one column of this file: the mapped
+`next_step`, which is advice the founder can ignore. Every factual column stays
+closed to them — a pending suggestion is not a status change, a hold, or a sent
+proposal. The write-back below applies to foreground requests and approved,
+verified actions.
 
 An update is part of the action, not a follow-up: whenever this skill is
 asked to record a change to a row — a status update, a hold, a proposal —

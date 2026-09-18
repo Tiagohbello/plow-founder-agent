@@ -181,8 +181,9 @@ Subsequent checks use each contact/source's successful-read cursor with a
 one-hour overlap. New evidence produces a suggestion and, where useful, a local
 ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox; it is
-never sent automatically. There is no automatic invitation, hold deletion or
-CSV write. There are no repeated reminders for unchanged pending suggestions. A
+never sent automatically. Each check refreshes the mapped `next_step` column so
+the sheet carries the current recommendation; there is no automatic invitation,
+hold deletion or factual CSV write. There are no repeated reminders for unchanged pending suggestions. A
 new reply invalidates the old suggestion's approval.
 The calendar operations must exactly match the plan displayed in that notice.
 Obsolete Gmail drafts enter a persistent reconciliation queue: the agent flags
