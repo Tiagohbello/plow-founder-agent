@@ -30,7 +30,7 @@ result, or a tested draft PR.
 | Google Calendar | Manages availability, events, recurrence, guests, and scheduling preferences |
 | Product Access | Operates your admin or application through the Latch browser and vault |
 | External Action | Records approval, idempotency, and reconciliation of external writes |
-| Investor Pipeline | Reads and updates the pipeline root in your wiki: one page per investor, customer or other scheduling contact |
+| Investor Pipeline | Reads and updates a mapped scheduling CSV for investors, customers, and other contacts; preserves the legacy investor format |
 | Founder Scheduling | Runs the investor hold lifecycle: options → holds → send → confirm → sweep |
 | Pipeline Monitor | Opt-in checks during working hours; prepares the most urgent one or two next steps and notifies you privately in Plow, with approval before external actions |
 

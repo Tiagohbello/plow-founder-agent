@@ -281,23 +281,10 @@ class MonitorTests(unittest.TestCase):
         # about the world an unattended check gets to assert in the founder's wiki.
         self.assertEqual(list(update["changes"]), ["next_step"])
         self.assertEqual(update["changes"]["next_step"], self.observation()["next_step"])
-        # ... and it stays advice even when the suggestion is approved and executing.
+        # Once it is resolved the answer is what is left standing, which here is
+        # nothing — the field never widens and the page never keeps stale advice.
         monitor.supersede(self.db, item["id"])
-        with self.assertRaisesRegex(ValueError, "no current advice"):
-            monitor.page_update(self.db, item["id"])
-
-    def test_the_newest_active_suggestion_is_the_contact_s_current_advice(self):
-        # Two live conversations for one contact must not leave the page showing
-        # whichever happened to be processed last.
-        first = monitor.observe(self.db, self.observation())["suggestion"]
-        second = monitor.observe(self.db, self.observation(
-            conversation_ref="gmail:second-thread", evidence_refs=["gmail:message-9"],
-            action="new_options", summary="Alex proposed two new times.",
-            next_step="Check both against the calendar. Approve?"))["suggestion"]
-        with self.assertRaisesRegex(ValueError, f"suggestion {second['id']} is this contact"):
-            monitor.page_update(self.db, first["id"])
-        self.assertEqual(monitor.page_update(self.db, second["id"])["changes"]["next_step"],
-                         "Check both against the calendar. Approve?")
+        self.assertEqual(monitor.page_update(self.db, item["id"])["changes"], {"next_step": ""})
 
     def test_current_advice_follows_evidence_and_empties_when_nothing_is_left(self):
         # One lifecycle: an old thread read after a new one does not outrank it,
@@ -313,35 +300,28 @@ class MonitorTests(unittest.TestCase):
             next_step="Reply to the old thread. Approve?"))["suggestion"]
         self.assertGreater(stale["id"], recent["id"])
 
-        with self.assertRaisesRegex(ValueError, f"suggestion {recent['id']} is this contact"):
-            monitor.page_update(self.db, stale["id"])
-        self.assertEqual(monitor.page_update(self.db, recent["id"])["changes"]["next_step"],
-                         "Confirm Thursday. Approve?")
+        # Naming either suggestion answers for the contact, so an older thread's id
+        # cannot put older advice on the page.
+        for named in (stale, recent):
+            with self.subTest(named=named["id"]):
+                self.assertEqual(monitor.page_update(self.db, named["id"])["changes"]["next_step"],
+                                 "Confirm Thursday. Approve?")
 
         for resolved, remaining in ((stale, "Confirm Thursday. Approve?"), (recent, "")):
             with self.subTest(resolved=resolved["id"]):
                 monitor.supersede(self.db, resolved["id"])
                 self.assertEqual(monitor.current_advice(self.db, "alex")["changes"]["next_step"], remaining)
 
-    def test_finish_projects_the_page_update_itself(self):
+    def test_a_resolved_suggestion_still_answers_for_its_contact(self):
+        # Asked after `finish`, which is when the caller asks: the answer is what is
+        # left standing, not an error and not the advice just completed.
         item = monitor.observe(self.db, self.observation())["suggestion"]
         self.approve(item)
-        done = self.helper("pipeline-monitor", "monitor.py", "finish", "--id", str(item["id"]),
-                           "--outcome", "completed", "--ref", "calendar:invite-1")
-        # Projected from the row just resolved, so nothing composes a destination
-        # and the order cannot be got wrong.
-        self.assertEqual(done["page_update"]["path"], f"{monitor.PIPELINE_ROOT}/alex.md")
-        self.assertEqual(done["page_update"]["changes"]["next_step"], "")
-
-    def test_finishing_a_source_blocker_has_no_page_to_update(self):
-        blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
-                                   calendar_plan=[], conversation_ref="source:gmail",
-                                   evidence_refs=["gmail:auth-failure"],
-                                   summary="Gmail access is blocked.", next_step="Reconnect Gmail. Approve?")
-        item = monitor.observe(self.db, blocked)["suggestion"]
-        done = self.helper("pipeline-monitor", "monitor.py", "finish", "--id", str(item["id"]),
-                           "--outcome", "dismissed", "--ref", "founder:dismissed")
-        self.assertIsNone(done["page_update"])
+        self.helper("pipeline-monitor", "monitor.py", "finish", "--id", str(item["id"]),
+                    "--outcome", "completed", "--ref", "calendar:invite-1")
+        update = monitor.page_update(self.db, item["id"])
+        self.assertEqual(update["path"], f"{monitor.PIPELINE_ROOT}/alex.md")
+        self.assertEqual(update["changes"]["next_step"], "")
 
     def test_a_source_blocker_has_no_page_to_write(self):
         blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,

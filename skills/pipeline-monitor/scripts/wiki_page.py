@@ -8,6 +8,7 @@ rewritten into something else.
 """
 from __future__ import annotations
 
+import json
 import re
 
 FENCE = "---"
@@ -17,22 +18,27 @@ FENCE = "---"
 # A key forges a field, so it stays a strict identifier. `fullmatch`, not `match`:
 # `$` also matches before a trailing newline, which `match` would let through.
 SAFE_KEY = re.compile(r"^[A-Za-z0-9_.-]+$")
-# Values are generated prose -- quotes, dashes and line breaks are ordinary content.
-# A double-quoted scalar can carry all of them, so encode rather than refuse: a guard
-# that rejects a legitimate next step strands the advice instead of protecting anyone.
-_ESCAPED = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
-_UNESCAPED = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\"}
 
 
 def decode(raw: str) -> str:
     """A double-quoted scalar's real value; anything else verbatim."""
     if len(raw) >= 2 and raw.startswith('"') and raw.endswith('"'):
-        return re.sub(r"\\(.)", lambda m: _UNESCAPED.get(m.group(1), m.group(1)), raw[1:-1])
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return raw
     return raw
 
 
 def encode(value: str) -> str:
-    return '"' + "".join(_ESCAPED.get(c, c) for c in value) + '"'
+    """A JSON string literal, which is also a valid YAML double-quoted scalar.
+
+    Hand-written escaping kept missing things -- first a terminal newline, then
+    U+0085 and U+2028, which `splitlines` breaks on and which would have turned
+    model-written advice into a forged frontmatter field. `json.dumps` escapes
+    every control character and every non-ASCII codepoint by construction, so the
+    set cannot drift out of date the way a table maintained by hand does."""
+    return json.dumps(value)
 
 
 def read(text: str) -> tuple[dict, str]:
