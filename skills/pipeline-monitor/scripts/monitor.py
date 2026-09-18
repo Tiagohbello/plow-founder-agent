@@ -441,31 +441,22 @@ def current_advice(db, contact_key):
 
 
 def page_update(db, suggestion_id):
-    """The change a scheduled check may write to the founder's wiki: the advice,
-    and nothing else.
+    """What this suggestion's contact page should say now.
 
-    The field set is decided here rather than by the agent composing it from the
-    payload. The write is unattended and its content is derived from email, so
-    "only the advisory column" has to be something the code guarantees, not
-    something the prompt asks for. Status, holds and proposed are claims about the
-    world and still move only after verified execution of an approved suggestion."""
+    Answers for the contact, not for the suggestion named: the newest active
+    advice by evidence, or empty when nothing is outstanding. So it is correct
+    whether the suggestion is still active or has just been resolved, which is why
+    the caller runs it after reading the page rather than holding an answer taken
+    earlier -- a scheduled check writing between the two would otherwise be erased
+    by a snapshot older than the page.
+
+    The field set and the destination both come from rows this database holds. A
+    caller supplies an id and nothing else, so it cannot widen the write or steer
+    it out of the root."""
     item = suggestion(db, suggestion_id)
-    if item["status"] not in ("pending", "approved"):
-        raise ValueError("a suggestion in this state has no current advice to write")
-    slug = item["contact_key"]
-    if slug.startswith("source:"):
+    if item["contact_key"].startswith("source:"):
         raise ValueError("a source blocker has no pipeline page")
-    # Two active conversations for one contact would otherwise leave the page showing
-    # whichever was processed last. Rank by when the evidence happened, not when the
-    # row was written -- an older thread read later still carries older advice -- and
-    # fall back to the id only to break a genuine tie.
-    current = db.execute("""SELECT id FROM monitor_suggestion WHERE contact_key=?
-                            AND status IN ('pending','approved')
-                            ORDER BY evidence_at DESC, id DESC LIMIT 1""", (slug,)).fetchone()
-    if current and current["id"] != suggestion_id:
-        raise ValueError(f"suggestion {current['id']} is this contact's current advice")
-    return {"path": f"{PIPELINE_ROOT}/{slug}.md",
-            "changes": {"next_step": item["payload"]["next_step"]}}
+    return current_advice(db, item["contact_key"])
 
 
 def observe(db, data):
@@ -689,12 +680,7 @@ def run(args):
                 if args.outcome == "dismissed": supersede(db, args.id)
                 db.execute("UPDATE monitor_suggestion SET status=?,validation_ref=?,updated_at=? WHERE id=?",
                            (args.outcome, required(args.ref, "result evidence"), stamp(), args.id))
-            done = suggestion(db, args.id)
-            # Projected here rather than by a following call, so the order cannot be
-            # got wrong and the destination is never a caller's string. A source
-            # blocker has no page, so it gets no update.
-            page = None if done["contact_key"].startswith("source:") else current_advice(db, done["contact_key"])
-            return {**done, "page_update": page}
+            return suggestion(db, args.id)
         raise ValueError("unknown command")
     finally:
         db.close()

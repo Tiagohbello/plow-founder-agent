@@ -308,14 +308,14 @@ never reuse their approval. Then follow existing `external-action`:
   Uncertain suggestions are not automatically re-approved. Inspect/reconcile
   their linked ledgers and obtain a new concrete founder decision before any
   replacement action. Preserve completed external effects in subsequent plans.
-- `finish` returns a `page_update` of its own: the advice left standing for that
-  contact once this suggestion is resolved, empty when nothing is, and `null` for
-  a source blocker, which has no page. Apply it through the same
-  read/merge/compare/write path, in the same write as the verified factual fields
-  on `completed`. Do not compose the next step and do not ask for it separately —
-  it is projected from the row just resolved, so there is no order to get wrong
-  and no destination for anyone to supply. A resolved suggestion left standing as
-  the current recommendation is the page lying about what is outstanding.
+- Then update the page, in the same write as the verified factual fields on
+  `completed`: read it, run `page-update --id N`, merge what it returns, compare
+  and write. Ask **after** the read, not before — it answers for the contact
+  rather than for the suggestion, so a scheduled check that wrote between the two
+  is reflected rather than erased by an older answer. Re-run it on a compare
+  retry for the same reason. Do not compose the next step yourself. A resolved
+  suggestion left standing as the current recommendation is the page lying about
+  what is outstanding.
 
 These instructions and local guards complement Latch/provider permissions;
 they are not a separate sandbox or an alternate messaging client.

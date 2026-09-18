@@ -47,11 +47,20 @@ class WikiPageTests(unittest.TestCase):
 
     def test_an_escaped_value_cannot_forge_a_field(self) -> None:
         # The encoded form stays on one line, so nothing it contains starts a
-        # sibling key or closes the block.
-        out = wiki_page.merge(PAGE, {"next_step": '---\ntype: Policy\nstatus: held'})
-        self.assertEqual(len([l for l in out.splitlines() if l.startswith("next_step:")]), 1)
-        self.assertNotIn("\ntype: Policy", out)
-        self.assertEqual(wiki_page.read(out)[0]["status"], "Awaiting reply")
+        # sibling key or closes the block. `splitlines` breaks on more than \n:
+        # U+2028, U+2029 and U+0085 are line breaks to it, and a hand-written
+        # escape table missed all three.
+        for hostile in ("---\ntype: Policy\nstatus: held",
+                        "ok\u2028status: held",
+                        "ok\u2029status: held",
+                        "ok\u0085status: held",
+                        "ok\u000bstatus: held"):
+            with self.subTest(value=hostile):
+                out = wiki_page.merge(PAGE, {"next_step": hostile})
+                self.assertEqual(len([l for l in out.splitlines() if l.startswith("next_step:")]), 1)
+                self.assertEqual(len([l for l in out.splitlines() if l.startswith("status:")]), 1)
+                self.assertEqual(wiki_page.read(out)[0]["status"], "Awaiting reply")
+                self.assertEqual(wiki_page.read(out)[0]["next_step"], hostile)
 
     def test_a_key_is_still_a_strict_identifier(self) -> None:
         for key in ("rogue\nstatus", "rogue: colon", "has space", ""):
