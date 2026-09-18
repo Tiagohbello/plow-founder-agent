@@ -10,10 +10,9 @@ import re
 import sys
 from pathlib import Path
 
-COLUMNS = ("Investor", "Contact info", "Firm", "Status", "Holds", "Proposed", "Suggested next step")
-FIELDS = {"contact": "Contact info", "firm": "Firm", "status": "Status", "holds": "Holds",
-          "proposed": "Proposed", "next_step": "Suggested next step"}
-MAPPING_FIELDS = ("name", "contact", "email", "phone", "firm", "status", "type", "holds", "proposed", "next_step")
+COLUMNS = ("Investor", "Contact info", "Firm", "Status", "Holds", "Proposed")
+FIELDS = {"contact": "Contact info", "firm": "Firm", "status": "Status", "holds": "Holds", "proposed": "Proposed"}
+MAPPING_FIELDS = ("name", *FIELDS, "email", "phone", "type", "next_step")
 
 
 def validate_mapping(mapping: dict) -> dict:

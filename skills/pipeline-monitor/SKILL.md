@@ -50,7 +50,10 @@ draft, never sending.
 Get the exact CSV path; never scan arbitrary folders or copy it elsewhere. Read
 it through `plow_read_file`, save a temporary snapshot, propose a mapping and
 confirm ambiguous columns. Map `name` and at least one of `contact`, `email`,
-`phone`; map `firm`, `status`, `type`, `holds`, `proposed` when present. Separate
+`phone`; map `firm`, `status`, `type`, `holds`, `proposed` when present, and map
+`next_step` — checks write that column, so a configuration without it can only
+report the omission every run. An install configured before `next_step` existed
+reconfigures to add it. Separate
 email/phone columns are supported. Do not rename headers or append optional
 columns without asking. The existing investor format maps `name` to `Investor`,
 `contact` to `Contact info`, `firm` to `Firm`, etc.
@@ -73,7 +76,7 @@ configuration or payloads. Example configuration (synthetic values):
 {
   "csv_path": "~/Plow/calendaring-pipeline.csv",
   "csv_verified_ref": "verified read of configured CSV",
-  "mapping": {"name": "Name", "email": "Email", "phone": "Phone", "firm": "Company", "status": "Status", "type": "Type"},
+  "mapping": {"name": "Name", "email": "Email", "phone": "Phone", "firm": "Company", "status": "Status", "type": "Type", "next_step": "Suggested next step"},
   "timezone": "America/Los_Angeles",
   "weekdays": [0, 1, 2, 3, 4],
   "start": "09:00",
@@ -283,6 +286,11 @@ never reuse their approval. Then follow existing `external-action`:
   fresh-read/diff/write/read-back workflow. If the sheet is open or changed,
   leave write-back pending and report that; never repeat an already completed
   calendar operation to retry a CSV write.
+- Before `finish`, replace the row's mapped `next_step` with what the founder
+  should do next — empty when nothing is pending — through the same
+  fresh-read/diff/write/read-back path, carried in the same write as the
+  verified factual columns on `completed`. A resolved suggestion left standing
+  as the current recommendation is the sheet lying about what is outstanding.
 - Run `finish --id N --outcome completed|uncertain|dismissed --ref <evidence>`.
   Uncertain suggestions are not automatically re-approved. Inspect/reconcile
   their linked ledgers and obtain a new concrete founder decision before any
