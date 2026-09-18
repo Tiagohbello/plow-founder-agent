@@ -1,12 +1,12 @@
 ---
 name: founder-scheduling
-description: "Find times, place holds, send proposals, confirm picks, and sweep stale holds for investor meetings, through founder-calendar, gmail, and investor-pipeline."
+description: "Find times, place holds, send proposals, confirm picks, and sweep stale holds for investor meetings, through founder-calendar, gmail, and the wiki pipeline."
 version: 1.0.0
 author: Founder Agent
 metadata:
   hermes:
     tags: [founder, investors, scheduling, calendar, holds]
-    related_skills: [founder-context, founder-calendar, external-action, gmail, investor-pipeline, pipeline-monitor]
+    related_skills: [founder-context, founder-calendar, external-action, gmail, pipeline-monitor]
 ---
 
 # Founder Scheduling
@@ -15,8 +15,8 @@ Use for the contact hold lifecycle (investors, customers, and other contacts): p
 them, confirming a pick, sweeping stale holds, and repurposing a hold to
 another investor. This skill owns the workflow only. It delegates
 availability reads to Latch's `google-workspace`, calendar writes to
-`founder-calendar`/`external-action`, email to `gmail`, and the record to
-`investor-pipeline`. It never sends anything on its own. Only `pipeline-monitor`
+`founder-calendar`/`external-action`, email to `gmail`, and the record to the
+contact's page in the wiki pipeline root. It never sends anything on its own. Only `pipeline-monitor`
 may configure the explicitly opted-in background check; that check prepares
 suggestions only. Foreground execution of a monitor suggestion requires its
 specific founder approval and fresh evidence, with `--suggestion-id` on calendar
@@ -24,7 +24,7 @@ ledger preparations. Use its existing linked draft for a communication send.
 Every step leaves each contact's row it touches true of
 the calendar by the end of the same turn: `Holds` lists exactly the events
 that still exist, `Proposed` describes what was actually sent, and `Status`
-is one of `investor-pipeline`'s own words. A blank `Proposed` is never
+is one of this skill's own words. A blank `Proposed` is never
 proof that nothing went out — verify before acting on it. Every step
 records what actually happened, never what was intended.
 
@@ -37,9 +37,7 @@ travel, medical, school logistics, or otherwise marked do-not-overbook) or
 soft (internal standups, household services, optional blocks). Apply the
 request's own rules — blackout days, deadlines, duration — and offer N
 options in the counterparty's timezone, none overlapping another investor's
-live holds in the configured pipeline (legacy fallback
-`~/Plow/investors/pipeline.csv`). Read its mapped fields from Founder Profile's
-`pipeline_monitor.config` when configured. Explain a soft overlap to
+live holds in the pipeline root. Read the contact's page for them. Explain a soft overlap to
 the founder privately; never name it in outgoing text.
 
 ## Hold
@@ -106,9 +104,9 @@ sibling hold events, clear `Holds` (`"--holds", ""`), and set `Status` to
 `confirmed`. A date agreed without a time is not confirmed — say so and
 ask for the time. A partial or uncertain operation stops the remaining steps:
 reconcile the existing ledger records, never recreate a verified invitation.
-For mapped CSVs, write only configured fields and preserve unknown columns;
-if a needed scheduling field is absent, request adding it rather than silently
-changing the sheet's schema. Private suggestion state already lives in SQLite.
+Write only the fields the schema names and leave the rest of the page alone —
+`wiki_page.merge` does that for you. If a needed field is absent from the schema,
+ask for it rather than inventing one. Private suggestion state already lives in SQLite.
 
 ## Sweep
 
@@ -122,11 +120,10 @@ founder rather than delete; no evidence means delete the event, through
 show the founder the thread and ask before deleting. A hold with no
 matching row falls back to the same evidence check before asking — that
 hold has no row to write back to, so the record stays untouched. For a
-hold matched to a pipeline row, verify
-each delete from the API's own response, then update that row with
-`investor-pipeline`'s `set` so `Holds` lists only what survives — empty
-(`"--holds", ""`) if nothing does — and re-read the window to confirm the
-rest remain.
+hold matched to a pipeline page, verify
+each delete from the API's own response, then merge `holds` on that page so it
+lists only what survives — empty if nothing does — and re-read the window to
+confirm the rest remain.
 
 ## Repurpose
 
