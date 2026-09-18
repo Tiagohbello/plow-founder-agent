@@ -309,24 +309,52 @@ discovering and running it. `investor-pipeline` was retired when the pipeline
 moved into the wiki. Remove its seeded copy once, per install:
 
 ```
-docker compose exec agent hermes skills uninstall investor-pipeline --yes
+docker compose exec --user hermes agent sh -c 'd=/var/lib/hermes; s=$d/skills/investor-pipeline; \
+  a=$d/.retired/investor-pipeline; \
+  if [ ! -d "$s" ]; then echo "already retired"; exit 0; fi; \
+  if [ -e "$a" ]; then echo "$a already exists; move it aside first" >&2; exit 1; fi; \
+  mkdir -p "$d/.retired" && mv "$s" "$a"'
 docker compose exec agent ls /var/lib/hermes/skills/investor-pipeline   # expect: No such file
 ```
 
-A fresh install has nothing to remove. Skip it if the command reports the skill
-is already absent.
+`--user hermes` is load-bearing, not tidiness. `exec` runs as root by default and
+`/var/lib/hermes` is writable by the agent, so a compromised agent could leave
+`.retired` behind as a symlink into the root-owned `/opt/hermes/skills` and have
+root follow it. Running as the agent keeps the move inside the permissions the
+agent already has.
+
+Neither `hermes skills uninstall` nor `hermes skills reset --restore` does this,
+which is worth stating because both look like they should. `uninstall` refuses —
+*"not a hub-installed skill (may be a builtin)"* — and `reset --restore` refuses
+too once the bundle no longer carries it: *"not a tracked bundled skill. Nothing
+to reset."* The boot log's `1 cleaned from manifest` refers to the manifest
+entry, not the directory, which stays until something moves it.
+
+Moving rather than deleting keeps the copy recoverable, which is what the
+rollback below needs. The archive has a fixed name, so there is never more than
+one, and a missing skill exits early: running this on a fresh install, or twice,
+says `already retired` and changes nothing. A `mv` that genuinely fails still
+fails, rather than being reported as nothing to do. The archive is refused if it
+somehow already exists alongside the skill: `mv` would otherwise nest the skill
+*inside* it and exit 0, which is the same silent wrong answer in a new costume.
+Refusing rather than overwriting, because an existing archive is someone's copy.
 
 Before significant changes, back up the persistent volume with the agent stopped.
 For rollback, run the prior image/version against the same volume.
 Do not remove the volume as part of a normal update.
 
-The same rule makes that removal outlive a rollback: the home records the skill
-as deleted, and reconciliation honours a deletion however it got there, so the
-prior image comes back without the skill its scheduling workflow depends on.
-Rolling back past the wiki pipeline therefore takes one more step:
+The same rule makes that removal outlive a rollback: the home no longer has the
+skill, and reconciliation will not reinstate one it has been told is gone, so
+the prior image comes back without the skill its scheduling workflow depends on.
+Rolling back past the wiki pipeline therefore takes one more step — move the
+archived copy back:
 
 ```
-docker compose exec agent hermes skills reset investor-pipeline --restore --yes
+docker compose exec --user hermes agent sh -c 'd=/var/lib/hermes; a=$d/.retired/investor-pipeline; \
+  s=$d/skills/investor-pipeline; \
+  if [ ! -d "$a" ]; then echo "nothing archived to restore"; exit 0; fi; \
+  if [ -e "$s" ]; then echo "$s already exists; move it aside first" >&2; exit 1; fi; \
+  mv "$a" "$s"'
 ```
 
 ## Stop or uninstall
