@@ -21,6 +21,10 @@ import sys
 from zoneinfo import ZoneInfo
 
 JOB_NAME = "founder-pipeline-monitor"
+# The wiki root this agent owns. Fixed rather than configured: `wiki.toml` already
+# says who writes it, and a second place to name it is a second place to drift.
+PIPELINE_ROOT = "projects/founder-agent/pipeline"
+PEOPLE_ROOT = "entities/people"
 SOURCES = {"gmail", "messages", "plow"}
 # Most urgent first: the declaration order IS the priority. `observe` validates
 # membership against it and `stage_notice` ranks by position, so a founder's
@@ -163,11 +167,7 @@ def show(db):
 
 def validate_config(data):
     data = dict(data)
-    path = required(data.get("csv_path"), "csv_path")
-    if not path.startswith(("/", "~/")) or not path.lower().endswith(".csv"):
-        raise ValueError("csv_path must be an explicit Mac CSV path")
-    required(data.get("csv_verified_ref"), "CSV access evidence")
-    sibling("investor-pipeline", "pipeline.py").validate_mapping(data.get("mapping"))
+    required(data.get("wiki_verified_ref"), "wiki access evidence")
     ZoneInfo(required(data.get("timezone"), "timezone"))
     data.setdefault("weekdays", [0, 1, 2, 3, 4])
     days = data["weekdays"]
@@ -284,9 +284,7 @@ def configure(db, data, scheduler):
     if previous.get("job_id"):
         scheduler.call("pause", job_id=previous["job_id"])
     with db:
-        if previous.get("config", {}).get("csv_path") not in (None, config["csv_path"]) or (
-            previous.get("config") and previous["config"]["mapping"] != config["mapping"]
-        ):
+        if previous.get("config") and previous["config"].get("wiki_verified_ref") != config["wiki_verified_ref"]:
             for row in db.execute("SELECT id FROM monitor_suggestion WHERE status IN ('pending','approved')").fetchall():
                 supersede(db, row["id"])
             db.execute("DELETE FROM monitor_contact")
@@ -321,36 +319,39 @@ def gmail_cleanup(db):
     return sibling("external-action", "drafts.py").pending_gmail_cleanup(db)
 
 
-def identities(row, mapping):
-    content = "\n".join(row.get(mapping[k], "") for k in ("contact", "email", "phone") if k in mapping)
-    emails = {e.casefold() for e in re.findall(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", content)}
-    # No country inference: ambiguous/local numbers must be clarified.
-    phones = {"+" + re.sub(r"\D", "", p) for p in re.findall(r"\+\d[\d ()-]{6,}\d", content)}
-    phones = {p for p in phones if 8 <= len(p[1:]) <= 15}
-    return sorted(emails | phones)
+def page(vault, root, slug):
+    """One page's frontmatter, or None when the wiki does not have it."""
+    path = Path(vault) / root / f"{slug}.md"
+    if not path.is_file():
+        return None
+    return sibling("pipeline-monitor", "wiki_page.py").read(path.read_text(encoding="utf-8"))[0]
 
 
-def contacts(db, csv_path):
-    cfg = show(db).get("config")
-    if not cfg:
-        raise ValueError("configure first")
-    mapping = cfg["mapping"]
-    _, rows = sibling("investor-pipeline", "pipeline.py").load(Path(csv_path), mapping)
-    candidates, counts, names = [], {}, {}
-    for row in rows:
-        handles = identities(row, mapping)
-        name = row[mapping["name"]].strip()
-        for handle in handles:
-            counts[handle] = counts.get(handle, 0) + 1
-        names[name] = names.get(name, 0) + 1
-        candidates.append({"contact_key": digest(handles), "name": name, "handles": handles,
-                           "fields": {k: row[v] for k, v in mapping.items()}})
-    valid, ambiguous = [], []
-    for item in candidates:
-        if not item["name"] or not item["handles"] or names[item["name"]] > 1 or any(counts[h] > 1 for h in item["handles"]):
-            ambiguous.append(item)
-        else:
-            valid.append(item)
+def contacts(db, vault):
+    """The pipeline's entries, each paired with the person it points at.
+
+    A page is an identity -- the slug is unique by construction and stable across
+    edits -- so there is no handle-scraping and nothing to disambiguate. What a CSV
+    row could only imply, the vault states."""
+    root = Path(vault) / PIPELINE_ROOT
+    if not root.is_dir():
+        raise ValueError(f"{PIPELINE_ROOT} is not in the wiki; declare the root before enabling the monitor")
+    valid, unlinked = [], []
+    for entry in sorted(root.glob("*.md")):
+        slug = entry.stem
+        if slug == "index":
+            continue
+        fields = sibling("pipeline-monitor", "wiki_page.py").read(entry.read_text(encoding="utf-8"))[0]
+        person = page(vault, PEOPLE_ROOT, slug)
+        if person is None:
+            unlinked.append({"contact_key": slug, "reason": f"no {PEOPLE_ROOT} page"})
+            continue
+        handles = sorted({h for h in (person.get("email", ""), person.get("phone", "")) if h.strip()})
+        if not handles:
+            unlinked.append({"contact_key": slug, "reason": "the person page carries no email or phone"})
+            continue
+        valid.append({"contact_key": slug, "name": person.get("title") or slug,
+                      "handles": handles, "fields": fields})
     with db:
         keys = {c["contact_key"] for c in valid}
         for old in db.execute("SELECT id,contact_key FROM monitor_suggestion WHERE status IN ('pending','approved')").fetchall():
@@ -358,7 +359,7 @@ def contacts(db, csv_path):
                 supersede(db, old["id"])
         db.execute("DELETE FROM monitor_contact")
         db.executemany("INSERT INTO monitor_contact VALUES (?,?)", [(c["contact_key"], canonical(c)) for c in valid])
-    return {"contacts": valid, "ambiguous": ambiguous}
+    return {"contacts": valid, "unlinked": unlinked}
 
 
 def window(db, contact_key, source, current=None):
@@ -561,7 +562,7 @@ def parser():
         commands.add_parser(name).add_argument("--file", required=True, type=Path)
     gate_parser = commands.add_parser("gate")
     gate_parser.add_argument("--manual", action="store_true")
-    commands.add_parser("contacts").add_argument("--csv", required=True, type=Path)
+    commands.add_parser("contacts").add_argument("--vault", required=True, type=Path)
     window_parser = commands.add_parser("window")
     window_parser.add_argument("--contact-key", required=True)
     window_parser.add_argument("--source", required=True, choices=sorted(SOURCES))
@@ -594,7 +595,7 @@ def run(args):
         if args.command == "show": return show(db)
         if args.command == "gmail-cleanup": return {"drafts": gmail_cleanup(db)}
         if args.command == "gate": return gate(db, manual=args.manual)
-        if args.command == "contacts": return contacts(db, args.csv)
+        if args.command == "contacts": return contacts(db, args.vault)
         if args.command == "window": return window(db, args.contact_key, args.source)
         if args.command == "checkpoint": return checkpoint(db, data)
         if args.command == "observe": return observe(db, data)
