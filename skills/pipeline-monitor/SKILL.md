@@ -168,14 +168,17 @@ blockers, which is how advice went stale in one and errored in the other.
    `read_started_at` for this run; never advance cursors to the end of a long read.
 2. Reconcile `notices_to_reconcile` before another notification. Read the private
    Plow conversation and compare its assistant message with the stored notice's
-   exact body (the monitor disables the native Hermes cron header/footer, so do not
-   treat wrapper text as part of the notice; do not accept changes
-   to the body). Check timestamp and destination as well. A verified match permits `receipt --id N --outcome delivered
-   --ref <message-reference>`. A native cron error plus verified absence permits
-   `failed`; a receipt alone, failed read-back, or ambiguous delivery permits only
-   `uncertain`. Never mark delivery from an intended final answer or a generated
-   notice. Never replay an uncertain notice blindly. These are private founder
-   notifications, not outgoing investor drafts.
+   exact body. The delivered message must be the notice body verbatim, without
+   any model narration, cleanup prose, or prefix. Check timestamp and
+   destination as well. Save the read-back assistant message to a scratch file
+   and run `receipt --id N --outcome delivered --ref <message-reference> --file <file>`.
+   The command verifies that the delivered text matches the stored body byte-for-byte;
+   if the delivered text does not match the stored body, or delivery was
+   ambiguous or unverified, record `receipt --id N --outcome uncertain --ref <message-reference>`.
+   A native cron error plus verified absence permits `failed`. Never mark
+   delivery from an intended final answer or a generated notice. Never replay an
+   uncertain notice blindly. These are private founder notifications, not outgoing
+   investor drafts.
 3. Read the pipeline through the mirror `contacts` keeps beside the database.
    Every page an entry reads is checked by hash on every run, so only a changed
    page is copied:
@@ -239,26 +242,33 @@ blockers, which is how advice went stale in one and errored in the other.
    truncated or unfinished read. For large files continue unchecked contacts next
    run; do not claim the entire file was checked. Retry configured blocked sources
    on subsequent runs; unchanged blockers produce no repeated alert.
-8. Run `notice` and return its `body` verbatim, including `[SILENT]` when empty.
-   It carries only the most urgent one or two suggestions — ranked by action,
-   longest-waiting first within a tier. The rest stay pending and are
+8. Before staging a notice, run `gmail-cleanup` (also returned by `gate` as
+   `gmail_drafts_to_reconcile`), including after an entry leaves the pipeline or
+   new observations. Follow Gmail's obsolete-draft protocol for each item.
+   Scheduled checks never delete drafts. For an obsolete draft still present,
+   edited, or unverifiable, persist a `blocked` observation with
+   `contact_key: source:gmail-cleanup:<ledger-id>` and the same stable
+   `conversation_ref`. Include readable conversation context, explain that the
+   old Gmail draft may still be manually sendable, and ask for removal approval
+   or clarification. Use stable evidence refs (provider draft id and actual
+   state/content change, not the poll time) to avoid repeated alerts. After
+   confirmed removal/absence or explicit retention, dismiss that blocker. Local
+   approval is already invalidated; never delay supersession while waiting for
+   Gmail. Keep replacement responses ledger-only until reconciliation finishes.
+   It consolidates new suggestions. Do not append approval hashes, ledger ids,
+   raw thread ids, a second summary or a second delivery.
+   Clean up any temporary/scratch files created during earlier steps now. All
+   reconciliation and cleanup must finish before step 9.
+9. Run `notice`. It carries only the most urgent one or two suggestions — ranked
+   by action, longest-waiting first within a tier. The rest stay pending and are
    reconsidered next check, so the founder gets what to do now instead of
    everything outstanding. Never summarize or append the ones it left out.
-   Before staging it, run `gmail-cleanup` (also returned by `gate` as
-   `gmail_drafts_to_reconcile`), including after an entry leaves the pipeline or new observations.
-   Follow Gmail's obsolete-draft protocol for each item. Scheduled checks never
-   delete drafts. For an obsolete draft still present, edited, or unverifiable,
-   persist a `blocked` observation with `contact_key: source:gmail-cleanup:<ledger-id>`
-   and the same stable `conversation_ref`. Include readable conversation context,
-   explain that the old Gmail draft may still be manually sendable, and ask for
-   removal approval or clarification. Use stable evidence refs (provider draft
-   id and actual state/content change, not the poll time) to avoid repeated alerts.
-   After confirmed removal/absence or explicit retention, dismiss that blocker.
-   Local approval is already invalidated; never delay supersession while waiting
-   for Gmail. Keep replacement responses ledger-only until reconciliation finishes.
-   It consolidates new suggestions. Do not append approval hashes, ledger ids,
-   raw thread ids, a second summary or a second delivery. Keep the exact emitted
-   text available for the next check's delivery reconciliation.
+   Return its `body` verbatim as the cron's final response, including `[SILENT]`
+   when empty. **No other step is allowed after `notice`.** Do not run any further
+   tool calls, cleanup, or scratch-file deletion. The final response must consist
+   strictly and only of the staged notice `body` verbatim (or `[SILENT]`), with no
+   model narration, cleanup status, or prose prefix ahead of it. Keep the exact
+   emitted text available for the next check's delivery reconciliation.
 
 Observation shape. Source refs are internal; `conversation_context`, `summary`,
 `next_step` and `evidence_summary` reach the founder verbatim in their private
