@@ -109,6 +109,16 @@ class MonitorTests(unittest.TestCase):
         value.update(changes)
         return value
 
+    def hold(self, **changes):
+        value = {
+            "account": "work@example.com", "calendar": "primary",
+            "start": "2026-09-22T12:00:00-07:00", "end": "2026-09-22T12:30:00-07:00",
+            "timezone": "America/Los_Angeles", "title": "HOLD — Alex / Example",
+            "attendees": [], "send_updates": "none", "transparency": "opaque",
+        }
+        value.update(changes)
+        return value
+
     def helper(self, skill, filename, *args, ok=True):
         result = subprocess.run([sys.executable, str(ROOT / "skills" / skill / "scripts" / filename),
                                  "--db", str(self.path), *args], text=True, capture_output=True)
@@ -676,6 +686,83 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("never re-ask", skill)
         item = monitor.observe(self.db, self.observation())["suggestion"]
         self.helper("external-action", "drafts.py", "claim-send", "--id", str(item["draft_id"]), ok=False)
+
+    def test_suggested_times_place_and_clear_private_holds_without_asking(self):
+        first = self.hold()
+        second = self.hold(start="2026-09-22T13:30:00-07:00", end="2026-09-22T14:00:00-07:00")
+        item = monitor.observe(self.db, self.observation(
+            action="new_options", calendar_plan=[], hold_plan=[first, second],
+            summary="Two video options for Alex.",
+            next_step="The Gmail draft is saved. Sending still needs your instruction.",
+        ))["suggestion"]
+        self.assertIn("HOLD — Alex / Example", monitor.notice(self.db)["body"])
+        created = []
+        for hold in (first, second):
+            result = self.helper(
+                "external-action", "operations.py", "prepare", "--scope", "calendar",
+                "--target", f"{hold['account']}/{hold['calendar']}/new",
+                "--operation", "create_private_hold", "--intent", json.dumps(hold),
+                "--suggestion-id", str(item["id"]))
+            self.assertFalse(result["approval_required"])
+            self.assertEqual(result["operation"]["status"], "approved")
+            oid = str(result["operation"]["id"])
+            self.assertTrue(self.helper("external-action", "operations.py", "claim", "--id", oid)["claimed"])
+            self.helper("external-action", "operations.py", "finish", "--id", oid,
+                        "--outcome", "completed", "--external-ref", f"evt-{oid}",
+                        "--evidence", "calendar:readback")
+            created.append(oid)
+        repeat = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", f"{first['account']}/{first['calendar']}/new",
+            "--operation", "create_private_hold", "--intent", json.dumps(first),
+            "--suggestion-id", str(item["id"]))
+        self.assertTrue(repeat["duplicate"])
+        self.assertEqual(str(repeat["operation"]["id"]), created[0])
+        self.helper("external-action", "drafts.py", "claim-send", "--id", str(item["draft_id"]), ok=False)
+
+        invitation = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", "work/calendar/new", "--operation", "create",
+            "--intent", "Tuesday 14:00", "--suggestion-id", str(item["id"]), ok=False)
+        self.assertIn("differs from", invitation)
+
+        revisit = monitor.observe(self.db, self.observation(
+            action="accepted", evidence_refs=["gmail:message-2"], evidence_at="2026-09-17T16:00:00Z",
+            hold_plan=[first], calendar_plan=[],
+            summary="Alex took the noon slot.",
+            next_step="Send the invitation after you approve.",
+        ))["suggestion"]
+        placed = monitor.contact_holds(self.db, "alex")["holds"]
+        self.assertEqual({row["external_ref"] for row in placed if row["status"] == "completed"},
+                         {f"evt-{created[0]}", f"evt-{created[1]}"})
+        stale = next(row for row in placed if row["external_ref"] == f"evt-{created[1]}")
+        stale_hold = json.loads(stale["intent"])
+        cleared = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", f"{stale_hold['account']}/{stale_hold['calendar']}/{stale['external_ref']}",
+            "--operation", "delete_private_hold", "--intent", stale["intent"],
+            "--suggestion-id", str(revisit["id"]))
+        self.assertFalse(cleared["approval_required"])
+        cid = str(cleared["operation"]["id"])
+        self.assertTrue(self.helper("external-action", "operations.py", "claim", "--id", cid)["claimed"])
+        self.helper("external-action", "operations.py", "finish", "--id", cid,
+                    "--outcome", "completed", "--external-ref", stale["external_ref"],
+                    "--evidence", "calendar:deleted")
+        self.helper("founder-context", "profile.py", "set-permission",
+                    "--capability", "calendar_manage", "--policy", "forbidden")
+        self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", f"{first['account']}/{first['calendar']}/new",
+            "--operation", "create_private_hold", "--intent", json.dumps(first),
+            "--suggestion-id", str(revisit["id"]), ok=False)
+
+    def test_private_hold_plan_rejects_guests_and_requires_hold_title(self):
+        with self.assertRaisesRegex(ValueError, "attendee-free"):
+            monitor.observe(self.db, self.observation(
+                hold_plan=[self.hold(attendees=["alex@example.com"])], calendar_plan=[]))
+        with self.assertRaisesRegex(ValueError, "HOLD"):
+            monitor.observe(self.db, self.observation(
+                hold_plan=[self.hold(title="Meeting with Alex")], calendar_plan=[]))
 
 
 if __name__ == "__main__":

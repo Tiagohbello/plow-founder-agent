@@ -31,7 +31,7 @@ result, or a tested draft PR.
 | Product Access | Operates your admin or application through the Latch browser and vault |
 | External Action | Records approval, idempotency, and reconciliation of external writes |
 | Founder Scheduling | Runs the investor hold lifecycle — options → holds → send → confirm → sweep — against the pipeline root in your wiki, one page per contact |
-| Pipeline Monitor | Opt-in checks during working hours; prepares the most urgent one or two next steps and notifies you privately in Plow, with approval before external actions |
+| Pipeline Monitor | Opt-in checks during working hours; prepares the most urgent one or two next steps and notifies you privately in Plow; Gmail drafts and private HOLDs write without re-asking, while invitations and sends still need approval |
 
 ## Runtime and integrations
 
@@ -54,9 +54,12 @@ current in your wiki, and notifies you in your private Plow chat only about new
 actionable evidence or blockers. During onboarding, you choose
 the frequency explicitly and whether prepared Gmail replies should also be saved
 as verified real drafts in your inbox. That draft choice is standing: once you
-say yes, every prepared Gmail reply is saved without asking again. Monitoring never sends to third parties or
-changes calendars, and the only thing it writes is the suggested next step —
-advice you can ignore. Sending, calendar changes and every factual field require
+say yes, every prepared Gmail reply is saved without asking again. When a
+prepared reply suggests times, private HOLDs are placed immediately and
+cleared on the next revisit of that contact, without asking. Monitoring never
+sends to third parties or creates invitations, and the only factual page cell
+it writes is the suggested next step —
+advice you can ignore. Sending, invitations and every other factual field require
 your specific approval and fresh checks, even with broader calendar autonomy
 enabled. Pause, resume,
 check now, and change frequency through chat. See [setup and acceptance checks](docs/INSTALL.md#optional-proactive-scheduling).

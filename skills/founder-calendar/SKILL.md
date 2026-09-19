@@ -45,7 +45,11 @@ not determine the scope, ask one short question before preparing the operation.
 
 Use `external-action` for every create, update, move, response, settings change,
 or deletion. `operations.py` resolves `calendar_manage` from Founder Profile;
-the default requires approval. The stable target is `<account>/<calendar>/<event>`
+the default requires approval. Monitor private HOLDs (`create_private_hold` /
+`delete_private_hold`) are the exception: they execute without a founder
+go-ahead when they match the suggestion's `hold_plan` or a verified event for
+that contact, and still fail when calendar operations are forbidden. The stable
+target is `<account>/<calendar>/<event>`
 or `<account>/<calendar>/new` and the intent includes times, recurrence scope,
 attendees, notification choice, and requested change.
 

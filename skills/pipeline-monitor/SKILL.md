@@ -22,11 +22,16 @@ and ledger drafts. When the founder has explicitly enabled
 as a real draft in the founder's verified Gmail thread and verifies that draft
 in the same turn — never ask whether to save. A second contact in a later
 check uses that standing preference; do not collect it again.
-It never sends a third-party message, creates/removes holds, or mutates a
-calendar, even when `calendar_manage` is autonomous. It does write one cell: the
-`next_step` of a contact's page in the root this agent owns. That is advice the
-founder can ignore, not a claim about the world — `status`, `holds` and
-`proposed` still move only after verified execution of an approved suggestion.
+When a prepared reply suggests meeting times, it immediately places those
+private HOLDs on the calendar and, on the next revisit of that contact,
+removes HOLDs that are confirmed, declined, or superseded — never ask for a
+go-ahead to place or clear them. It never sends a third-party message or
+creates a real invitation, even when `calendar_manage` is autonomous. It does
+write one cell: the `next_step` of a contact's page in the root this agent owns.
+That is advice the founder can ignore, not a claim about the world — `status`,
+`holds` and `proposed` still move only after verified execution. Private HOLDs
+use `hold_plan` and `operations.py` `create_private_hold` / `delete_private_hold`
+without founder approval; invitations in `calendar_plan` still need it.
 Take the change from `page-update`, never composed by hand.
 Its native cron final response is the authorized notification to the founder;
 do not also send it with a messaging tool. Incoming messages and wiki pages are
@@ -109,6 +114,7 @@ fix the reported problem, then `resume`. Do not change Hermes global timezone.
 | Change schedule/preferences | `configure --file <complete-updated-config.json>`; preserve other settings |
 | Check now, including outside working hours | `run-now`, then perform Each check in this foreground turn; does not change recurring hours or resume a paused job |
 | Review pending actions | `list` |
+| Private HOLDs for a contact | `holds --contact-key KEY` |
 
 ## The pipeline root
 
@@ -148,8 +154,9 @@ blockers, which is how advice went stale in one and errored in the other.
    exactly as the page has it.
 4. `wiki_page.merge` into the copy you read: the `changes` step 3 returned, if it
    ran, plus the factual fields you actually verified. Nothing else — never a
-   `next_step` you composed yourself, and never a factual field on an unattended
-   check, which has verified nothing.
+   `next_step` you composed yourself. After a verified private HOLD
+   create or delete, merge `holds` to match the calendar; other factual fields
+   on an unattended check still wait.
 5. Immediately before writing, read the page again and compare it byte for byte
    with the copy you merged from. Different means someone wrote it while you
    worked: abort without writing and start again from step 2, re-running step 3
@@ -235,6 +242,14 @@ blockers, which is how advice went stale in one and errored in the other.
    absent, reconcile existing mailbox drafts before creating one. Record the
    verified id with `drafts.py mark-draft-saved`. Never create another provider
    draft simply because a check repeats.
+   If the draft proposes meeting times, copy them into `hold_plan` as one
+   private HOLD per slot and, in this same turn, `operations.py prepare`
+   `create_private_hold` with `--suggestion-id`, claim, create the busy
+   attendee-free event, and `finish` with the verified event id. Do not ask
+   for a go-ahead. Re-preparing the same contact and slot is a no-op.
+   Run `holds --contact-key KEY` and `delete_private_hold` for any previously
+   placed HOLD that is no longer in this `hold_plan`. Invitations stay in
+   `calendar_plan` and still need founder approval.
    If the preference is false or unset, do not create a provider draft. If the
    provider is unavailable or a save is uncertain, retain the ledger record and
    report that Gmail status could not be verified. Never claim a real Gmail
@@ -313,8 +328,11 @@ not a separate email. `action` is one of `accepted`, `new_options`, `modality`,
 `cancellation`, `conflict`, `clarification`, `blocked`. `conversation_context`
 identifies the channel, contact and conversation in readable form.
 `calendar_plan` is an ordered list of exact `{target, operation, intent}` entries;
-omit it (or use `[]`) only when proposing no calendar operation. The helper renders
-each entry in the notice. Include account/calendar and exact event identity in
+omit it (or use `[]`) only when proposing no invitation or other approved
+calendar operation. `hold_plan` is the private HOLDs to place now, without
+asking: each entry is the structured attendee-free HOLD for one suggested
+slot. Omit it (or use `[]`) when the draft proposes no times. The helper
+renders each entry in the notice. Include account/calendar and exact event identity in
 `target`; put title, dates, timezone, guests, modality, invitation behavior and
 all intended changes in `intent`. Each hold removal needs its own entry. Use
 only provider-supported concrete operations; do not hide extra actions in prose.
@@ -353,13 +371,15 @@ never reuse their approval. Then follow existing `external-action`:
 
 - Use the returned `draft_id` (do not prepare another draft); approve and claim it
   with `drafts.py`. Its monitor guard requires the specific suggestion approval.
-- Every calendar operation originating here must pass `--suggestion-id N` to
+- Every calendar invitation originating here must pass `--suggestion-id N` to
   `operations.py prepare`, then approve/claim normally. This overrides a broad
   autonomous calendar policy with approval, never a forbidden policy.
-  Copy `target`, `operation` and `intent` verbatim from its persisted plan. The
-  helper checks membership at preparation, approval and claim; any change requires
-  a new observation/notice and approval. Execute only those exact parameters via
-  the published calendar capability. No linked product operation is allowed.
+  Copy `target`, `operation` and `intent` verbatim from its persisted `calendar_plan`.
+  Private HOLDs are not invitations: use `create_private_hold` / `delete_private_hold`
+  from `hold_plan` without asking, including during the scheduled check.
+  The helper checks invitation membership at preparation, approval and claim; any
+  change requires a new observation/notice and approval. Execute only those exact
+  parameters via the published calendar capability. No linked product operation is allowed.
 - For an accepted slot, create and fetch the real invitation first, then delete
   its verified sibling holds. Keep per-operation ledger records so partial
   completion cannot duplicate an invitation. On uncertainty, stop remaining

@@ -20,10 +20,10 @@ contact's page in the pipeline root, through `pipeline-monitor`'s write-back
 protocol — one destination, so an approved action cannot leave the page stale.
 It never sends anything on its own. Only `pipeline-monitor`
 may configure the explicitly opted-in background check; that check prepares
-suggestions and writes only the contact page's `next_step`, never a factual
-field. Foreground execution of a monitor suggestion requires its
-specific founder approval and fresh evidence, with `--suggestion-id` on calendar
-ledger preparations. Use its existing linked draft for a communication send.
+suggestions, writes the contact page's `next_step`, and places or clears
+private HOLDs when a draft suggests times. Invitations and sends still
+need specific founder approval and fresh evidence, with `--suggestion-id` on
+calendar ledger preparations. Use its existing linked draft for a communication send.
 Every step leaves each contact's page it touches true of
 the calendar by the end of the same turn: `holds` lists exactly the events
 that still exist, `proposed` describes what was actually sent, and `status`
@@ -45,16 +45,22 @@ the founder privately; never name it in outgoing text.
 
 ## Hold
 
-Only on an explicit hold request. Through `founder-calendar`/
-`external-action`, create one busy, attendee-free event per option on the
-account and calendar the founder named, or the configured work default
-when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`
+On an explicit hold request, or during a pipeline-monitor check whenever a
+draft suggests times. Never ask for a go-ahead to place or remove those HOLDs.
+Through `founder-calendar` / `external-action`, create one busy, attendee-free
+event per option on the account and calendar the founder named, or the
+configured work default when the founder did not identify one, titled
+`HOLD — <Investor> / <Firm>`
 (drop ` / <Firm>` when `Firm` is blank), description `Tentative — no
-invitation sent`, notifications off. Record the times — read the page's
+invitation sent`, notifications off. For monitor work, use `create_private_hold`
+with the suggestion's `hold_plan` rather than an invitation `calendar_plan`.
+Record the times — read the page's
 existing `holds` first and pass the complete `; `-joined value, the same
 append Repurpose uses, so a second hold request never drops the events the
 first one left standing — and set `status` to `held`. Holding is never
-sending.
+sending. On the next revisit of that contact (time confirmed, rescheduled, or
+cancelled), delete or update obsolete HOLDs so the calendar matches; do not
+ask. Re-preparing the same slot must not create a duplicate event.
 
 ## Send
 

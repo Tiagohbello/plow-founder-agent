@@ -11,7 +11,7 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from monitor_guard import add_monitor_column, monitor_operation
+from monitor_guard import HOLD_CREATE, HOLD_DELETE, add_monitor_column, hold_key, monitor_operation
 
 
 SCOPES = ("calendar", "product")
@@ -170,14 +170,27 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     if policy == "forbidden":
         raise ValueError("operation is forbidden by Founder Profile or global policy")
     monitor_id = getattr(args, "suggestion_id", None)
-    monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
-    if monitor_id is not None:
-        policy = "approval"
-    key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
-    if monitor_id is not None:
-        key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"
+    hold = None
+    if operation in (HOLD_CREATE, HOLD_DELETE):
+        hold, item = monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
+        policy = "autonomous"
+        key = hold_key(item["contact_key"], hold) if operation == HOLD_CREATE else f"monitor-hold-delete:{target}"
+        monitor_id = item["id"]
+    else:
+        monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
+        key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
+        if monitor_id is not None:
+            policy = "approval"
+            key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"
     existing = connection.execute("SELECT * FROM external_operation WHERE idempotency_key=?", (key,)).fetchone()
     if existing:
+        if hold and existing["status"] == "cancelled" and not existing["external_ref"] and not existing["evidence"]:
+            connection.execute(
+                "UPDATE external_operation SET status='approved',monitor_suggestion_id=?,intent=?,updated_at=? WHERE id=?",
+                (monitor_id, intent, now(), existing["id"]),
+            )
+            connection.commit()
+            return {"created": False, "duplicate": True, "operation": as_dict(resolve(connection, existing["id"]))}
         return {"created": False, "duplicate": True, "operation": as_dict(existing)}
     status = "approved" if policy == "autonomous" else "pending"
     timestamp = now()
@@ -211,6 +224,8 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
         row = resolve(connection, operation_id)
         monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
                           row["operation"], row["intent"], approved=True)
+        if row["scope"] == "calendar" and resolve_policy(connection, "calendar", row["operation"], None) == "forbidden":
+            raise ValueError("calendar operations are forbidden")
         if row["status"] == "completed":
             connection.rollback()
             return {"claimed": False, "already_completed": True, "operation": as_dict(row)}
@@ -233,6 +248,8 @@ def finish(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "executing":
         raise ValueError("only an executing operation can be finished")
+    if row["operation"] == HOLD_CREATE and args.outcome == "completed":
+        required(args.external_ref, "verified hold event id")
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
@@ -245,6 +262,8 @@ def reconcile(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "uncertain":
         raise ValueError("only an uncertain operation can be reconciled")
+    if row["operation"] == HOLD_CREATE and args.outcome == "completed":
+        required(args.external_ref, "verified hold event id")
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),

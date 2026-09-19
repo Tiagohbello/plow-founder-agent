@@ -156,7 +156,8 @@ Tell the agent:
 > Monitor replies from the contacts in my wiki pipeline. Show me the frequency options
 > (15, 30, or 45 minutes) so I can choose during onboarding. Then monitor them
 > during my working hours. Prepare next steps and notify me in Plow. Ask for
-> approval before sending messages, creating invitations, or removing holds.
+> approval before sending messages or creating invitations. Private calendar
+> HOLDs for suggested times are placed and later cleared without asking.
 
 The contacts come from `projects/founder-agent/pipeline` in your wiki, one page
 per contact, each linking to the `entities/people` page for that person. There is
@@ -184,7 +185,10 @@ Subsequent checks use each contact/source's successful-read cursor with a
 one-hour overlap. New evidence produces a suggestion and, where useful, a local
 ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox in the
-same turn, without a second confirmation; it is never sent automatically. There is no automatic invitation or hold deletion, and
+same turn, without a second confirmation; it is never sent automatically. When
+that reply suggests times, private HOLDs are placed on the calendar in the same
+turn and obsolete HOLDs are cleared on the next revisit of that contact, without
+asking. There is no automatic invitation, and
 no factual field changes on its own; a check writes the recommended next step to
 the contact's page and reports it in the notice. Each notice carries the most urgent one or two suggestions rather than every
 outstanding one; the rest arrive in later checks once the current notice is
@@ -215,8 +219,9 @@ inference change detector. No second daemon or inbox mirror is installed.
 Acceptance check, using test contacts you control:
 
 1. Offer three held slots, then reply accepting one. At the next working-hours
-   check, expect a proposal to create the invitation and release sibling holds.
-   Verify the calendar is unchanged until you approve.
+   check, expect HOLDs already on those slots without a go-ahead, then a proposal
+   to create the invitation and release sibling holds. Verify the invitation is
+   unchanged until you approve; leftover HOLDs should be cleared on that revisit.
 2. Reply proposing a phone call while your preference is video. Expect suitable
    video options and a prepared response in Plow, not a sent message.
 3. Run another check without changes: no duplicate alert or draft. Send a newer
