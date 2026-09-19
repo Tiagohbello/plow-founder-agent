@@ -647,23 +647,14 @@ class MonitorTests(unittest.TestCase):
         self.enable_monitor()
         item = monitor.observe(self.db, self.new_options_observation())["suggestion"]
         hold = item["payload"]["calendar_plan"][0]
-        command = (
-            "--scope", "calendar", "--target", hold["target"],
-            "--operation", hold["operation"], "--intent", hold["intent"],
-            "--suggestion-id", str(item["id"]),
-        )
+        command = ("--scope", "calendar", "--suggestion-id", str(item["id"]))
         error = self.helper("external-action", "operations.py", "prepare", *command, ok=False)
         self.assertIn("saved Gmail draft", error)
         self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
                     "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
-        wrong_target = list(command)
-        wrong_target[3] = "other@example.com/primary/new"
-        error = self.helper("external-action", "operations.py", "prepare", *wrong_target, ok=False)
-        self.assertIn("differs from", error)
-        result = self.helper(
-            "external-action", "operations.py", "prepare",
-            *command,
-        )
+        result = self.helper("external-action", "operations.py", "prepare", *command)
+        self.assertEqual(result["operation"]["target"], hold["target"])
+        self.assertEqual(result["operation"]["intent"], hold["intent"])
         self.assertFalse(result["approval_required"])
         self.assertTrue(self.helper("external-action", "operations.py", "claim",
                                     "--id", str(result["operation"]["id"]))["claimed"])
@@ -694,21 +685,11 @@ class MonitorTests(unittest.TestCase):
         self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
                     "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
         first, second = item["payload"]["calendar_plan"][:2]
-
-        error = self.helper(
-            "external-action", "operations.py", "prepare",
-            "--scope", "calendar", "--target", second["target"],
-            "--operation", second["operation"], "--intent", second["intent"],
-            "--suggestion-id", str(item["id"]), ok=False,
-        )
-        self.assertIn("plan order", error)
-
         prepared = self.helper(
             "external-action", "operations.py", "prepare",
-            "--scope", "calendar", "--target", first["target"],
-            "--operation", first["operation"], "--intent", first["intent"],
-            "--suggestion-id", str(item["id"]),
+            "--scope", "calendar", "--suggestion-id", str(item["id"]),
         )["operation"]
+        self.assertEqual(prepared["intent"], first["intent"])
         oid = str(prepared["id"])
         self.helper("external-action", "operations.py", "claim", "--id", oid)
         error = self.helper("external-action", "operations.py", "finish", "--id", oid,
@@ -718,11 +699,11 @@ class MonitorTests(unittest.TestCase):
         self.helper("external-action", "operations.py", "finish", "--id", oid,
                     "--outcome", "completed", "--external-ref", "hold-event-1",
                     "--evidence", "calendar:verified-hold-1")
+        self.assertTrue(self.helper("external-action", "operations.py", "claim",
+                                    "--id", oid)["already_completed"])
         error = self.helper(
             "external-action", "operations.py", "prepare",
-            "--scope", "calendar", "--target", second["target"],
-            "--operation", second["operation"], "--intent", second["intent"],
-            "--suggestion-id", str(item["id"]), ok=False,
+            "--scope", "calendar", "--suggestion-id", str(item["id"]), ok=False,
         )
         self.assertIn("recorded on the contact page", error)
         self.write_contact(
@@ -733,10 +714,9 @@ class MonitorTests(unittest.TestCase):
         self.contact = self.contacts()["contacts"][0]
         second_result = self.helper(
             "external-action", "operations.py", "prepare",
-            "--scope", "calendar", "--target", second["target"],
-            "--operation", second["operation"], "--intent", second["intent"],
-            "--suggestion-id", str(item["id"]),
+            "--scope", "calendar", "--suggestion-id", str(item["id"]),
         )
+        self.assertEqual(second_result["operation"]["intent"], second["intent"])
         self.assertFalse(second_result["approval_required"])
 
     def test_automatic_hold_reconciliation_requires_provider_event_id(self):
@@ -873,51 +853,47 @@ class MonitorTests(unittest.TestCase):
             monitor.decide(self.db, item["id"], {"evidence_refs": ["calendar:new-conflict"], "approval_ref": "founder:1", "validation_ref": "calendar:2"})
         self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
 
-    def test_calendar_operation_must_match_displayed_plan(self):
+    def test_monitor_prepare_derives_the_next_displayed_operation(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
         with self.assertRaisesRegex(ValueError, "verified delivered notice"):
             monitor.decide(self.db, item["id"], {"evidence_refs": item["payload"]["evidence_refs"],
                            "approval_ref": "founder:1", "validation_ref": "fresh:1"})
         self.approve(item)
-        for change in ({"target": "other/calendar/event"}, {"operation": "delete"},
-                       {"intent": "Wednesday 16:00"}, {"scope": "product"}):
-            args = {"scope": "calendar", **item["payload"]["calendar_plan"][0], **change}
-            error = self.helper("external-action", "operations.py", "prepare",
-                "--scope", args["scope"], "--target", args["target"], "--operation", args["operation"],
-                "--intent", args["intent"], "--suggestion-id", str(item["id"]), ok=False)
-            self.assertIn("differs from", error)
+        expected = item["payload"]["calendar_plan"][0]
+        result = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", "ignored/calendar/event", "--operation", "delete",
+            "--intent", "ignored caller selection", "--suggestion-id", str(item["id"]),
+        )["operation"]
+        self.assertEqual(
+            {key: result[key] for key in ("target", "operation", "intent")},
+            {key: expected[key] for key in ("target", "operation", "intent")},
+        )
 
     def test_accepted_calendar_operations_execute_in_plan_order(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
         self.approve(item)
         invitation, deletion = item["payload"]["calendar_plan"][:2]
-
-        error = self.helper(
-            "external-action", "operations.py", "prepare",
-            "--scope", "calendar", "--target", deletion["target"],
-            "--operation", deletion["operation"], "--intent", deletion["intent"],
-            "--suggestion-id", str(item["id"]), ok=False,
-        )
-        self.assertIn("plan order", error)
-
         created = self.helper(
             "external-action", "operations.py", "prepare",
-            "--scope", "calendar", "--target", invitation["target"],
-            "--operation", invitation["operation"], "--intent", invitation["intent"],
-            "--suggestion-id", str(item["id"]),
+            "--scope", "calendar", "--suggestion-id", str(item["id"]),
         )["operation"]
+        self.assertEqual(created["target"], invitation["target"])
         oid = str(created["id"])
         self.helper("external-action", "operations.py", "approve", "--id", oid)
         self.helper("external-action", "operations.py", "claim", "--id", oid)
+        error = self.helper("external-action", "operations.py", "finish", "--id", oid,
+                            "--outcome", "completed", "--evidence", "calendar:missing-id",
+                            ok=False)
+        self.assertIn("provider event id", error)
         self.helper("external-action", "operations.py", "finish", "--id", oid,
                     "--outcome", "completed", "--external-ref", "meeting-event-1",
                     "--evidence", "calendar:verified-invitation")
         prepared = self.helper(
             "external-action", "operations.py", "prepare",
-            "--scope", "calendar", "--target", deletion["target"],
-            "--operation", deletion["operation"], "--intent", deletion["intent"],
-            "--suggestion-id", str(item["id"]),
+            "--scope", "calendar", "--suggestion-id", str(item["id"]),
         )
+        self.assertEqual(prepared["operation"]["target"], deletion["target"])
         self.assertTrue(prepared["approval_required"])
 
     def test_effectless_legacy_plan_cannot_authorize_calendar_operations(self):

@@ -388,11 +388,13 @@ never reuse their approval. Then follow existing `external-action`:
 - Use the returned `draft_id` (do not prepare another draft); approve and claim it
   with `drafts.py`. Its monitor guard requires the specific suggestion approval.
 - Every calendar operation originating here must pass `--suggestion-id N` to
-  `operations.py prepare`, then approve/claim normally. Apart from the exact
+  `operations.py prepare` without `target`, `operation`, or `intent`; the ledger
+  selects the next incomplete entry from the persisted ordered plan. Then
+  approve/claim normally. Apart from the exact
   three automatic `hold` entries above, this overrides a broad autonomous
   calendar policy with approval, never a forbidden policy.
-  Copy `target`, `operation` and `intent` verbatim from its persisted plan. The
-  helper checks membership at preparation, approval and claim; any change requires
+  Use the returned entry's exact parameters for the provider call. The helper
+  rechecks that entry at approval and claim; any change requires
   a new observation/notice and approval. Execute only those exact parameters via
   the published calendar capability. No linked product operation is allowed.
 - For an accepted slot, create and fetch the real invitation first, then delete

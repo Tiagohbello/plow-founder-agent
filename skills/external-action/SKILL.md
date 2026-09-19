@@ -29,9 +29,9 @@ All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 For a `pipeline-monitor` suggestion, read `founder-scheduling` for lifecycle
 policy and follow the monitor's evidence protocol. Use the suggestion's existing
 draft id; calendar
-`operations.py prepare` calls must include `--suggestion-id <id>`. Linked
-calendar operations must exactly match one persisted, displayed plan entry
-(`target`, `operation`, `intent`); preparation, approval and claim enforce it.
+`operations.py prepare` calls include `--suggestion-id <id>` and omit `target`,
+`operation`, and `intent`; the ledger derives the next incomplete operation from
+the persisted, displayed plan. Approval and claim recheck that exact entry.
 Use the plan's exact parameters for the provider call. Changed parameters need
 a new suggestion and founder approval. Linked product writes are not permitted.
 While a suggestion is pending, only an exact `effect: hold` operation on a
