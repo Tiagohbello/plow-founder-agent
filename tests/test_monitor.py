@@ -329,16 +329,17 @@ class MonitorTests(unittest.TestCase):
         for listing, error in (("", "not in the wiki"),
                                (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\n", "not in the wiki"),
                                (f"{digest}  {monitor.PIPELINE_ROOT}/index.md\n", "not in the wiki"),
-                               (listed.replace("  ", " ", 1), "not a line shasum prints"),
+                               (listed.replace("  ", " ", 1), "cannot be read"),
+                               (f"{listed}shasum: {monitor.PIPELINE_ROOT}/kit.md: Permission denied\n", "cannot be read"),
                                (f"{listed}{digest}  projects/founder-agent/notes.md\n", "outside"),
                                (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/../escape.md\n", "outside"),
                                (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/alex.txt\n", "outside")):
             with self.subTest(listing=listing[-50:]), self.assertRaisesRegex(ValueError, error):
                 self.contacts(listing)
-        # shasum's complaint about an entry with no person page names no page.
-        # Through the CLI, which keeps the mirror beside the database.
+        # A blank line names no page. Through the CLI, which keeps the mirror
+        # beside the database.
         path = self.home / "listing.txt"
-        path.write_text(listed + "shasum: entities/people/dana.md: No such file or directory\n")
+        path.write_text(listed + "\n\n")
         found = self.helper("pipeline-monitor", "monitor.py", "contacts", "--listing", str(path))
         self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
 

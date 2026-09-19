@@ -183,12 +183,13 @@ blockers, which is how advice went stale in one and errored in the other.
       directory holding `wiki.toml`:
 
       ```json
-      ["/bin/sh", "-c", "cd \"$1\" && for f in projects/founder-agent/pipeline/*.md; do shasum -a 256 \"$f\" \"entities/people/${f##*/}\"; done", "sh", "<wiki root>"]
+      ["/bin/sh", "-c", "cd \"$1\" && for f in projects/founder-agent/pipeline/*.md; do shasum -a 256 \"$f\"; p=\"entities/people/${f##*/}\"; if [ -f \"$p\" ]; then shasum -a 256 \"$p\"; fi; done", "sh", "<wiki root>"]
       ```
 
       Passing the root as `$1` keeps the path out of the shell code, and listing
       only each entry's own person page keeps the shared `entities/people` root
-      from growing the listing.
+      from growing the listing. A missing person page is simply not listed, so any
+      complaint in the output is a real failure and `contacts` refuses it.
    2. Save its output verbatim with `write_file` to a scratch file, then run
       `contacts --listing <file>`.
    3. For each `copy` entry, read `<wiki root>/<page>` through Latch

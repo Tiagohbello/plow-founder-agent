@@ -337,17 +337,17 @@ def listing(path):
     """The Mac's `shasum -a 256` of the two roots, as page -> digest.
 
     The model relays it and then writes each page `contacts` sends it to, so a path
-    outside the roots is refused rather than trusted. So is a line it cannot read:
-    dropping one would read its entry as having left and supersede its work. Only
-    shasum's own complaint about a missing page names no page."""
+    outside the roots is refused rather than trusted. So is a line it cannot read,
+    shasum's own complaints included: the command lists only pages that exist, so
+    a complaint is a page it failed to hash, and dropping that line would read its
+    entry as having left and supersede its work."""
     pages = {}
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("shasum: "):
+    for line in map(str.strip, Path(path).read_text(encoding="utf-8").splitlines()):
+        if not line:
             continue
         match = LISTING_LINE.fullmatch(line)
         if not match:
-            raise ValueError(f"{line!r} is not a line shasum prints; save its output verbatim")
+            raise ValueError(f"the listing cannot be read at {line!r}; save the command's output verbatim")
         rel = PurePosixPath(match[2])
         if rel.suffix != ".md" or str(rel.parent) not in (PIPELINE_ROOT, PEOPLE_ROOT):
             raise ValueError(f"the listing names {match[2]}, outside the pipeline and people roots")
