@@ -6,6 +6,14 @@ FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-51f83158a70a383f03a4d03dbd8b
 # Link the GHCR package to the public source repository.
 LABEL org.opencontainers.image.source="https://github.com/Tiagohbello/plow-founder-agent"
 
+# One Click Deploy builds the public image without relying on this repository's
+# local Compose file. Keep the package identity and Hermes store in the image;
+# Compose may still override AGENT_ID for local forks.
+ENV AGENT_ID=founder-agent \
+    AGENT_NAME="Founder Agent" \
+    AGENT_BLURB="A technical chief of staff for solo technical founders, built on Hermes and Plow." \
+    HERMES_HOME=/var/lib/hermes
+
 # plow-init composes the home's SOUL.md from the base persona plus this file
 # on every boot; nothing is COPYed to $HERMES_HOME/SOUL.md directly.
 COPY --chmod=0644 runtime/persona.md /opt/hermes/plow-seed/persona.md

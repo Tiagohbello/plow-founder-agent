@@ -67,6 +67,11 @@ No `.env` file is required for the standard installation. Compose defaults to
 Each installer still needs their own Plow credential from step 3; selecting an
 agent ID alone does not authenticate or confirm a successful report.
 
+The public image also contains the `founder-agent` identity and
+`HERMES_HOME=/var/lib/hermes` defaults. This is intentional: One Click Deploy
+builds the public package without depending on this local Compose file. Local
+Compose values can still override the identity for a fork.
+
 The public Compose file inherits the official image defaults for Plow inference.
 No separate Gemini API key or model configuration is needed.
 

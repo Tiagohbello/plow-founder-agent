@@ -6,6 +6,9 @@ services:
     env_file: ./plow-credentials
     environment:
       AGENT_ID: ${AGENT_ID:-founder-agent}
+      AGENT_NAME: "${AGENT_NAME:-Founder Agent}"
+      AGENT_BLURB: "${AGENT_BLURB:-A technical chief of staff for solo technical founders, built on Hermes and Plow.}"
+      HERMES_HOME: /var/lib/hermes
       # Inherit the official image defaults for Plow inference.
     volumes:
       # Keep sessions and runtime state between restarts.
