@@ -61,6 +61,10 @@ class MonitorTests(unittest.TestCase):
                         "messages": {"status": "blocked", "evidence": "permission denied"}},
         }
         monitor.configure(self.db, self.config, self.scheduler)
+        self.helper("founder-context", "profile.py", "set-calendar",
+                    "--account", "work@example.com", "--calendar-id", "primary",
+                    "--default-calendar", "primary", "--timezone", "America/Los_Angeles",
+                    "--status", "available", "--evidence", "calendar:verified", "--is-default")
         self.vault = self.path.parent / "wiki"
         self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
                            holds="Tuesday 14:00 PT; Wednesday 10:00 PT")
@@ -100,11 +104,11 @@ class MonitorTests(unittest.TestCase):
             "contact_key": self.contact["contact_key"], "conversation_ref": "gmail:thread-1",
             "conversation_context": "Gmail · Alex · Scheduling",
             "calendar_plan": [
-                {"effect": "invitation", "target": "work/calendar/new", "operation": "create",
+                {"effect": "invitation", "target": "work@example.com/primary/new", "operation": "create",
                  "intent": "Alex; Tuesday 14:00; guest alex@example.com; video; send invitation"},
-                {"effect": "delete_hold", "target": "work/calendar/hold-1", "operation": "delete",
+                {"effect": "delete_hold", "target": "work@example.com/primary/hold-1", "operation": "delete",
                  "intent": "Delete verified sibling hold 1 after invitation verification"},
-                {"effect": "delete_hold", "target": "work/calendar/hold-2", "operation": "delete",
+                {"effect": "delete_hold", "target": "work@example.com/primary/hold-2", "operation": "delete",
                  "intent": "Delete verified sibling hold 2 after invitation verification"},
             ],
             "evidence_refs": ["gmail:message-1"], "evidence_at": "2026-09-17T14:00:00Z",
@@ -123,14 +127,26 @@ class MonitorTests(unittest.TestCase):
             summary="You owe Alex times.",
             next_step="Three held options are drafted. Review and send?",
             calendar_plan=[
-                {"effect": "hold", "target": "work/calendar/hold-1", "operation": "create",
-                 "intent": "Busy attendee-free tentative hold 1; notifications off"},
-                {"effect": "hold", "target": "work/calendar/hold-2", "operation": "create",
-                 "intent": "Busy attendee-free tentative hold 2; notifications off"},
-                {"effect": "hold", "target": "work/calendar/hold-3", "operation": "create",
-                 "intent": "Busy attendee-free tentative hold 3; notifications off"},
+                {"effect": "hold", "target": "work@example.com/primary/new", "operation": "create",
+                 "intent": json.dumps(self.hold())},
+                {"effect": "hold", "target": "work@example.com/primary/new", "operation": "create",
+                 "intent": json.dumps(self.hold(start="2026-09-23T12:00:00-07:00",
+                                                 end="2026-09-23T12:30:00-07:00"))},
+                {"effect": "hold", "target": "work@example.com/primary/new", "operation": "create",
+                 "intent": json.dumps(self.hold(start="2026-09-24T12:00:00-07:00",
+                                                 end="2026-09-24T12:30:00-07:00"))},
             ],
         )
+        value.update(changes)
+        return value
+
+    def hold(self, **changes):
+        value = {
+            "account": "work@example.com", "calendar": "primary",
+            "start": "2026-09-22T12:00:00-07:00", "end": "2026-09-22T12:30:00-07:00",
+            "timezone": "America/Los_Angeles", "title": "HOLD — Alex / Example",
+            "attendees": [], "send_updates": "none", "transparency": "opaque",
+        }
         value.update(changes)
         return value
 
@@ -433,21 +449,38 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported calendar effect"):
             monitor.observe(self.db, self.observation(calendar_plan=plan))
 
-    def test_calendar_effects_require_matching_operations_and_unique_targets(self):
+    def test_calendar_effects_require_matching_operations_and_distinct_deletes(self):
         proposal = self.new_options_observation()
         wrong_operation = [{**proposal["calendar_plan"][0], "operation": "delete"},
                            *proposal["calendar_plan"][1:]]
-        repeated_target = [*proposal["calendar_plan"]]
-        repeated_target[1] = {**repeated_target[1], "target": repeated_target[0]["target"]}
+        duplicate_hold = [proposal["calendar_plan"][0], proposal["calendar_plan"][0],
+                          proposal["calendar_plan"][2]]
         accepted = self.observation()["calendar_plan"]
         wrong_delete = [accepted[0], {**accepted[1], "operation": "create"}, accepted[2]]
+        repeated_delete = [accepted[0], accepted[1], {**accepted[2], "target": accepted[1]["target"]}]
         for observation, message in (
             (self.new_options_observation(calendar_plan=wrong_operation), "hold effect must use create"),
-            (self.new_options_observation(calendar_plan=repeated_target), "unique target"),
+            (self.new_options_observation(calendar_plan=duplicate_hold), "duplicate calendar operation"),
             (self.observation(calendar_plan=wrong_delete), "delete_hold effect must use delete"),
+            (self.observation(calendar_plan=repeated_delete), "unique target"),
         ):
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 monitor.observe(self.db, observation)
+
+    def test_automatic_holds_require_structured_private_calendar_parameters(self):
+        for changed_hold, message in (
+            (self.hold(attendees=["alex@example.com"]), "attendee-free"),
+            (self.hold(send_updates="all"), "notifications off"),
+            (self.hold(transparency="transparent"), "busy"),
+            (self.hold(account="other@example.com"), "target must match"),
+            (self.hold(timezone="Not/A_Zone"), "valid ISO timestamps and timezone"),
+        ):
+            proposal = self.new_options_observation()
+            proposal["calendar_plan"][0] = {
+                **proposal["calendar_plan"][0], "intent": json.dumps(changed_hold)
+            }
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                monitor.observe(self.db, proposal)
 
     def test_current_advice_follows_evidence_and_empties_when_nothing_is_left(self):
         # One lifecycle: an old thread read after a new one does not outrank it,
@@ -567,6 +600,10 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("saved Gmail draft", error)
         self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
                     "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
+        wrong_target = list(command)
+        wrong_target[3] = "other@example.com/primary/new"
+        error = self.helper("external-action", "operations.py", "prepare", *wrong_target, ok=False)
+        self.assertIn("differs from", error)
         result = self.helper(
             "external-action", "operations.py", "prepare",
             *command,
@@ -574,6 +611,58 @@ class MonitorTests(unittest.TestCase):
         self.assertFalse(result["approval_required"])
         self.assertTrue(self.helper("external-action", "operations.py", "claim",
                                     "--id", str(result["operation"]["id"]))["claimed"])
+
+    def test_automatic_hold_plan_must_use_configured_default_calendar(self):
+        proposal = self.new_options_observation()
+        proposal["calendar_plan"] = [
+            {**step, "target": "other@example.com/primary/new",
+             "intent": json.dumps({**json.loads(step["intent"]), "account": "other@example.com"})}
+            for step in proposal["calendar_plan"]
+        ]
+        item = monitor.observe(self.db, proposal)["suggestion"]
+        self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
+                    "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
+        hold = item["payload"]["calendar_plan"][0]
+        error = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]), ok=False,
+        )
+        self.assertIn("configured default calendar", error)
+
+    def test_automatic_holds_execute_in_plan_order(self):
+        item = monitor.observe(self.db, self.new_options_observation())["suggestion"]
+        self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
+                    "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
+        first, second = item["payload"]["calendar_plan"][:2]
+
+        error = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", second["target"],
+            "--operation", second["operation"], "--intent", second["intent"],
+            "--suggestion-id", str(item["id"]), ok=False,
+        )
+        self.assertIn("plan order", error)
+
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", first["target"],
+            "--operation", first["operation"], "--intent", first["intent"],
+            "--suggestion-id", str(item["id"]),
+        )["operation"]
+        oid = str(prepared["id"])
+        self.helper("external-action", "operations.py", "claim", "--id", oid)
+        self.helper("external-action", "operations.py", "finish", "--id", oid,
+                    "--outcome", "completed", "--external-ref", "hold-event-1",
+                    "--evidence", "calendar:verified-hold-1")
+        second_result = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", second["target"],
+            "--operation", second["operation"], "--intent", second["intent"],
+            "--suggestion-id", str(item["id"]),
+        )
+        self.assertFalse(second_result["approval_required"])
 
     def test_text_proposal_needs_no_provider_draft_before_automatic_holds(self):
         draft = {"channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",

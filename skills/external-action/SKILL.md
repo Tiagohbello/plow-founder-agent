@@ -31,7 +31,9 @@ Use the plan's exact parameters for the provider call. Changed parameters need
 a new suggestion and founder approval. Linked product writes are not permitted.
 While a suggestion is pending, only an exact `effect: hold` operation on a
 `new_options` plan may be claimed; the guard still rejects changed parameters,
-obsolete work, unlinked contacts, and forbidden calendar policy. Every other
+non-default calendar destinations, obsolete work, unlinked contacts at claim,
+guests, notifications, non-busy visibility, malformed times, and forbidden
+calendar policy. Every other
 linked operation requires the suggestion's specific foreground approval, even
 with autonomous calendar policy. During a scheduled check, the only permitted
 mailbox write is saving a founder-owned Gmail draft under the general

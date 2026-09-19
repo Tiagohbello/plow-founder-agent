@@ -323,10 +323,15 @@ entries, where `effect` is `hold`, `invitation`, or `delete_hold`;
 omit it (or use `[]`) only when proposing no calendar operation. The helper renders
 each entry in the notice. Include account/calendar and exact event identity in
 `target`; put title, dates, timezone, guests, modality, invitation behavior and
-all intended changes in `intent`. Every target is unique. `hold` and
-`invitation` use `operation: create`; `delete_hold` uses `operation: delete`.
-`new_options` requires exactly three `hold`
-entries and a draft. `accepted` requires `invitation` first, followed by one
+all intended changes in `intent`. `hold` and `invitation` use `operation:
+create`; `delete_hold` uses `operation: delete`. The three automatic hold
+entries share the available configured default calendar's `/new` target and
+differ by intent. Each hold intent is JSON containing exactly `account`,
+`calendar`, `start`, `end`, `timezone`, `title`, empty `attendees`,
+`send_updates: "none"`, and `transparency: "opaque"`; hold-deletion targets are
+unique event identities.
+`new_options` requires exactly three `hold` entries and a draft. `accepted`
+requires `invitation` first, followed by one
 `delete_hold` entry for every live hold recorded on the contact page. Use
 only provider-supported concrete operations; do not hide extra actions in prose.
 Deduplication uses source evidence, not generated wording. Keep `conversation_ref`

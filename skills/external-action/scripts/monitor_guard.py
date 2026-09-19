@@ -1,6 +1,12 @@
 """Narrow approval guard shared by both external-action ledgers."""
 
+from datetime import datetime
 import json
+from zoneinfo import ZoneInfo
+
+
+HOLD_FIELDS = ("account", "calendar", "start", "end", "timezone", "title",
+               "attendees", "send_updates", "transparency")
 
 
 def add_monitor_column(connection, table):
@@ -25,6 +31,62 @@ def require_proposal_draft(connection, row):
     if draft["channel"] == "gmail" and (not draft["external_draft_id"]
                                            or not draft["external_draft_account"].strip()):
         raise ValueError("automatic holds require a verified saved Gmail draft")
+
+
+def parse_hold_intent(intent, target):
+    try:
+        hold = json.loads(intent)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ValueError("automatic hold intent must be structured JSON") from error
+    if not isinstance(hold, dict) or set(hold) != set(HOLD_FIELDS):
+        raise ValueError("automatic hold requires exact structured calendar parameters")
+    if hold["attendees"] != [] or hold["send_updates"] != "none" or hold["transparency"] != "opaque":
+        raise ValueError("automatic holds must be busy, attendee-free, with notifications off")
+    if any(not isinstance(hold[key], str) or not hold[key].strip()
+           for key in HOLD_FIELDS if key != "attendees"):
+        raise ValueError("automatic hold fields must be nonblank strings")
+    try:
+        zone = ZoneInfo(hold["timezone"])
+        start = datetime.fromisoformat(hold["start"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(hold["end"].replace("Z", "+00:00"))
+    except (KeyError, ValueError) as error:
+        raise ValueError("automatic hold times must use valid ISO timestamps and timezone") from error
+    if start.tzinfo is None or end.tzinfo is None:
+        raise ValueError("automatic hold times must include a timezone")
+    if start >= end or any(moment.utcoffset() != moment.astimezone(zone).utcoffset()
+                           for moment in (start, end)):
+        raise ValueError("automatic hold times must be ordered and match their timezone")
+    if not hold["title"].startswith("HOLD — "):
+        raise ValueError("automatic hold title must identify a HOLD")
+    if target != f"{hold['account']}/{hold['calendar']}/new":
+        raise ValueError("automatic hold target must match its account and calendar")
+    return {key: hold[key] for key in HOLD_FIELDS}
+
+
+def require_default_calendar(connection, target):
+    rows = connection.execute(
+        """SELECT account,default_calendar FROM calendar_account
+           WHERE active=1 AND status='available' AND is_default=1"""
+    ).fetchall()
+    if len(rows) != 1:
+        raise ValueError("automatic holds require one available configured default calendar")
+    expected = f"{rows[0]['account']}/{rows[0]['default_calendar']}/new"
+    if target != expected:
+        raise ValueError("automatic holds must use the configured default calendar")
+
+
+def require_prior_holds_completed(connection, row, plan, entry):
+    for prior in plan[:plan.index(entry)]:
+        if prior.get("effect") != "hold":
+            continue
+        completed = connection.execute(
+            """SELECT 1 FROM external_operation
+               WHERE monitor_suggestion_id=? AND target=? AND operation=? AND intent=?
+                 AND status='completed'""",
+            (row["id"], prior["target"], prior["operation"], prior["intent"]),
+        ).fetchone()
+        if completed is None:
+            raise ValueError("automatic holds must execute in plan order; reconcile the prior hold first")
 
 
 def monitor_item(connection, suggestion_id, approved=False):
@@ -64,7 +126,10 @@ def monitor_operation(connection, suggestion_id, scope, target, operation, inten
     entry = matches[0]
     automatic_hold = payload.get("action") == "new_options" and entry.get("effect") == "hold"
     if automatic_hold:
+        parse_hold_intent(intent, target)
         require_proposal_draft(connection, row)
+        require_default_calendar(connection, target)
+        require_prior_holds_completed(connection, row, plan, entry)
     if approved:
         if automatic_hold:
             require_current_contact(connection, row)

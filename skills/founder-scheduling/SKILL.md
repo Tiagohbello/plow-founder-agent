@@ -51,7 +51,8 @@ the founder privately; never name it in outgoing text.
 When it is on the founder to propose times, hold all three options. This is
 authorized either by the founder's direct request or by an enabled
 `pipeline-monitor` suggestion whose persisted `new_options` plan contains
-exactly three unique `effect: hold`, `operation: create` entries and a prepared
+exactly three distinct `effect: hold`, `operation: create` entries targeting
+the available configured default calendar's `/new` destination, plus a prepared
 draft. Through `founder-calendar`/`external-action`, create one busy,
 attendee-free event per option on the account and calendar the founder named,
 or the configured work default
@@ -63,6 +64,12 @@ append Repurpose uses, so a second hold request never drops the events the
 first one left standing — and set `status` to `held`. Fetch every created hold
 before recording it. An uncertain hold stops the remaining operations and is
 reconciled rather than retried. Holding is never sending.
+
+For an automatic hold, encode the exact provider parameters as JSON in the
+plan entry's existing `intent`: `account`, `calendar`, `start`, `end`,
+`timezone`, `title`, empty `attendees`, `send_updates: "none"`, and
+`transparency: "opaque"`. The validator rejects any other shape before the
+suggestion is persisted and rechecks it before claim.
 
 Prepare the proposal in its existing conversation. For Gmail, prepare the
 ledger draft, then always save and verify the real Gmail draft before claiming

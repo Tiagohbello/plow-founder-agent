@@ -27,9 +27,12 @@ No service, database table, scheduler, or generalized state machine is added.
 ## Authorization boundary
 
 The opted-in monitor may create only exact `effect: hold` operations belonging
-to a valid `new_options` plan. Gmail holds remain blocked until the matching
-proposal exists as a verified provider draft; text and Plow retain a durable
-permission-ready local draft.
+to a valid `new_options` plan, and only on the available configured default
+calendar. Gmail holds remain blocked until the matching proposal exists as a
+verified provider draft; text and Plow retain a durable permission-ready local
+draft. The existing `intent` field carries validated structured calendar
+parameters, so automatic holds cannot add attendees, send notifications, or
+appear free.
 
 Sending communication, creating invitations, deleting holds, and every other
 calendar mutation retain their existing specific-approval requirement.
