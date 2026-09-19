@@ -55,7 +55,7 @@ Superseding a suggestion cancels its unexecuted
 linked drafts/operations without retrying in-flight or uncertain effects.
 Cancelled Gmail drafts remain queued for provider reconciliation. Follow Gmail's
 cleanup protocol; save permission never grants deletion permission. Obtain
-specific founder approval and claim the exact unchanged draft before deleting,
+specific approval in an authority-bearing turn and claim the exact unchanged draft before deleting,
 then verify absence. Provider failure never restores the cancelled approval.
 
 For Gmail, text, or Plow, follow this protocol in the same turn whenever

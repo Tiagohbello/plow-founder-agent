@@ -53,7 +53,7 @@ attendees, notification choice, and requested change.
 
 Run the matching `plow-gog calendar` command only after claiming the ledger
 item. Timed creates are conflict-gated by Latch. Do not add
-`--confirm-conflict` unless the founder explicitly selected the conflicting
+`--confirm-conflict` unless an authority-bearing turn explicitly selected the conflicting
 slot or a configured rule authorizes it. Verify by fetching the returned event
 id; then mark the operation completed. Mark ambiguous outcomes uncertain and
 reconcile before retrying.

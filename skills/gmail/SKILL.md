@@ -100,7 +100,8 @@ Cancelling a ledger record immediately invalidates its approval but does not
 delete its Gmail draft. After revision or monitor supersession, run
 `drafts.py pending-cleanup`. These cancelled records remain queued across restarts.
 Saving drafts does not authorize deleting them: scheduled checks only read back
-and flag obsolete drafts; removal requires a specific foreground founder decision.
+and flag obsolete drafts; removal requires a specific foreground decision in an
+authority-bearing turn.
 
 For each queued item, select and verify the Gmail account using
 `external_draft_account`, then look up the draft by `external_draft_id`.
@@ -113,17 +114,17 @@ If a successful provider lookup confirms the draft is already absent, record
 `--outcome absent`; distinguish absence from access failure. If it was sent
 manually, refresh the conversation before proposing or sending any replacement.
 
-For an unchanged draft and explicit founder removal approval, write the fresh
+For an unchanged draft and explicit removal approval in an authority-bearing turn, write the fresh
 provider read-back to a JSON file with exactly `external_draft_id`,
 `external_draft_account`, `thread_id`, `recipient`, `subject`, `body`. Then run
 `drafts.py reconcile-draft --id N --outcome deleting --file <snapshot.json>
---approval-ref <founder-message-ref> --ref <read-back-ref>` **before** deleting.
+--approval-ref <approval-message-ref> --ref <read-back-ref>` **before** deleting.
 Only a successful claim permits one provider delete of that exact draft.
 Read back its absence and record `--outcome removed --ref <verification-ref>`.
 A `deleting` item means reconcile only; never repeat deletion after timeout or
 failed verification. Report the uncertainty and leave it queued. A founder's
 explicit choice to keep an obsolete draft can be recorded with `--outcome retained
---approval-ref <founder-message-ref> --ref <decision-ref>`; it stays unsendable
+--approval-ref <approval-message-ref> --ref <decision-ref>`; it stays unsendable
 through the cancelled ledger record.
 
 ## Send only after approval
@@ -137,7 +138,7 @@ the same thread and record its message id:
 
 ```sh
 python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" approve --id <id> \
-  --approval-ref '<founder-message-id>'
+  --approval-ref '<approval-message-id>'
 python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" claim-send --id <id>
 python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" mark-sent --id <id> --message-id '<verified-id>'
 ```
