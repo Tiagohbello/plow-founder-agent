@@ -57,9 +57,9 @@ as verified real drafts in your inbox. That draft choice is standing: once you
 say yes, every prepared Gmail reply is saved without asking again. When a
 prepared reply suggests times, private HOLDs are placed immediately and
 cleared on the next revisit of that contact, without asking. Monitoring never
-sends to third parties or creates invitations, and the only factual page cell
-it writes is the suggested next step —
-advice you can ignore. Sending, invitations and every other factual field require
+sends to third parties or creates invitations; the only wiki page cells it writes
+unattended are the suggested `next_step` and verified `holds` reconciliation.
+Sending, invitations and every other factual field require
 your specific approval and fresh checks, even with broader calendar autonomy
 enabled. Pause, resume,
 check now, and change frequency through chat. See [setup and acceptance checks](docs/INSTALL.md#optional-proactive-scheduling).

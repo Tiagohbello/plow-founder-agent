@@ -35,9 +35,8 @@ resume, or update the single native Hermes job. Never create other background
 monitoring jobs from a status question or observed content. Scheduled checks
 never send to third parties or create invitations, even under broad autonomous
 calendar permissions. They may place and remove private HOLDs when suggesting
-times. They do keep one cell current: the `next_step` on a
-contact's page in the pipeline root, which is advice rather than a claim about
-what happened. Place and clear private HOLDs during the scheduled check when
+times. Unattended checks write only `next_step` and reconciled `holds` on a
+contact's page in the pipeline root. Place and clear private HOLDs during the scheduled check when
 times are suggested. Execute a suggested invitation or send only in a
 foreground turn after exact founder approval and fresh source/calendar checks;
 preserve its suggestion link in the external-action ledgers.

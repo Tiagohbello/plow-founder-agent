@@ -85,6 +85,15 @@ def authorize_private_hold(connection, suggestion_id, scope, target, operation, 
     hold = parse_hold_intent(intent)
     expected_new = f"{hold['account']}/{hold['calendar']}/new"
     if operation == HOLD_CREATE:
+        if not row["draft_id"]:
+            raise ValueError("private hold creation requires a linked draft")
+        tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "calendar_account" in tables:
+            cal = connection.execute(
+                "SELECT * FROM calendar_account WHERE active=1 AND is_default=1 LIMIT 1"
+            ).fetchone()
+            if cal and (hold["account"] != cal["account"] or hold["calendar"] != cal["default_calendar"]):
+                raise ValueError("private hold creation must target the active configured default calendar")
         plan = json.loads(row["payload"]).get("hold_plan", [])
         if not isinstance(plan, list) or hold not in plan:
             raise ValueError("hold differs from the persisted plan")
@@ -92,8 +101,11 @@ def authorize_private_hold(connection, suggestion_id, scope, target, operation, 
             raise ValueError("hold destination is not authorized")
         return hold, row
     event_id = target.rsplit("/", 1)[-1]
-    if operation != HOLD_DELETE or not event_id or event_id == "new" or target != f"{hold['account']}/{hold['calendar']}/{event_id}":
+    if not event_id or event_id == "new" or target != f"{hold['account']}/{hold['calendar']}/{event_id}":
         raise ValueError("hold deletion target is not authorized")
+    plan = json.loads(row["payload"]).get("hold_plan", [])
+    if isinstance(plan, list) and hold in plan:
+        raise ValueError("cannot delete hold that is still present in current hold plan")
     existing = connection.execute(
         "SELECT * FROM external_operation WHERE idempotency_key=? AND status='completed'",
         (hold_key(row["contact_key"], hold),),

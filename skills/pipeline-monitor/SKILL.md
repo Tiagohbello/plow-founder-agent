@@ -26,10 +26,10 @@ When a prepared reply suggests meeting times, it immediately places those
 private HOLDs on the calendar and, on the next revisit of that contact,
 removes HOLDs that are confirmed, declined, or superseded — never ask for a
 go-ahead to place or clear them. It never sends a third-party message or
-creates a real invitation, even when `calendar_manage` is autonomous. It does
-write one cell: the `next_step` of a contact's page in the root this agent owns.
-That is advice the founder can ignore, not a claim about the world — `status`,
-`holds` and `proposed` still move only after verified execution. Private HOLDs
+creates a real invitation, even when `calendar_manage` is autonomous. Unattended
+monitoring only writes `next_step` and reconciled `holds` on a contact's page in the
+root this agent owns; other factual fields (`status` and `proposed`) still move
+only after verified execution of an approved suggestion. Private HOLDs
 use `hold_plan` and `operations.py` `create_private_hold` / `delete_private_hold`
 without founder approval; invitations in `calendar_plan` still need it.
 Take the change from `page-update`, never composed by hand.

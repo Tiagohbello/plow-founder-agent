@@ -188,9 +188,9 @@ response is also saved as a verified real draft in the founder's inbox in the
 same turn, without a second confirmation; it is never sent automatically. When
 that reply suggests times, private HOLDs are placed on the calendar in the same
 turn and obsolete HOLDs are cleared on the next revisit of that contact, without
-asking. There is no automatic invitation, and
-no factual field changes on its own; a check writes the recommended next step to
-the contact's page and reports it in the notice. Each notice carries the most urgent one or two suggestions rather than every
+asking. There is no automatic invitation; unattended monitoring only writes the
+recommended `next_step` and reconciled `holds` to the contact's page, while
+every other factual field waits for founder approval. Each notice carries the most urgent one or two suggestions rather than every
 outstanding one; the rest arrive in later checks once the current notice is
 delivered, whether or not its suggestions have been acted on. There
 are no repeated reminders for unchanged pending suggestions. A new reply
