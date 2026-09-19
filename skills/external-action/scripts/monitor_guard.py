@@ -18,6 +18,15 @@ def require_current_contact(connection, row):
         raise ValueError("contact is not in the latest verified pipeline read; re-read it first")
 
 
+def require_proposal_draft(connection, row):
+    draft = connection.execute("SELECT * FROM draft WHERE id=?", (row["draft_id"],)).fetchone()
+    if draft is None:
+        raise ValueError("automatic holds require the suggestion's prepared draft")
+    if draft["channel"] == "gmail" and (not draft["external_draft_id"]
+                                           or not draft["external_draft_account"].strip()):
+        raise ValueError("automatic holds require a verified saved Gmail draft")
+
+
 def monitor_item(connection, suggestion_id, approved=False):
     if suggestion_id is None:
         return
@@ -54,6 +63,8 @@ def monitor_operation(connection, suggestion_id, scope, target, operation, inten
         raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")
     entry = matches[0]
     automatic_hold = payload.get("action") == "new_options" and entry.get("effect") == "hold"
+    if automatic_hold:
+        require_proposal_draft(connection, row)
     if approved:
         if automatic_hold:
             require_current_contact(connection, row)

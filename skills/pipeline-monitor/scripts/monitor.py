@@ -51,7 +51,9 @@ send third-party communication, create invitations, or delete holds. Write only
 verified factual fields plus the next_step that page-update returns, to the page
 it names. If Founder Profile preference save_gmail_drafts is true, a prepared
 Gmail response may also be saved as a real founder-owned Gmail draft in the
-verified thread, then read back and recorded in the ledger; never send it. Use
+verified thread, then read back and recorded in the ledger. A Gmail new_options
+proposal always requires that verified saved draft before its holds; never send
+it. Use
 monitor.py notice for the consolidated private founder notification, returning
 its body verbatim as your final response. If the gate is closed or nothing needs
 delivery, return exactly [SILENT]."""

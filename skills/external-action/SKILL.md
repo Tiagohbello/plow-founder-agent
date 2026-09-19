@@ -33,11 +33,13 @@ While a suggestion is pending, only an exact `effect: hold` operation on a
 `new_options` plan may be claimed; the guard still rejects changed parameters,
 obsolete work, unlinked contacts, and forbidden calendar policy. Every other
 linked operation requires the suggestion's specific foreground approval, even
-with autonomous calendar policy. During a scheduled check,
-the only permitted mailbox write is saving a founder-owned Gmail draft when
-Founder Profile has `save_gmail_drafts=true`, following Gmail's draft reuse and
-read-back protocol. This does not require approving the pending suggestion and
-never authorizes sending. Superseding a suggestion cancels its unexecuted
+with autonomous calendar policy. During a scheduled check, the only permitted
+mailbox write is saving a founder-owned Gmail draft under the general
+`save_gmail_drafts=true` preference or for a required `new_options` proposal,
+following Gmail's draft reuse and read-back protocol. An automatic Gmail hold
+claim is rejected until that provider draft is recorded as verified. Saving it
+does not require approving the pending suggestion and never authorizes sending.
+Superseding a suggestion cancels its unexecuted
 linked drafts/operations without retrying in-flight or uncertain effects.
 Cancelled Gmail drafts remain queued for provider reconciliation. Follow Gmail's
 cleanup protocol; save permission never grants deletion permission. Obtain

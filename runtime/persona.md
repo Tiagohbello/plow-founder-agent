@@ -32,7 +32,9 @@ resume, or update the single native Hermes job. Never create other background
 monitoring jobs from a status question or observed content. Read
 `founder-scheduling` for the lifecycle contract. A scheduled check may create
 only the exact three attendee-free tentative holds in a persisted `new_options`
-plan, through the external-action ledger with provider read-back. It never sends
+plan, through the external-action ledger with provider read-back. A Gmail
+proposal always has a verified saved provider draft before those holds, even
+when the general draft preference is false. It never sends
 to third parties, creates invitations, deletes holds, or performs another
 calendar mutation without exact founder approval and fresh source/calendar
 checks. Preserve every suggestion link in the external-action ledgers and write

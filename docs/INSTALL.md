@@ -174,7 +174,8 @@ is weekdays 09:00–18:00. The agent must show and ask you to choose one frequen
 asks whether every prepared email should be saved as a real Gmail draft in the
 founder's inbox for review. The explicit yes/no answer is persisted as
 `save_gmail_drafts`; a real Gmail draft is reported only after provider
-read-back verification.
+read-back verification. Scheduling proposals with three new options always save
+and verify their Gmail draft; this preference controls other prepared emails.
 Existing calendar preferences are reused. Available Gmail, Messages through
 Latch, and agent Plow conversations can be checked; unavailable sources are
 reported rather than treated as empty. Verify the destination is your private
@@ -185,7 +186,8 @@ Subsequent checks use each contact/source's successful-read cursor with a
 one-hour overlap. New evidence produces a suggestion and, where useful, a local
 ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox; it is
-never sent automatically. When the founder owes times, the check creates and
+never sent automatically. A Gmail proposal with new times is always saved and
+verified even when that general preference is false. When the founder owes times, the check creates and
 verifies exactly three attendee-free tentative holds through the durable action
 ledger. There is no automatic invitation or hold deletion. A check writes the
 verified holds plus the recommended next step to the contact's page and reports

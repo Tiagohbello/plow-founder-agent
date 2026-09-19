@@ -64,8 +64,9 @@ before recording it. An uncertain hold stops the remaining operations and is
 reconciled rather than retried. Holding is never sending.
 
 Prepare the proposal in its existing conversation. For Gmail, prepare the
-ledger draft and, when `save_gmail_drafts=true`, save and verify the real Gmail
-draft. For an existing SMS/iMessage or Plow conversation, prepare the exact
+ledger draft, then always save and verify the real Gmail draft before claiming
+any automatic hold; this scheduling invariant is narrower than the general
+`save_gmail_drafts` preference. For an existing SMS/iMessage or Plow conversation, prepare the exact
 text/Plow draft and ask permission to send; never use the founder's Mac Messages
 identity or substitute email. The proposal is not ready when either its draft
 or any of its three holds is missing.

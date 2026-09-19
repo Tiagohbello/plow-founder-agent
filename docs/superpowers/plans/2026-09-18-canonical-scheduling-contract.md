@@ -13,6 +13,7 @@
 ## Global Constraints
 
 - Exactly three options and three attendee-free tentative holds are required when the founder owes times.
+- A Gmail proposal must be saved and verified in Gmail before any automatic hold is claimed; text/Plow remains a local permission-ready draft.
 - The monitor may autonomously create only a planned `hold` effect for a pending `new_options` suggestion.
 - Sending proposals, creating invitations, and deleting holds retain specific founder approval.
 - SQLite ledgers remain operational truth; wiki pages remain verified projections.
@@ -171,6 +172,16 @@ def test_pending_new_options_may_claim_only_its_exact_hold_operations(self):
     proposal = self.new_options_observation()
     item = monitor.observe(self.db, proposal)["suggestion"]
     hold = item["payload"]["calendar_plan"][0]
+    failed = self.helper(
+        "external-action", "operations.py", "prepare",
+        "--scope", "calendar", "--target", hold["target"],
+        "--operation", hold["operation"], "--intent", hold["intent"],
+        "--suggestion-id", str(item["id"]), ok=False,
+    )
+    self.assertIn("saved Gmail draft", failed)
+    self.helper("external-action", "drafts.py", "mark-draft-saved",
+                "--id", str(item["draft_id"]), "--draft-id", "gmail-draft-1",
+                "--account", "owner@example.com")
     result = self.helper(
         "external-action", "operations.py", "prepare",
         "--scope", "calendar", "--target", hold["target"],
@@ -196,7 +207,7 @@ Expected: the hold test fails because every monitor operation is currently force
 
 - [ ] **Step 3: Return the matched plan semantics from the guard**
 
-Change `monitor_operation` to compare only `target`, `operation`, and `intent` against each plan entry, then return:
+Change `monitor_operation` to compare only `target`, `operation`, and `intent` against each plan entry, require a verified provider draft before a Gmail automatic hold, then return:
 
 ```python
 {
@@ -255,7 +266,7 @@ git commit -m "feat: authorize planned monitor holds"
 
 - [ ] **Step 1: Rewrite the canonical lifecycle in founder-scheduling**
 
-Replace “offer N options” and “Only on an explicit hold request” with exactly three options and the two authorized hold paths: a direct founder request or the opted-in monitor's persisted `new_options` plan. State that Gmail gets a verified saved draft when enabled, while text/Plow stays ledger-only and requests send permission. Keep invite-first verification and complete sibling-hold deletion in `Pick`.
+Replace “offer N options” and “Only on an explicit hold request” with exactly three options and the two authorized hold paths: a direct founder request or the opted-in monitor's persisted `new_options` plan. State that Gmail always gets a verified saved draft before automatic holds, while text/Plow stays ledger-only and requests send permission. Keep invite-first verification and complete sibling-hold deletion in `Pick`.
 
 - [ ] **Step 2: Remove contradictory policy copies**
 

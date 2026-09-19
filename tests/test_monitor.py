@@ -538,6 +538,28 @@ class MonitorTests(unittest.TestCase):
     def test_pending_new_options_may_claim_only_its_exact_hold_operations(self):
         item = monitor.observe(self.db, self.new_options_observation())["suggestion"]
         hold = item["payload"]["calendar_plan"][0]
+        command = (
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )
+        error = self.helper("external-action", "operations.py", "prepare", *command, ok=False)
+        self.assertIn("saved Gmail draft", error)
+        self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
+                    "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
+        result = self.helper(
+            "external-action", "operations.py", "prepare",
+            *command,
+        )
+        self.assertFalse(result["approval_required"])
+        self.assertTrue(self.helper("external-action", "operations.py", "claim",
+                                    "--id", str(result["operation"]["id"]))["claimed"])
+
+    def test_text_proposal_needs_no_provider_draft_before_automatic_holds(self):
+        draft = {"channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+                 "body": "Could you meet Tuesday, Wednesday, or Thursday?"}
+        item = monitor.observe(self.db, self.new_options_observation(draft=draft))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
         result = self.helper(
             "external-action", "operations.py", "prepare",
             "--scope", "calendar", "--target", hold["target"],
@@ -545,8 +567,6 @@ class MonitorTests(unittest.TestCase):
             "--suggestion-id", str(item["id"]),
         )
         self.assertFalse(result["approval_required"])
-        self.assertTrue(self.helper("external-action", "operations.py", "claim",
-                                    "--id", str(result["operation"]["id"]))["claimed"])
 
     def test_obsolete_gmail_draft_cleanup_survives_restart_and_uncertainty(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]

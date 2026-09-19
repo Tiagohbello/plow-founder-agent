@@ -38,8 +38,8 @@ to the founder, the contact, or neither.
 
 1. **Founder owes times.** Select exactly three viable options in the contact's
    timezone. Each option must be backed by one busy, attendee-free tentative
-   hold. Prepare the proposal in the existing conversation: save and verify a
-   Gmail draft when Gmail is the appropriate channel, or prepare the exact
+   hold. Prepare the proposal in the existing conversation: always save and
+   verify a Gmail draft when Gmail is the appropriate channel, or prepare the exact
    iMessage/Plow message and ask for permission to send when that channel is
    appropriate. Do not send automatically.
 2. **Contact owes a reply.** Preserve the proposal and holds. Continue checking
@@ -60,6 +60,7 @@ authorization applies only when all of the following are true:
 
 - live availability was freshly checked across the founder's visible calendars;
 - the three operations exactly match the three options in the prepared draft;
+- a Gmail proposal has a verified saved provider draft before any hold claim;
 - the events are busy, attendee-free, notification-free tentative holds;
 - every write uses the existing `external-action` idempotency and reconciliation
   ledger; and

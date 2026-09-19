@@ -22,6 +22,8 @@ scheduled phase reads configured sources and creates local suggestions and
 ledger drafts. When the founder has explicitly enabled
 `save_gmail_drafts` in Founder Profile, it may also save the prepared response
 as a real draft in the founder's verified Gmail thread and verify that draft.
+A Gmail `new_options` proposal always requires that verified provider draft,
+regardless of the general preference, before any automatic hold can be claimed.
 For a valid persisted `new_options` suggestion, it may also create and verify
 the exact three planned `effect: hold` operations. It never sends a third-party
 message, creates an invitation, deletes a hold, or performs another calendar
@@ -329,7 +331,8 @@ if it recurs later, include the new incident's source evidence reference.
 
 During the scheduled check, a valid `new_options` suggestion may prepare, claim,
 execute, fetch, and finish only its three exact `hold` entries. Execute them in
-plan order through `external-action`; uncertainty stops the remaining holds.
+plan order through `external-action`; for Gmail, save and verify the provider
+draft first. Uncertainty stops the remaining holds.
 After all three are verified, update `holds` and `status` through § Writing a
 contact's page. The linked communication draft remains unsent and unapproved.
 No other pending suggestion permits a calendar claim.
