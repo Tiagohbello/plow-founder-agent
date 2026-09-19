@@ -227,10 +227,9 @@ Acceptance check, using test contacts you control:
    record; neither path sends the message.
 
 Existing installs remain disabled until configured. A chat started before this
-capability shipped may still refuse to configure it because its system prompt
-contains the old persona. Start a fresh conversation and ask for
-`pipeline-monitor` setup; see [Update and retain your data](#update-and-retain-your-data).
-Normal updates retain monitor state in the existing volume. To roll back to an image without this
+capability shipped retains its old persona (see
+[Update and retain your data](#update-and-retain-your-data)). Normal updates
+retain monitor state in the existing volume. To roll back to an image without this
 feature, pause the monitor first; restoring an older image alone does not
 remove its persisted Hermes job.
 
@@ -271,11 +270,9 @@ file checks does not prove that chat received the update. For example, ask:
 > Can you help me configure pipeline-monitor? Show the setup questions without
 > enabling it yet.
 
-Expect the setup flow rather than a refusal based on a retired rule. If the chat
-still uses the old rule, follow the fresh-conversation workaround below.
-Verify browser and
-external account access interactively through Latch; neither command checks
-those connections.
+Expect the setup flow rather than a refusal based on a retired rule.
+Verify browser and external account access interactively through Latch; neither
+command checks those connections.
 
 ## Verify Agent Index reporting
 
@@ -320,14 +317,11 @@ visible in a chat that predates it. Restarting the container and checking
 `SOUL.md` do not verify the prompt used by that conversation.
 
 After updating, ask for the changed capability by name in your usual chat and
-exercise its setup or intended workflow. If it still follows an old rule, start
-a fresh conversation through your client's new-conversation control and repeat
-the check. An agent that already stated a retired rule may repeat it from its
-active history even after its prompt refreshes; another message in that same
-conversation is not a fresh session. Preserve the volume and history; do not
-edit Hermes session records to work around this. Runtime session refresh is
-tracked upstream in
+exercise its setup or intended workflow. No non-destructive prompt refresh exists
+pending upstream
 [plow-hermes-agent#125](https://github.com/plow-pbc/plow-hermes-agent/issues/125).
+Preserve the volume and history; do not edit Hermes session records to work
+around this.
 
 Before significant changes, back up the persistent volume with the agent stopped.
 For rollback, run the prior image/version against the same volume.
@@ -366,7 +360,7 @@ you intend to permanently discard company memory, session history, and install i
 | Draft PR cannot be published | Check GitHub write access; preserve the prepared local patch |
 | Index registration/report error | Check the credential, client output, and `/var/lib/hermes/state.db`; do not delete identity files to retry |
 | `SOUL.md` or a skill looks wrong after an update | Restart (`docker compose restart agent`) recomposes `SOUL.md`, but keeps a skill edited in the home (by you or the agent) as you left it; restore the shipped copy with `docker compose exec --user hermes -e HOME=/var/lib/hermes -e HERMES_HOME=/var/lib/hermes agent /opt/hermes/.venv/bin/hermes skills reset <name> --restore --yes` |
-| Files are updated but the chat still cites an old rule | Start a fresh conversation and exercise the changed capability there. The old chat may retain both its original system prompt and refusals in its active history; rebuilding alone does not refresh them. |
+| Files are updated but the chat still cites an old rule | The running chat retains its original system prompt and active history; no non-destructive prompt refresh exists pending upstream plow-hermes-agent#125. Preserve the volume and history. |
 
 Logs can contain account or task context. Redact private information before
 sharing diagnostics in a public issue.
