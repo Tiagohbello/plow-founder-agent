@@ -55,13 +55,14 @@ actionable evidence or blockers. During onboarding, you choose
 the frequency explicitly and whether prepared Gmail replies should also be saved
 as verified real drafts in your inbox. That draft choice is standing: once you
 say yes, every prepared Gmail reply is saved without asking again. When a
-prepared reply suggests times, private HOLDs are placed immediately and
-cleared on the next revisit of that contact, without asking. Monitoring never
-sends to third parties or creates invitations; the only wiki page cells it writes
-unattended are the suggested `next_step` and verified `holds` reconciliation.
-Sending, invitations and every other factual field require
-your specific approval and fresh checks, even with broader calendar autonomy
-enabled. Pause, resume,
+prepared reply suggests times, private HOLDs are placed immediately on the
+configured default calendar and cleared on the next revisit of that contact,
+without asking. Monitoring never sends to third parties or creates invitations.
+Unattended checks write only the suggested next step (advice you can ignore)
+and, after placing or clearing private HOLDs, reconcile the page's factual
+`holds` to match the calendar. Sending, invitations and every other factual field
+require your specific approval and fresh checks, even with broader calendar
+autonomy enabled. Pause, resume,
 check now, and change frequency through chat. See [setup and acceptance checks](docs/INSTALL.md#optional-proactive-scheduling).
 
 For requested work, the agent can observe

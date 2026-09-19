@@ -61,6 +61,16 @@ class MonitorTests(unittest.TestCase):
                         "messages": {"status": "blocked", "evidence": "permission denied"}},
         }
         monitor.configure(self.db, self.config, self.scheduler)
+        profile = monitor.sibling("founder-context", "profile.py")
+        profile.connect(self.path).close()
+        self.db.execute(
+            """INSERT INTO calendar_account(account, calendar_ids, default_calendar, timezone,
+                                             working_hours, preferences, status, is_default, active,
+                                             checked_at, updated_at)
+               VALUES ('work@example.com', '["primary"]', 'primary', 'America/Los_Angeles',
+                       '{}', '{}', 'available', 1, 1, '2026-09-19T00:00:00Z', '2026-09-19T00:00:00Z')"""
+        )
+        self.db.commit()
         self.vault = self.path.parent / "wiki"
         self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100")
         self.contact = self.contacts()["contacts"][0]
@@ -735,6 +745,15 @@ class MonitorTests(unittest.TestCase):
         placed = monitor.contact_holds(self.db, "alex")["holds"]
         self.assertEqual({row["external_ref"] for row in placed if row["status"] == "completed"},
                          {f"evt-{created[0]}", f"evt-{created[1]}"})
+        first_op = next(row for row in placed if row["external_ref"] == f"evt-{created[0]}")
+        first_hold = json.loads(first_op["intent"])
+        cant_delete = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", f"{first_hold['account']}/{first_hold['calendar']}/{first_op['external_ref']}",
+            "--operation", "delete_private_hold", "--intent", first_op["intent"],
+            "--suggestion-id", str(revisit["id"]), ok=False)
+        self.assertIn("cannot delete hold present in current hold_plan", cant_delete)
+
         stale = next(row for row in placed if row["external_ref"] == f"evt-{created[1]}")
         stale_hold = json.loads(stale["intent"])
         cleared = self.helper(
@@ -748,33 +767,27 @@ class MonitorTests(unittest.TestCase):
         self.helper("external-action", "operations.py", "finish", "--id", cid,
                     "--outcome", "completed", "--external-ref", stale["external_ref"],
                     "--evidence", "calendar:deleted")
-        # Post-delete data integrity: contact_holds reflects only live completed holds
-        remaining = monitor.contact_holds(self.db, "alex")["holds"]
-        self.assertEqual({row["external_ref"] for row in remaining if row["status"] == "completed"},
-                         {f"evt-{created[0]}"})
-        self.assertNotIn(f"evt-{created[1]}", {row["external_ref"] for row in remaining})
 
-        # Re-offering the same slot later permits a new create generation rather than getting stuck as completed duplicate
-        reoffer_obs = monitor.observe(self.db, self.observation(
-            action="new_options", evidence_refs=["gmail:message-3"], evidence_at="2026-09-17T17:00:00Z",
-            conversation_ref="gmail:thread-reoffer",
-            hold_plan=[stale_hold], calendar_plan=[],
-            summary="Alex asked about the second slot again.",
-            next_step="The Gmail draft is saved.",
+        remaining = monitor.contact_holds(self.db, "alex")["holds"]
+        self.assertEqual([row["external_ref"] for row in remaining], [f"evt-{created[0]}"])
+        retired_op = self.db.execute("SELECT * FROM external_operation WHERE id=?", (created[1],)).fetchone()
+        self.assertEqual(retired_op["status"], "cancelled")
+        self.assertIn(":retired:", retired_op["idempotency_key"])
+
+        new_offer = monitor.observe(self.db, self.observation(
+            action="new_options", evidence_refs=["gmail:message-3"], evidence_at="2026-09-17T18:00:00Z",
+            hold_plan=[second], calendar_plan=[],
+            summary="Offered the 13:30 slot again.",
+            next_step="New slot offered.",
         ))["suggestion"]
-        reoffer_slot = self.helper(
+        re_prepared = self.helper(
             "external-action", "operations.py", "prepare", "--scope", "calendar",
-            "--target", f"{stale_hold['account']}/{stale_hold['calendar']}/new",
-            "--operation", "create_private_hold", "--intent", stale["intent"],
-            "--suggestion-id", str(reoffer_obs["id"]))
-        self.assertFalse(reoffer_slot["duplicate"])
-        self.assertEqual(reoffer_slot["operation"]["status"], "approved")
-        new_oid = str(reoffer_slot["operation"]["id"])
-        self.assertTrue(self.helper("external-action", "operations.py", "claim", "--id", new_oid)["claimed"])
-        self.helper("external-action", "operations.py", "finish", "--id", new_oid,
-                    "--outcome", "completed", "--external-ref", f"evt-{new_oid}",
-                    "--evidence", "calendar:readback")
-        self.assertIn(f"evt-{new_oid}", {row["external_ref"] for row in monitor.contact_holds(self.db, "alex")["holds"]})
+            "--target", f"{second['account']}/{second['calendar']}/new",
+            "--operation", "create_private_hold", "--intent", json.dumps(second),
+            "--suggestion-id", str(new_offer["id"]))
+        self.assertFalse(re_prepared["duplicate"])
+        self.assertTrue(re_prepared["created"])
+        self.assertNotEqual(str(re_prepared["operation"]["id"]), created[1])
 
         self.helper("founder-context", "profile.py", "set-permission",
                     "--capability", "calendar_manage", "--policy", "forbidden")
@@ -784,6 +797,26 @@ class MonitorTests(unittest.TestCase):
             "--operation", "create_private_hold", "--intent", json.dumps(first),
             "--suggestion-id", str(revisit["id"]), ok=False)
 
+    def test_private_hold_requires_linked_draft_and_default_calendar(self):
+        first = self.hold()
+        with self.assertRaisesRegex(ValueError, "linked draft"):
+            monitor.observe(self.db, self.observation(hold_plan=[first], draft=None, calendar_plan=[]))
+        with self.assertRaisesRegex(ValueError, "default calendar"):
+            monitor.observe(self.db, self.observation(hold_plan=[self.hold(account="other@example.com")], calendar_plan=[]))
+        # Suggestion without draft fails operations.py prepare as well
+        no_draft_item = monitor.observe(self.db, self.observation(hold_plan=[], draft=None, calendar_plan=[]))["suggestion"]
+        prep_fail = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", f"{first['account']}/{first['calendar']}/new",
+            "--operation", "create_private_hold", "--intent", json.dumps(first),
+            "--suggestion-id", str(no_draft_item["id"]), ok=False)
+        self.assertIn("requires a linked draft", prep_fail)
+
+        self.db.execute("UPDATE calendar_account SET active=0")
+        self.db.commit()
+        with self.assertRaisesRegex(ValueError, "default calendar"):
+            monitor.observe(self.db, self.observation(hold_plan=[first], calendar_plan=[]))
+
     def test_private_hold_plan_rejects_guests_and_requires_hold_title(self):
         with self.assertRaisesRegex(ValueError, "attendee-free"):
             monitor.observe(self.db, self.observation(
@@ -791,43 +824,6 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "HOLD"):
             monitor.observe(self.db, self.observation(
                 hold_plan=[self.hold(title="Meeting with Alex")], calendar_plan=[]))
-
-    def test_private_hold_gate_binds_to_authorized_draft_and_default_calendar(self):
-        hold = self.hold()
-        # 1. hold_plan requires a linked draft suggesting times
-        with self.assertRaisesRegex(ValueError, "linked draft"):
-            monitor.observe(self.db, self.observation(draft=None, hold_plan=[hold], calendar_plan=[]))
-
-        item = monitor.observe(self.db, self.observation(hold_plan=[hold], calendar_plan=[]))["suggestion"]
-
-        # Configure default calendar account in founder profile
-        self.helper("founder-context", "profile.py", "set-calendar",
-                    "--account", "founder@company.com", "--default-calendar", "work",
-                    "--timezone", "America/Los_Angeles", "--status", "available", "--is-default")
-
-        # Creating hold outside the configured default calendar is rejected
-        outside_cal = self.hold(account="other@company.com", calendar="primary")
-        outside_item = monitor.observe(self.db, self.observation(
-            conversation_ref="gmail:thread-2", evidence_refs=["gmail:msg-outside"],
-            hold_plan=[outside_cal], calendar_plan=[]))["suggestion"]
-        err_cal = self.helper(
-            "external-action", "operations.py", "prepare", "--scope", "calendar",
-            "--target", f"{outside_cal['account']}/{outside_cal['calendar']}/new",
-            "--operation", "create_private_hold", "--intent", json.dumps(outside_cal),
-            "--suggestion-id", str(outside_item["id"]), ok=False)
-        self.assertIn("active configured default calendar", err_cal)
-
-        # Deleting a hold still present in current hold_plan is rejected
-        authorized_hold = self.hold(account="founder@company.com", calendar="work")
-        revisit_with_hold = monitor.observe(self.db, self.observation(
-            conversation_ref="gmail:thread-3", evidence_refs=["gmail:msg-rev"],
-            hold_plan=[authorized_hold], calendar_plan=[]))["suggestion"]
-        err_del = self.helper(
-            "external-action", "operations.py", "prepare", "--scope", "calendar",
-            "--target", f"{authorized_hold['account']}/{authorized_hold['calendar']}/evt-123",
-            "--operation", "delete_private_hold", "--intent", json.dumps(authorized_hold),
-            "--suggestion-id", str(revisit_with_hold["id"]), ok=False)
-        self.assertIn("still present in current hold plan", err_del)
 
 
 if __name__ == "__main__":

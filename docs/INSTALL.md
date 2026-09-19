@@ -186,11 +186,13 @@ one-hour overlap. New evidence produces a suggestion and, where useful, a local
 ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox in the
 same turn, without a second confirmation; it is never sent automatically. When
-that reply suggests times, private HOLDs are placed on the calendar in the same
-turn and obsolete HOLDs are cleared on the next revisit of that contact, without
-asking. There is no automatic invitation; unattended monitoring only writes the
-recommended `next_step` and reconciled `holds` to the contact's page, while
-every other factual field waits for founder approval. Each notice carries the most urgent one or two suggestions rather than every
+that reply suggests times, private HOLDs are placed on the configured default
+calendar in the same turn and obsolete HOLDs are cleared on the next revisit of
+that contact, without asking. There is no automatic invitation; an unattended
+check writes only the recommended next step and, after placing or clearing private
+HOLDs, reconciles the contact page's verified `holds` to match the calendar.
+Every other factual field requires your specific approval and fresh checks. Each
+notice carries the most urgent one or two suggestions rather than every
 outstanding one; the rest arrive in later checks once the current notice is
 delivered, whether or not its suggestions have been acted on. There
 are no repeated reminders for unchanged pending suggestions. A new reply

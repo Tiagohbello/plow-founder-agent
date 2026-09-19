@@ -248,6 +248,12 @@ def access_items(connection: sqlite3.Connection) -> list[dict]:
     return items
 
 
+def active_default_calendar(connection: sqlite3.Connection) -> sqlite3.Row | None:
+    if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='calendar_account'").fetchone():
+        return None
+    return connection.execute("SELECT * FROM calendar_account WHERE active=1 AND is_default=1").fetchone()
+
+
 def calendar_items(connection: sqlite3.Connection) -> list[dict]:
     items = []
     for row in connection.execute("SELECT * FROM calendar_account ORDER BY is_default DESC, account"):

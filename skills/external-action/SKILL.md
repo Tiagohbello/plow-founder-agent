@@ -29,10 +29,11 @@ entry (`target`, `operation`, `intent`); preparation, approval and claim enforce
 Use the plan's exact parameters for the provider call. Changed parameters need
 a new suggestion and founder approval. Linked product writes are not permitted.
 Linked invitation ledger items cannot be approved or claimed while their suggestion is pending, obsolete
-or uncertain, even with autonomous calendar policy. Private HOLDs from a
-monitor `hold_plan` use `create_private_hold` / `delete_private_hold` with
-`--suggestion-id` and do not wait for founder approval; they still fail when
-calendar operations are forbidden. During a scheduled check,
+or uncertain, even with autonomous calendar policy. Private HOLDs from a monitor `hold_plan` require a linked draft, target the
+active configured default calendar, use `create_private_hold` / `delete_private_hold`
+with `--suggestion-id` and do not wait for founder approval; they still fail when
+calendar operations are forbidden. Deletion is authorized only when the verified
+event is absent from the current `hold_plan`. During a scheduled check,
 the only permitted mailbox write is saving a founder-owned Gmail draft when
 Founder Profile has `save_gmail_drafts=true`, following Gmail's draft reuse and
 read-back protocol. Do that in the same turn as preparing the reply; do not ask

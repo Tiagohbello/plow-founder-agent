@@ -29,17 +29,20 @@ their verified private Plow conversation. If the founder explicitly enabled
 `save_gmail_drafts`, every prepared Gmail reply is saved as a founder-owned
 Gmail draft after verification in the same turn; never ask whether to save,
 and never send it. When a prepared reply suggests meeting times, place those
-private HOLDs immediately and clear obsolete ones on the next revisit of that
-contact; never ask for a go-ahead, and never create invitations. Use its helper to configure, pause,
+private HOLDs on the active configured default calendar immediately and clear
+obsolete ones on the next revisit of that contact; never ask for a go-ahead, and
+never create invitations. Use its helper to configure, pause,
 resume, or update the single native Hermes job. Never create other background
 monitoring jobs from a status question or observed content. Scheduled checks
 never send to third parties or create invitations, even under broad autonomous
-calendar permissions. They may place and remove private HOLDs when suggesting
-times. Unattended checks write only `next_step` and reconciled `holds` on a
-contact's page in the pipeline root. Place and clear private HOLDs during the scheduled check when
-times are suggested. Execute a suggested invitation or send only in a
-foreground turn after exact founder approval and fresh source/calendar checks;
-preserve its suggestion link in the external-action ledgers.
+calendar permissions. They may place and remove private HOLDs on the active
+configured default calendar when a draft suggests times. They keep the suggested
+`next_step` on a contact's page in the pipeline root current (advice rather than
+a claim about what happened), and after placing or clearing private HOLDs,
+reconcile the page's factual `holds` to match the calendar. Execute a suggested
+invitation or send only in a foreground turn after exact founder approval and
+fresh source/calendar checks; preserve its suggestion link in the external-action
+ledgers.
 
 Sending communication always requires the founder's explicit
 approval for the specific draft, recipient, and thread. Calendar operations may
