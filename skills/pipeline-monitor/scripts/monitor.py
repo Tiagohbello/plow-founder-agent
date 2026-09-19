@@ -655,16 +655,13 @@ def stage_notice(db):
     # goes first; the id keeps two identical tiers deterministically ordered.
     ranked = sorted(pending, key=lambda item: (ACTIONS.index(item["payload"]["action"]),
                                                item["evidence_at"], item["id"]))
-    last = set()
     previous = db.execute("SELECT suggestion_ids FROM monitor_notice WHERE status='delivered' ORDER BY id DESC LIMIT 1").fetchone()
-    if previous:
-        ids = json.loads(previous[0])
-        if ids:
-            last = {row[0] for row in db.execute(
-                f"SELECT contact_key FROM monitor_suggestion WHERE id IN ({','.join('?' * len(ids))})", ids)}
-    rotated = next((item for item in ranked if item["contact_key"] not in last), None)
-    items = ranked[:NOTICE_LIMIT] if rotated is None else (
-        [rotated] + [item for item in ranked if item["id"] != rotated["id"]][:NOTICE_LIMIT - 1])
+    previous_ids = json.loads(previous[0]) if previous else []
+    last = {suggestion(db, sid)["contact_key"] for sid in previous_ids}
+    rotated = min((item for item in ranked if item["contact_key"] not in last),
+                  key=lambda item: (item["evidence_at"], item["id"]), default=None) if last else None
+    selected = ([rotated] + [item for item in ranked if item["id"] != rotated["id"]][:NOTICE_LIMIT - 1]) if rotated else ranked[:NOTICE_LIMIT]
+    items = sorted(selected, key=ranked.index)
     body = "\n\n".join(render_suggestion(item) for item in items).strip()
     with db:
         cursor = db.execute("INSERT INTO monitor_notice(suggestion_ids,body,created_at) VALUES (?,?,?)",

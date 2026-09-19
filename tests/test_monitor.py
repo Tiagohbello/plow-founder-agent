@@ -658,7 +658,7 @@ class MonitorTests(unittest.TestCase):
 
 
     def test_successive_notices_rotate_a_blocked_contact_that_would_starve(self):
-        for slug in ("jessica", "tammy", "cynthia"):
+        for slug in ("jessica", "tammy", "alex", "cynthia"):
             self.write_contact(slug, email=f"{slug}@example.com")
         self.contacts()
 
@@ -677,6 +677,7 @@ class MonitorTests(unittest.TestCase):
         blocked("cynthia", "blocked", "2026-09-01T14:00:00Z", "gmail:cynthia-stale")
         blocked("jessica", "accepted", "2026-09-17T14:00:00Z", "gmail:jessica-1")
         blocked("tammy", "accepted", "2026-09-18T14:00:00Z", "gmail:tammy-1")
+        blocked("alex", "accepted", "2026-09-18T16:00:00Z", "gmail:alex-1")
         first = monitor.notice(self.db)
         self.assertIn("Jessica", first["body"])
         self.assertIn("Tammy", first["body"])
@@ -686,10 +687,11 @@ class MonitorTests(unittest.TestCase):
 
         blocked("jessica", "accepted", "2026-09-19T14:00:00Z", "gmail:jessica-2")
         blocked("tammy", "accepted", "2026-09-19T15:00:00Z", "gmail:tammy-2")
+        blocked("alex", "accepted", "2026-09-19T16:00:00Z", "gmail:alex-2")
         second = monitor.notice(self.db)
         self.assertIn("Cynthia", second["body"])
         self.assertEqual(second["body"].count("Gmail ·"), 2)
-        self.assertTrue("Jessica" in second["body"] or "Tammy" in second["body"])
+        self.assertLess(second["body"].index("Jessica"), second["body"].index("Cynthia"))
 
 
 if __name__ == "__main__":
