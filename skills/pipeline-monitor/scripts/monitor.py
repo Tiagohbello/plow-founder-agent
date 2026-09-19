@@ -567,6 +567,9 @@ def normalize_calendar_plan(action, plan, draft, contact):
             raise ValueError("accepted requires the invitation first, followed only by sibling hold deletions")
         fields = (contact or {}).get("fields", {})
         expected = {item.strip() for item in str(fields.get("holds", "")).split(";") if item.strip()}
+        if any(len(target.split("/")) != 3 or not all(target.split("/"))
+               or target.endswith("/new") for target in expected):
+            raise ValueError("accepted requires each hold to be a canonical provider event target")
         actual = {item["target"] for item in normalized[1:]}
         if actual != expected:
             raise ValueError("accepted deletions must match every live sibling hold")

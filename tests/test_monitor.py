@@ -444,6 +444,16 @@ class MonitorTests(unittest.TestCase):
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 monitor.observe(self.db, self.observation(calendar_plan=plan))
 
+    def test_accepted_rejects_legacy_hold_labels_until_resolved_to_event_targets(self):
+        legacy = "Tuesday 14:00 PT; Wednesday 10:00 PT"
+        self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
+                           holds=legacy)
+        self.contact = self.contacts()["contacts"][0]
+        plan = self.observation()["calendar_plan"]
+        plan[1]["target"], plan[2]["target"] = legacy.split("; ")
+        with self.assertRaisesRegex(ValueError, "canonical provider event target"):
+            monitor.observe(self.db, self.observation(calendar_plan=plan))
+
     def test_calendar_plan_rejects_unknown_effects(self):
         plan = self.observation()["calendar_plan"]
         plan[0] = {**plan[0], "effect": "maybe_invitation"}
@@ -698,6 +708,19 @@ class MonitorTests(unittest.TestCase):
         self.helper("external-action", "operations.py", "finish", "--id", oid,
                     "--outcome", "completed", "--external-ref", "hold-event-1",
                     "--evidence", "calendar:verified-hold-1")
+        error = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", second["target"],
+            "--operation", second["operation"], "--intent", second["intent"],
+            "--suggestion-id", str(item["id"]), ok=False,
+        )
+        self.assertIn("recorded on the contact page", error)
+        self.write_contact(
+            "alex", email="alex@example.com", phone="+1 415 555 0100",
+            holds=("work@example.com/primary/hold-1; work@example.com/primary/hold-2; "
+                   "work@example.com/primary/hold-event-1"),
+        )
+        self.contact = self.contacts()["contacts"][0]
         second_result = self.helper(
             "external-action", "operations.py", "prepare",
             "--scope", "calendar", "--target", second["target"],
@@ -705,6 +728,31 @@ class MonitorTests(unittest.TestCase):
             "--suggestion-id", str(item["id"]),
         )
         self.assertFalse(second_result["approval_required"])
+
+    def test_automatic_hold_reconciliation_requires_provider_event_id(self):
+        item = monitor.observe(self.db, self.new_options_observation(draft={
+            "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+            "body": "Could you meet Tuesday, Wednesday, or Thursday?",
+        }))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )["operation"]
+        oid = str(prepared["id"])
+        self.helper("external-action", "operations.py", "claim", "--id", oid)
+        self.helper("external-action", "operations.py", "finish", "--id", oid,
+                    "--outcome", "uncertain", "--evidence", "provider timeout")
+        error = self.helper("external-action", "operations.py", "reconcile", "--id", oid,
+                            "--outcome", "completed", "--evidence", "provider read-back",
+                            ok=False)
+        self.assertIn("provider event id", error)
+        result = self.helper("external-action", "operations.py", "reconcile", "--id", oid,
+                             "--outcome", "completed", "--external-ref", "hold-event-1",
+                             "--evidence", "provider read-back")
+        self.assertEqual(result["operation"]["external_ref"], "hold-event-1")
 
     def test_text_proposal_needs_no_provider_draft_before_automatic_holds(self):
         draft = {"channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",

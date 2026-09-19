@@ -80,13 +80,22 @@ def require_prior_holds_completed(connection, row, plan, entry):
         if prior.get("effect") != "hold":
             continue
         completed = connection.execute(
-            """SELECT 1 FROM external_operation
+            """SELECT external_ref FROM external_operation
                WHERE monitor_suggestion_id=? AND target=? AND operation=? AND intent=?
                  AND status='completed'""",
             (row["id"], prior["target"], prior["operation"], prior["intent"]),
         ).fetchone()
         if completed is None:
             raise ValueError("automatic holds must execute in plan order; reconcile the prior hold first")
+        contact = connection.execute(
+            "SELECT data FROM monitor_contact WHERE contact_key=?", (row["contact_key"],)
+        ).fetchone()
+        fields = json.loads(contact["data"]).get("fields", {}) if contact else {}
+        recorded = {value.strip() for value in str(fields.get("holds", "")).split(";")
+                    if value.strip()}
+        provider_target = f"{prior['target'].rsplit('/', 1)[0]}/{completed['external_ref']}"
+        if provider_target not in recorded:
+            raise ValueError("each verified hold must be recorded on the contact page before the next")
 
 
 def monitor_item(connection, suggestion_id, approved=False):
