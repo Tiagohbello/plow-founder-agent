@@ -229,8 +229,10 @@ Acceptance check, using test contacts you control:
    the founder's inbox. Choosing “no” must leave only the internal ledger
    record; neither path sends the message.
 
-Existing installs remain disabled until configured. Normal updates retain
-monitor state in the existing volume. To roll back to an image without this
+Existing installs remain disabled until configured. A chat started before this
+capability shipped retains its old persona until its automatic idle reset (see
+[Update and retain your data](#update-and-retain-your-data)). Normal updates
+retain monitor state in the existing volume. To roll back to an image without this
 feature, pause the monitor first; restoring an older image alone does not
 remove its persisted Hermes job.
 
@@ -264,9 +266,16 @@ docker compose exec agent ls /var/lib/hermes/skills
 The first command should print `1`, confirming the base composed this agent's
 persona into `SOUL.md`; the second should list Founder Agent's skills. Both are
 composed and installed by the base image on every boot, so they confirm the
-packaging rather than any Founder Agent-specific state. Verify browser and
-external account access interactively through Latch; neither command checks
-those connections.
+packaging rather than the persona active in an existing conversation. Also ask
+for the changed capability by name in the chat you actually use; passing these
+file checks does not prove that chat received the update. For example, ask:
+
+> Can you help me configure pipeline-monitor? Show the setup questions without
+> enabling it yet.
+
+Expect the setup flow rather than a refusal based on a retired rule.
+Verify browser and external account access interactively through Latch; neither
+command checks those connections.
 
 ## Verify Agent Index reporting
 
@@ -304,6 +313,20 @@ new skills are copied, untouched ones are updated, and any skill edited or
 deleted in the home (by you or the agent) stays as you left it. Databases,
 credentials, and session history in the persistent volume are untouched by
 this reconciliation.
+
+An existing conversation can retain the system prompt composed when it started,
+even after these files refresh. A persona or skill update therefore may not be
+visible in a chat that predates it. Restarting the container and checking
+`SOUL.md` do not verify the prompt used by that conversation.
+
+After updating, ask for the changed capability by name in your usual chat and
+exercise its setup or intended workflow. There is no immediate or manual
+non-destructive prompt refresh pending upstream
+[plow-hermes-agent#125](https://github.com/plow-pbc/plow-hermes-agent/issues/125),
+but owner-DM sessions automatically reset after 1,440 idle minutes (~24 hours);
+repeat the capability check after that idle window.
+Preserve the volume and history; do not edit Hermes session records to work
+around this.
 
 That last rule cuts both ways on an upgrade: a skill **removed** from the image
 is not removed from a home that already has it, so an existing install keeps
@@ -392,6 +415,7 @@ you intend to permanently discard company memory, session history, and install i
 | Draft PR cannot be published | Check GitHub write access; preserve the prepared local patch |
 | Index registration/report error | Check the credential, client output, and `/var/lib/hermes/state.db`; do not delete identity files to retry |
 | `SOUL.md` or a skill looks wrong after an update | Restart (`docker compose restart agent`) recomposes `SOUL.md`, but keeps a skill edited in the home (by you or the agent) as you left it; restore the shipped copy with `docker compose exec --user hermes -e HOME=/var/lib/hermes -e HERMES_HOME=/var/lib/hermes agent /opt/hermes/.venv/bin/hermes skills reset <name> --restore --yes` |
+| Files are updated but the chat still cites an old rule | The running chat retains its original system prompt and active history; there is no immediate or manual refresh pending upstream plow-hermes-agent#125, but owner-DM sessions automatically reset after ~24 hours idle (1,440 idle minutes) — repeat the capability check then. Preserve the volume and history. |
 
 Logs can contain account or task context. Redact private information before
 sharing diagnostics in a public issue.
