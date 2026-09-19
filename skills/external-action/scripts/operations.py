@@ -234,7 +234,8 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
 
 
 def require_completion_ref(row, outcome, external_ref):
-    automatic_hold = row["scope"] == "calendar" and row["policy"] == "autonomous"
+    automatic_hold = (row["scope"] == "calendar" and row["policy"] == "autonomous"
+                      and row["monitor_suggestion_id"] is not None)
     if (outcome == "completed" and automatic_hold
             and not (external_ref or "").strip()):
         raise ValueError("completed automatic hold requires its verified provider event id")

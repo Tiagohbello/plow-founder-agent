@@ -779,6 +779,23 @@ class MonitorTests(unittest.TestCase):
         )
         self.assertEqual(result["operation"]["status"], "completed")
 
+    def test_legacy_unlinked_autonomous_calendar_completion_needs_no_hold_identity(self):
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", "work@example.com/primary/legacy-event",
+            "--operation", "update", "--intent", "legacy autonomous update",
+        )["operation"]
+        self.db.execute(
+            "UPDATE external_operation SET policy='autonomous',status='executing' WHERE id=?",
+            (prepared["id"],),
+        )
+        self.db.commit()
+        result = self.helper(
+            "external-action", "operations.py", "finish", "--id", str(prepared["id"]),
+            "--outcome", "completed", "--evidence", "legacy provider receipt",
+        )
+        self.assertEqual(result["operation"]["status"], "completed")
+
     def test_text_proposal_needs_no_provider_draft_before_automatic_holds(self):
         draft = {"channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
                  "body": "Could you meet Tuesday, Wednesday, or Thursday?"}
