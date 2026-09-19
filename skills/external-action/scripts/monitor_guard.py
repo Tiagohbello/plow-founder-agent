@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 
 HOLD_FIELDS = ("account", "calendar", "start", "end", "timezone", "title",
-               "attendees", "send_updates", "transparency")
+               "description", "attendees", "send_updates", "transparency")
 
 
 def add_monitor_column(connection, table):
@@ -42,6 +42,8 @@ def parse_hold_intent(intent, target):
         raise ValueError("automatic hold requires exact structured calendar parameters")
     if hold["attendees"] != [] or hold["send_updates"] != "none" or hold["transparency"] != "opaque":
         raise ValueError("automatic holds must be busy, attendee-free, with notifications off")
+    if hold["description"] != "Tentative — no invitation sent":
+        raise ValueError("automatic hold description must be Tentative — no invitation sent")
     if any(not isinstance(hold[key], str) or not hold[key].strip()
            for key in HOLD_FIELDS if key != "attendees"):
         raise ValueError("automatic hold fields must be nonblank strings")
@@ -75,10 +77,8 @@ def require_default_calendar(connection, target):
         raise ValueError("automatic holds must use the configured default calendar")
 
 
-def require_prior_holds_completed(connection, row, plan, entry):
+def require_prior_operations_completed(connection, row, plan, entry):
     for prior in plan[:plan.index(entry)]:
-        if prior.get("effect") != "hold":
-            continue
         completed = connection.execute(
             """SELECT external_ref FROM external_operation
                WHERE monitor_suggestion_id=? AND target=? AND operation=? AND intent=?
@@ -86,7 +86,9 @@ def require_prior_holds_completed(connection, row, plan, entry):
             (row["id"], prior["target"], prior["operation"], prior["intent"]),
         ).fetchone()
         if completed is None:
-            raise ValueError("automatic holds must execute in plan order; reconcile the prior hold first")
+            raise ValueError("calendar operations must execute in plan order; reconcile the prior operation first")
+        if prior["effect"] != "hold":
+            continue
         contact = connection.execute(
             "SELECT data FROM monitor_contact WHERE contact_key=?", (row["contact_key"],)
         ).fetchone()
@@ -128,17 +130,23 @@ def monitor_operation(connection, suggestion_id, scope, target, operation, inten
     exact = {"target": target, "operation": operation, "intent": intent}
     if scope != "calendar" or not isinstance(plan, list):
         raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")
+    if any(not isinstance(entry, dict)
+           or entry.get("effect") not in ("hold", "invitation", "delete_hold")
+           for entry in plan):
+        raise ValueError("monitor calendar plan entries require a canonical effect")
     matches = [entry for entry in plan if isinstance(entry, dict)
                and {key: entry.get(key) for key in exact} == exact]
     if len(matches) != 1:
         raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")
     entry = matches[0]
-    automatic_hold = payload.get("action") == "new_options" and entry.get("effect") == "hold"
+    require_prior_operations_completed(connection, row, plan, entry)
+    config = connection.execute("SELECT enabled FROM monitor_config WHERE id=1").fetchone()
+    automatic_hold = (payload.get("action") == "new_options" and entry["effect"] == "hold"
+                      and config is not None and config["enabled"] == 1)
     if automatic_hold:
         parse_hold_intent(intent, target)
         require_proposal_draft(connection, row)
         require_default_calendar(connection, target)
-        require_prior_holds_completed(connection, row, plan, entry)
     if approved:
         if automatic_hold:
             require_current_contact(connection, row)

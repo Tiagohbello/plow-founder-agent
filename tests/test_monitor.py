@@ -146,6 +146,7 @@ class MonitorTests(unittest.TestCase):
             "account": "work@example.com", "calendar": "primary",
             "start": "2026-09-22T12:00:00-07:00", "end": "2026-09-22T12:30:00-07:00",
             "timezone": "America/Los_Angeles", "title": "HOLD — Alex / Example",
+            "description": "Tentative — no invitation sent",
             "attendees": [], "send_updates": "none", "transparency": "opaque",
         }
         value.update(changes)
@@ -156,6 +157,9 @@ class MonitorTests(unittest.TestCase):
                                  "--db", str(self.path), *args], text=True, capture_output=True)
         self.assertEqual(result.returncode == 0, ok, result.stderr + result.stdout)
         return json.loads(result.stdout) if ok else result.stderr
+
+    def enable_monitor(self):
+        monitor.sync_job(self.db, self.scheduler, True)
 
     def approve(self, item):
         notice = monitor.notice(self.db)
@@ -485,6 +489,7 @@ class MonitorTests(unittest.TestCase):
             (self.hold(attendees=["alex@example.com"]), "attendee-free"),
             (self.hold(send_updates="all"), "notifications off"),
             (self.hold(transparency="transparent"), "busy"),
+            (self.hold(description="Tentative"), "Tentative — no invitation sent"),
             (self.hold(account="other@example.com"), "target must match"),
             (self.hold(timezone="Not/A_Zone"), "valid ISO timestamps and timezone"),
         ):
@@ -618,6 +623,8 @@ class MonitorTests(unittest.TestCase):
         )
         self.assertTrue(direct["approval_required"])
 
+        self.enable_monitor()
+
         item = monitor.observe(self.db, self.new_options_observation(draft={
             "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
             "body": "Could you meet Tuesday, Wednesday, or Thursday?",
@@ -637,6 +644,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("forbidden", error)
 
     def test_pending_new_options_may_claim_only_its_exact_hold_operations(self):
+        self.enable_monitor()
         item = monitor.observe(self.db, self.new_options_observation())["suggestion"]
         hold = item["payload"]["calendar_plan"][0]
         command = (
@@ -661,6 +669,7 @@ class MonitorTests(unittest.TestCase):
                                     "--id", str(result["operation"]["id"]))["claimed"])
 
     def test_automatic_hold_plan_must_use_configured_default_calendar(self):
+        self.enable_monitor()
         proposal = self.new_options_observation()
         proposal["calendar_plan"] = [
             {**step, "target": "other@example.com/primary/new",
@@ -680,6 +689,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("configured default calendar", error)
 
     def test_automatic_holds_execute_in_plan_order(self):
+        self.enable_monitor()
         item = monitor.observe(self.db, self.new_options_observation())["suggestion"]
         self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
                     "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
@@ -730,6 +740,7 @@ class MonitorTests(unittest.TestCase):
         self.assertFalse(second_result["approval_required"])
 
     def test_automatic_hold_reconciliation_requires_provider_event_id(self):
+        self.enable_monitor()
         item = monitor.observe(self.db, self.new_options_observation(draft={
             "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
             "body": "Could you meet Tuesday, Wednesday, or Thursday?",
@@ -755,6 +766,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(result["operation"]["external_ref"], "hold-event-1")
 
     def test_automatic_hold_completion_survives_suggestion_supersession(self):
+        self.enable_monitor()
         item = monitor.observe(self.db, self.new_options_observation(draft={
             "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
             "body": "Could you meet Tuesday, Wednesday, or Thursday?",
@@ -797,6 +809,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(result["operation"]["status"], "completed")
 
     def test_text_proposal_needs_no_provider_draft_before_automatic_holds(self):
+        self.enable_monitor()
         draft = {"channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
                  "body": "Could you meet Tuesday, Wednesday, or Thursday?"}
         item = monitor.observe(self.db, self.new_options_observation(draft=draft))["suggestion"]
@@ -808,6 +821,20 @@ class MonitorTests(unittest.TestCase):
             "--suggestion-id", str(item["id"]),
         )
         self.assertFalse(result["approval_required"])
+
+    def test_paused_monitor_holds_require_approval(self):
+        item = monitor.observe(self.db, self.new_options_observation(draft={
+            "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+            "body": "Could you meet Tuesday, Wednesday, or Thursday?",
+        }))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        result = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )
+        self.assertTrue(result["approval_required"])
 
     def test_obsolete_gmail_draft_cleanup_survives_restart_and_uncertainty(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
@@ -859,6 +886,57 @@ class MonitorTests(unittest.TestCase):
                 "--scope", args["scope"], "--target", args["target"], "--operation", args["operation"],
                 "--intent", args["intent"], "--suggestion-id", str(item["id"]), ok=False)
             self.assertIn("differs from", error)
+
+    def test_accepted_calendar_operations_execute_in_plan_order(self):
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        self.approve(item)
+        invitation, deletion = item["payload"]["calendar_plan"][:2]
+
+        error = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", deletion["target"],
+            "--operation", deletion["operation"], "--intent", deletion["intent"],
+            "--suggestion-id", str(item["id"]), ok=False,
+        )
+        self.assertIn("plan order", error)
+
+        created = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", invitation["target"],
+            "--operation", invitation["operation"], "--intent", invitation["intent"],
+            "--suggestion-id", str(item["id"]),
+        )["operation"]
+        oid = str(created["id"])
+        self.helper("external-action", "operations.py", "approve", "--id", oid)
+        self.helper("external-action", "operations.py", "claim", "--id", oid)
+        self.helper("external-action", "operations.py", "finish", "--id", oid,
+                    "--outcome", "completed", "--external-ref", "meeting-event-1",
+                    "--evidence", "calendar:verified-invitation")
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", deletion["target"],
+            "--operation", deletion["operation"], "--intent", deletion["intent"],
+            "--suggestion-id", str(item["id"]),
+        )
+        self.assertTrue(prepared["approval_required"])
+
+    def test_effectless_legacy_plan_cannot_authorize_calendar_operations(self):
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        self.approve(item)
+        payload = item["payload"]
+        for step in payload["calendar_plan"]:
+            step.pop("effect")
+        self.db.execute("UPDATE monitor_suggestion SET payload=? WHERE id=?",
+                        (json.dumps(payload, sort_keys=True, separators=(",", ":")), item["id"]))
+        self.db.commit()
+        invitation = payload["calendar_plan"][0]
+        error = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", invitation["target"],
+            "--operation", invitation["operation"], "--intent", invitation["intent"],
+            "--suggestion-id", str(item["id"]), ok=False,
+        )
+        self.assertIn("canonical effect", error)
 
     def test_notices_require_readback_and_failed_delivery_can_be_retried(self):
         monitor.observe(self.db, self.observation())

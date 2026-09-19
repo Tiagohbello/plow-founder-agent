@@ -69,7 +69,7 @@ retried. Holding is never sending.
 
 For an automatic hold, encode the exact provider parameters as JSON in the
 plan entry's existing `intent`: `account`, `calendar`, `start`, `end`,
-`timezone`, `title`, empty `attendees`, `send_updates: "none"`, and
+`timezone`, `title`, `description: "Tentative — no invitation sent"`, empty `attendees`, `send_updates: "none"`, and
 `transparency: "opaque"`. The validator rejects any other shape before the
 suggestion is persisted and rechecks it before claim.
 

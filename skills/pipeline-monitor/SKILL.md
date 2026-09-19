@@ -332,7 +332,8 @@ automatic hold
 entries share the available configured default calendar's `/new` target and
 differ by intent. Each hold intent is JSON containing exactly `account`,
 `calendar`, `start`, `end`, `timezone`, `title`, empty `attendees`,
-`send_updates: "none"`, and `transparency: "opaque"`; hold-deletion targets are
+`description: "Tentative — no invitation sent"`, `send_updates: "none"`, and
+`transparency: "opaque"`; hold-deletion targets are
 unique event identities.
 `new_options` requires exactly three `hold` entries and a draft. `accepted`
 requires `invitation` first, followed by `delete_hold` entries whose target set
