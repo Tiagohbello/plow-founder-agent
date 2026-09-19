@@ -20,7 +20,8 @@ class PromptContractTests(unittest.TestCase):
         calendar = " ".join((ROOT / "skills/founder-calendar/SKILL.md").read_text().split())
         pipeline = " ".join((ROOT / "skills/pipeline-monitor/SKILL.md").read_text().split())
         self.assertIn("authority-bearing turn", calendar)
-        self.assertIn("authority-bearing approval message", pipeline)
+        self.assertIn("owner's approval message", pipeline)
+        self.assertNotIn("authority-bearing approval message", pipeline)
 
 
 if __name__ == "__main__":
