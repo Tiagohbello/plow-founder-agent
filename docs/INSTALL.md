@@ -280,7 +280,7 @@ command checks those connections.
 ## Verify Agent Index reporting
 
 The supervised reporter attempts registration and reports usage every 5 minutes. It uses
-the official client pinned in `vendor/client.pin`. After a real conversation:
+the official client pinned by the base image. After a real conversation:
 
 ```sh
 docker compose exec --user hermes agent /opt/hermes/.venv/bin/python3 /opt/plow/agent-index-client.py --self-check

@@ -1,4 +1,0 @@
-# Agent Index usage client, pinned to an audited upstream commit.
-sha=69613feda103820f3cec12489e10a461cf883e69
-sha256=6cd7ed8578fa83513c5afc137496afc8386e198a9f1a6d97916b2a4aeffe6b0b
-path=standalone/agent_index_client.py
