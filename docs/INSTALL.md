@@ -230,7 +230,7 @@ Acceptance check, using test contacts you control:
    record; neither path sends the message.
 
 Existing installs remain disabled until configured. A chat started before this
-capability shipped retains its old persona (see
+capability shipped retains its old persona until its automatic idle reset (see
 [Update and retain your data](#update-and-retain-your-data)). Normal updates
 retain monitor state in the existing volume. To roll back to an image without this
 feature, pause the monitor first; restoring an older image alone does not
@@ -320,9 +320,11 @@ visible in a chat that predates it. Restarting the container and checking
 `SOUL.md` do not verify the prompt used by that conversation.
 
 After updating, ask for the changed capability by name in your usual chat and
-exercise its setup or intended workflow. No non-destructive prompt refresh exists
-pending upstream
-[plow-hermes-agent#125](https://github.com/plow-pbc/plow-hermes-agent/issues/125).
+exercise its setup or intended workflow. There is no immediate or manual
+non-destructive prompt refresh pending upstream
+[plow-hermes-agent#125](https://github.com/plow-pbc/plow-hermes-agent/issues/125),
+but owner-DM sessions automatically reset after 1,440 idle minutes (~24 hours);
+repeat the capability check after that idle window.
 Preserve the volume and history; do not edit Hermes session records to work
 around this.
 
@@ -413,7 +415,7 @@ you intend to permanently discard company memory, session history, and install i
 | Draft PR cannot be published | Check GitHub write access; preserve the prepared local patch |
 | Index registration/report error | Check the credential, client output, and `/var/lib/hermes/state.db`; do not delete identity files to retry |
 | `SOUL.md` or a skill looks wrong after an update | Restart (`docker compose restart agent`) recomposes `SOUL.md`, but keeps a skill edited in the home (by you or the agent) as you left it; restore the shipped copy with `docker compose exec --user hermes -e HOME=/var/lib/hermes -e HERMES_HOME=/var/lib/hermes agent /opt/hermes/.venv/bin/hermes skills reset <name> --restore --yes` |
-| Files are updated but the chat still cites an old rule | The running chat retains its original system prompt and active history; no non-destructive prompt refresh exists pending upstream plow-hermes-agent#125. Preserve the volume and history. |
+| Files are updated but the chat still cites an old rule | The running chat retains its original system prompt and active history; there is no immediate or manual refresh pending upstream plow-hermes-agent#125, but owner-DM sessions automatically reset after ~24 hours idle (1,440 idle minutes) — repeat the capability check then. Preserve the volume and history. |
 
 Logs can contain account or task context. Redact private information before
 sharing diagnostics in a public issue.
