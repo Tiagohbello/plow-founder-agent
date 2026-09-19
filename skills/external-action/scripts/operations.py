@@ -197,7 +197,7 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
                 (monitor_id, intent, now(), existing["id"]),
             )
             connection.commit()
-            return {"created": False, "duplicate": True, "operation": as_dict(resolve(connection, existing["id"]))}
+            return {"created": False, "duplicate": False, "approval_required": False, "operation": as_dict(resolve(connection, existing["id"]))}
         return {"created": False, "duplicate": True, "operation": as_dict(existing)}
     status = "approved" if policy == "autonomous" else "pending"
     timestamp = now()
@@ -263,8 +263,8 @@ def retire_hold_create(connection: sqlite3.Connection, delete_row: sqlite3.Row, 
         return
     key = hold_key(sugg["contact_key"], parse_hold_intent(delete_row["intent"]))
     create = connection.execute(
-        "SELECT id, idempotency_key FROM external_operation WHERE idempotency_key=?",
-        (key,),
+        "SELECT id, idempotency_key FROM external_operation WHERE operation=? AND idempotency_key=?",
+        (HOLD_CREATE, key),
     ).fetchone()
     if create:
         retired_key = f"{create['idempotency_key']}:retired:{create['id']}"
@@ -278,13 +278,16 @@ def finish(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "executing":
         raise ValueError("only an executing operation can be finished")
+    ref = (args.external_ref or "").strip()
     if row["operation"] == HOLD_CREATE and args.outcome == "completed":
-        required(args.external_ref, "verified hold event id")
+        required(ref, "verified hold event id")
+    if row["operation"] == HOLD_DELETE and ref and ref != row["target"].rsplit("/", 1)[-1]:
+        raise ValueError("deletion external_ref must match the target event id")
     if row["operation"] == HOLD_DELETE and args.outcome == "completed":
-        retire_hold_create(connection, row, (args.external_ref or "").strip())
+        retire_hold_create(connection, row, ref)
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
-        (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
+        (args.outcome, ref, required(args.evidence, "evidence"), now(), args.id),
     )
     connection.commit()
     return {"finished": True, "operation": as_dict(resolve(connection, args.id))}
@@ -294,13 +297,16 @@ def reconcile(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "uncertain":
         raise ValueError("only an uncertain operation can be reconciled")
+    ref = (args.external_ref or "").strip()
     if row["operation"] == HOLD_CREATE and args.outcome == "completed":
-        required(args.external_ref, "verified hold event id")
+        required(ref, "verified hold event id")
+    if row["operation"] == HOLD_DELETE and ref and ref != row["target"].rsplit("/", 1)[-1]:
+        raise ValueError("deletion external_ref must match the target event id")
     if row["operation"] == HOLD_DELETE and args.outcome == "completed":
-        retire_hold_create(connection, row, (args.external_ref or "").strip())
+        retire_hold_create(connection, row, ref)
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
-        (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
+        (args.outcome, ref, required(args.evidence, "evidence"), now(), args.id),
     )
     connection.commit()
     return {"reconciled": True, "operation": as_dict(resolve(connection, args.id))}

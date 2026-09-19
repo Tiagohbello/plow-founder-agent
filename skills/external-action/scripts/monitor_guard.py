@@ -41,10 +41,13 @@ def validate_hold(hold):
 
 
 def hold_key(contact_key, hold):
-    start = datetime.fromisoformat(hold["start"].replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
-    end = datetime.fromisoformat(hold["end"].replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
-    identity = json.dumps([contact_key, hold["account"], hold["calendar"], start, end], separators=(",", ":"))
-    return "monitor-hold:" + hashlib.sha256(identity.encode()).hexdigest()
+    try:
+        start = datetime.fromisoformat(hold["start"].replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
+        end = datetime.fromisoformat(hold["end"].replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
+        identity = json.dumps([contact_key, hold["account"], hold["calendar"], start, end], separators=(",", ":"))
+        return "monitor-hold:" + hashlib.sha256(identity.encode()).hexdigest()
+    except (KeyError, ValueError, TypeError):
+        return ""
 
 
 def parse_hold_intent(intent):

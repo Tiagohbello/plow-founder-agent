@@ -788,6 +788,17 @@ class MonitorTests(unittest.TestCase):
                     "--outcome", "completed", "--external-ref", stale["external_ref"],
                     "--evidence", "calendar:deleted")
 
+        self.db.execute("UPDATE external_operation SET status='uncertain' WHERE id=?", (cid,))
+        self.db.commit()
+        bad_reconcile = self.helper("external-action", "operations.py", "reconcile", "--id", cid,
+                                     "--outcome", "completed", "--external-ref", "wrong-event-id",
+                                     "--evidence", "calendar:reconciled", ok=False)
+        self.assertIn("deletion external_ref must match the target event id", bad_reconcile)
+        rec = self.helper("external-action", "operations.py", "reconcile", "--id", cid,
+                          "--outcome", "completed", "--external-ref", stale["external_ref"],
+                          "--evidence", "calendar:reconciled")
+        self.assertTrue(rec["reconciled"])
+
         remaining = monitor.contact_holds(self.db, "alex")["holds"]
         self.assertEqual([row["external_ref"] for row in remaining], [f"evt-{created[0]}"])
         retired_op = self.db.execute("SELECT * FROM external_operation WHERE id=?", (created[1],)).fetchone()
@@ -808,6 +819,39 @@ class MonitorTests(unittest.TestCase):
         self.assertFalse(re_prepared["duplicate"])
         self.assertTrue(re_prepared["created"])
         self.assertNotEqual(str(re_prepared["operation"]["id"]), created[1])
+
+        # Cancelled unexecuted hold revives as approved with duplicate: False
+        third = self.hold(start="2026-09-22T15:00:00-07:00", end="2026-09-22T15:30:00-07:00")
+        obs_third = monitor.observe(self.db, self.observation(
+            action="new_options", evidence_refs=["gmail:message-4"], evidence_at="2026-09-17T19:00:00Z",
+            conversation_ref="gmail:thread-third",
+            hold_plan=[third], calendar_plan=[],
+            summary="Offered 15:00.",
+            next_step="Wait.",
+        ))["suggestion"]
+        prep_third = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", f"{third['account']}/{third['calendar']}/new",
+            "--operation", "create_private_hold", "--intent", json.dumps(third),
+            "--suggestion-id", str(obs_third["id"]))
+        self.assertTrue(prep_third["created"])
+        self.assertFalse(prep_third["duplicate"])
+        self.db.execute("UPDATE external_operation SET status='cancelled' WHERE id=?", (prep_third["operation"]["id"],))
+        self.db.commit()
+        obs_third_reoffer = monitor.observe(self.db, self.observation(
+            action="new_options", evidence_refs=["gmail:message-5"], evidence_at="2026-09-17T20:00:00Z",
+            conversation_ref="gmail:thread-third",
+            hold_plan=[third], calendar_plan=[],
+            summary="Offered 15:00 again.",
+            next_step="Wait.",
+        ))["suggestion"]
+        revived = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", f"{third['account']}/{third['calendar']}/new",
+            "--operation", "create_private_hold", "--intent", json.dumps(third),
+            "--suggestion-id", str(obs_third_reoffer["id"]))
+        self.assertFalse(revived["duplicate"])
+        self.assertEqual(revived["operation"]["status"], "approved")
 
         self.helper("founder-context", "profile.py", "set-permission",
                     "--capability", "calendar_manage", "--policy", "forbidden")
