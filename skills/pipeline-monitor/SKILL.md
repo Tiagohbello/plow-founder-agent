@@ -260,7 +260,7 @@ blockers, which is how advice went stale in one and errored in the other.
 
 Observation shape. Source refs are internal; `conversation_context`, `summary`,
 `next_step` and `evidence_summary` reach the founder verbatim in their private
-chat, so write them to the founder as "you", never by name:
+chat, so write them to the founder -- "you replied", "your calendar", never their name:
 
 ```json
 {
@@ -269,7 +269,7 @@ chat, so write them to the founder as "you", never by name:
   "conversation_context": "Gmail · Alex · Scheduling",
   "evidence_refs": ["<verified incoming message id>"],
   "evidence_at": "2026-09-17T14:00:00Z",
-  "evidence_summary": "Reply in Scheduling, Thursday at 11:00; include a usable source link when available.",
+  "evidence_summary": "Alex answered your Scheduling email: Thursday at 11:00; include a usable source link when available.",
   "action": "accepted",
   "summary": "Alex accepted your Tuesday 14:00 PT slot.",
   "next_step": "Create the video invitation. Approve?",
