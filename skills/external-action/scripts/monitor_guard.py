@@ -41,5 +41,9 @@ def monitor_operation(connection, suggestion_id, scope, target, operation, inten
         return
     plan = json.loads(row["payload"]).get("calendar_plan", [])
     exact = {"target": target, "operation": operation, "intent": intent}
-    if scope != "calendar" or not isinstance(plan, list) or exact not in plan:
+    if scope != "calendar" or not isinstance(plan, list):
+        raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")
+    matches = [entry for entry in plan if isinstance(entry, dict)
+               and {key: entry.get(key) for key in exact} == exact]
+    if len(matches) != 1:
         raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")

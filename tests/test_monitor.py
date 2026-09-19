@@ -62,15 +62,16 @@ class MonitorTests(unittest.TestCase):
         }
         monitor.configure(self.db, self.config, self.scheduler)
         self.vault = self.path.parent / "wiki"
-        self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100")
+        self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
+                           holds="Tuesday 14:00 PT; Wednesday 10:00 PT")
         self.contact = self.contacts()["contacts"][0]
 
-    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent"):
+    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent", holds=""):
         """One pipeline entry and, unless suppressed, the person page it points at."""
         entry = self.vault / monitor.PIPELINE_ROOT / f"{slug}.md"
         entry.parent.mkdir(parents=True, exist_ok=True)
         entry.write_text(f'---\ntype: "PipelineEntry"\nperson: "{slug}"\nstatus: "{status}"\n'
-                         f'next_step: ""\n---\n\nNotes about {slug}.\n')
+                         f'holds: "{holds}"\nnext_step: ""\n---\n\nNotes about {slug}.\n')
         if person:
             page = self.vault / monitor.PEOPLE_ROOT / f"{slug}.md"
             page.parent.mkdir(parents=True, exist_ok=True)
@@ -95,7 +96,14 @@ class MonitorTests(unittest.TestCase):
         value = {
             "contact_key": self.contact["contact_key"], "conversation_ref": "gmail:thread-1",
             "conversation_context": "Gmail · Alex · Scheduling",
-            "calendar_plan": [{"target": "work/calendar/new", "operation": "create", "intent": "Tuesday 14:00"}],
+            "calendar_plan": [
+                {"effect": "invitation", "target": "work/calendar/new", "operation": "create",
+                 "intent": "Alex; Tuesday 14:00; guest alex@example.com; video; send invitation"},
+                {"effect": "delete_hold", "target": "work/calendar/hold-1", "operation": "delete",
+                 "intent": "Delete verified sibling hold 1 after invitation verification"},
+                {"effect": "delete_hold", "target": "work/calendar/hold-2", "operation": "delete",
+                 "intent": "Delete verified sibling hold 2 after invitation verification"},
+            ],
             "evidence_refs": ["gmail:message-1"], "evidence_at": "2026-09-17T14:00:00Z",
             "evidence_summary": "Alex replied in Scheduling at 07:00 PT.",
             "action": "accepted", "summary": "Alex accepted Tuesday at 14:00 PT.",
@@ -103,6 +111,23 @@ class MonitorTests(unittest.TestCase):
             "draft": {"channel": "gmail", "thread_id": "thread-1", "recipient": "alex@example.com",
                       "subject": "Re: Scheduling", "body": "Tuesday at 14:00 PT works."},
         }
+        value.update(changes)
+        return value
+
+    def new_options_observation(self, **changes):
+        value = self.observation(
+            action="new_options",
+            summary="You owe Alex times.",
+            next_step="Three held options are drafted. Review and send?",
+            calendar_plan=[
+                {"effect": "hold", "target": "work/calendar/hold-1", "operation": "create",
+                 "intent": "Busy attendee-free tentative hold 1; notifications off"},
+                {"effect": "hold", "target": "work/calendar/hold-2", "operation": "create",
+                 "intent": "Busy attendee-free tentative hold 2; notifications off"},
+                {"effect": "hold", "target": "work/calendar/hold-3", "operation": "create",
+                 "intent": "Busy attendee-free tentative hold 3; notifications off"},
+            ],
+        )
         value.update(changes)
         return value
 
@@ -363,6 +388,31 @@ class MonitorTests(unittest.TestCase):
         monitor.supersede(self.db, item["id"])
         self.assertEqual(monitor.page_update(self.db, item["id"])["changes"], {"next_step": ""})
 
+    def test_new_options_requires_three_holds_and_a_draft(self):
+        valid = self.new_options_observation()
+        self.assertEqual(len(monitor.observe(self.db, valid)["suggestion"]["payload"]["calendar_plan"]), 3)
+        for broken, message in (
+            ({**valid, "calendar_plan": valid["calendar_plan"][:2]}, "exactly three"),
+            ({**valid, "draft": None}, "prepared draft"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                monitor.observe(self.db, broken)
+
+    def test_accepted_requires_invitation_then_every_sibling_hold_delete(self):
+        for plan, message in (
+            ([], "invitation first"),
+            (self.observation()["calendar_plan"][:2], "every live sibling hold"),
+            (list(reversed(self.observation()["calendar_plan"])), "invitation first"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                monitor.observe(self.db, self.observation(calendar_plan=plan))
+
+    def test_calendar_plan_rejects_unknown_effects(self):
+        plan = self.observation()["calendar_plan"]
+        plan[0] = {**plan[0], "effect": "maybe_invitation"}
+        with self.assertRaisesRegex(ValueError, "unsupported calendar effect"):
+            monitor.observe(self.db, self.observation(calendar_plan=plan))
+
     def test_current_advice_follows_evidence_and_empties_when_nothing_is_left(self):
         # One lifecycle: an old thread read after a new one does not outrank it,
         # resolving the stale one leaves the recent advice standing, and resolving
@@ -370,10 +420,9 @@ class MonitorTests(unittest.TestCase):
         recent = monitor.observe(self.db, self.observation(
             evidence_at="2026-09-17T18:00:00Z", evidence_refs=["gmail:recent"],
             next_step="Confirm Thursday. Approve?"))["suggestion"]
-        stale = monitor.observe(self.db, self.observation(
+        stale = monitor.observe(self.db, self.new_options_observation(
             conversation_ref="gmail:old-thread", evidence_refs=["gmail:from-last-week"],
-            evidence_at="2026-09-10T09:00:00Z", action="new_options",
-            summary="An older thread offered times.",
+            evidence_at="2026-09-10T09:00:00Z", summary="An older thread offered times.",
             next_step="Reply to the old thread. Approve?"))["suggestion"]
         self.assertGreater(stale["id"], recent["id"])
 
@@ -436,8 +485,10 @@ class MonitorTests(unittest.TestCase):
         item = monitor.observe(self.db, self.observation())["suggestion"]
         self.approve(item)
         self.helper("external-action", "drafts.py", "approve", "--id", str(item["draft_id"]), "--approval-ref", "founder:approve:1")
-        operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar", "--target", "work/calendar/new",
-                                "--operation", "create", "--intent", "Tuesday 14:00", "--suggestion-id", str(item["id"]))["operation"]
+        planned = item["payload"]["calendar_plan"][0]
+        operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
+                                "--target", planned["target"], "--operation", planned["operation"],
+                                "--intent", planned["intent"], "--suggestion-id", str(item["id"]))["operation"]
         newer = self.observation(evidence_refs=["gmail:message-2"], evidence_at="2026-09-17T15:00:00Z", action="modality")
         replacement = monitor.observe(self.db, newer)["suggestion"]
         self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "superseded")
@@ -453,8 +504,10 @@ class MonitorTests(unittest.TestCase):
     def test_autonomous_calendar_policy_never_auto_approves_monitor_work(self):
         self.helper("founder-context", "profile.py", "set-permission", "--capability", "calendar_manage", "--policy", "autonomous")
         item = monitor.observe(self.db, self.observation())["suggestion"]
-        result = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar", "--target", "work/calendar/new",
-                             "--operation", "create", "--intent", "Tuesday 14:00", "--suggestion-id", str(item["id"]))
+        planned = item["payload"]["calendar_plan"][0]
+        result = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
+                             "--target", planned["target"], "--operation", planned["operation"],
+                             "--intent", planned["intent"], "--suggestion-id", str(item["id"]))
         oid = str(result["operation"]["id"])
         self.assertTrue(result["approval_required"])
         self.helper("external-action", "operations.py", "approve", "--id", oid, ok=False)

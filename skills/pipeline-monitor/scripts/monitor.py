@@ -33,6 +33,7 @@ SOURCES = {"gmail", "messages", "plow"}
 # accepted slot outranks a clarification without a second ranking input to keep
 # in agreement with this one.
 ACTIONS = ("accepted", "cancellation", "conflict", "new_options", "modality", "clarification", "blocked")
+PLAN_EFFECTS = ("hold", "invitation", "delete_hold")
 # One check surfaces the few things worth doing now; the rest stay pending and
 # are reconsidered next run. Strict tiers, so a clarification waits behind any
 # steady stream of accepted slots -- intended at one founder's volume, where a
@@ -508,15 +509,47 @@ def page_update(db, suggestion_id):
     return current_advice(db, item["contact_key"])
 
 
+def normalize_calendar_plan(action, plan, draft, contact):
+    if not isinstance(plan, list):
+        raise ValueError("calendar_plan must be a list of exact operations")
+    normalized = []
+    for step in plan:
+        if not isinstance(step, dict) or set(step) != {"effect", "target", "operation", "intent"}:
+            raise ValueError("each calendar operation needs exactly effect, target, operation and intent")
+        item = {key: required(step[key], key) for key in ("effect", "target", "operation", "intent")}
+        if item["effect"] not in PLAN_EFFECTS:
+            raise ValueError("unsupported calendar effect")
+        if item in normalized:
+            raise ValueError("duplicate calendar operation")
+        normalized.append(item)
+    if action == "new_options":
+        if [item["effect"] for item in normalized] != ["hold", "hold", "hold"]:
+            raise ValueError("new_options requires exactly three hold operations")
+        if not draft:
+            raise ValueError("new_options requires a prepared draft")
+    if action == "accepted":
+        if (not normalized or normalized[0]["effect"] != "invitation"
+                or any(item["effect"] != "delete_hold" for item in normalized[1:])):
+            raise ValueError("accepted requires the invitation first, followed only by sibling hold deletions")
+        fields = (contact or {}).get("fields", {})
+        expected = len([item for item in str(fields.get("holds", "")).split(";") if item.strip()])
+        if len(normalized) - 1 != expected:
+            raise ValueError("accepted must delete every live sibling hold")
+    return normalized
+
+
 def observe(db, data):
     data = dict(data)
     contact = required(data.get("contact_key"), "contact_key")
     action = data.get("action")
     if action not in ACTIONS:
         raise ValueError("unsupported scheduling action")
+    contact_data = None
     if action != "blocked" or not contact.startswith("source:"):
-        if not db.execute("SELECT 1 FROM monitor_contact WHERE contact_key=?", (contact,)).fetchone():
+        row = db.execute("SELECT data FROM monitor_contact WHERE contact_key=?", (contact,)).fetchone()
+        if row is None:
             raise ValueError("unknown or ambiguous contact")
+        contact_data = json.loads(row["data"])
     refs = data.get("evidence_refs")
     if not isinstance(refs, list) or not refs or any(not isinstance(r, str) or not r.strip() for r in refs):
         raise ValueError("verified source evidence references required")
@@ -528,20 +561,10 @@ def observe(db, data):
     required(data.get("next_step"), "next_step")
     required(data.get("evidence_summary"), "human-readable evidence_summary")
     data["conversation_context"] = required(data.get("conversation_context"), "human-readable conversation context")
-    plan = data.get("calendar_plan", [])
-    if not isinstance(plan, list):
-        raise ValueError("calendar_plan must be a list of exact operations")
-    normalized = []
-    for step in plan:
-        if not isinstance(step, dict) or set(step) != {"target", "operation", "intent"}:
-            raise ValueError("each calendar operation needs exactly target, operation and intent")
-        step = {key: required(step[key], key) for key in ("target", "operation", "intent")}
-        if step in normalized:
-            raise ValueError("duplicate calendar operation")
-        normalized.append(step)
-    data["calendar_plan"] = normalized
     draft = data.get("draft")
     drafts = None
+    if draft is not None and not isinstance(draft, dict):
+        raise ValueError("draft must be an object")
     if draft:
         drafts = sibling("external-action", "drafts.py")
         draft_db = drafts.connect(Path(db.execute("PRAGMA database_list").fetchone()[2]))
@@ -550,6 +573,9 @@ def observe(db, data):
             required(draft.get(field), f"draft.{field}")
         if draft["channel"] not in drafts.ACTIVE_CHANNELS:
             raise ValueError("unsupported draft channel; Messages reads do not grant send access")
+    data["calendar_plan"] = normalize_calendar_plan(
+        action, data.get("calendar_plan", []), draft, contact_data
+    )
     with db:
         db.execute("BEGIN IMMEDIATE")
         existing = db.execute("SELECT id FROM monitor_suggestion WHERE item_key=?", (item_key,)).fetchone()
