@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -59,9 +61,9 @@ class MonitorTests(unittest.TestCase):
                         "messages": {"status": "blocked", "evidence": "permission denied"}},
         }
         monitor.configure(self.db, self.config, self.scheduler)
-        self.vault = self.home / "vault"
+        self.vault = self.path.parent / "wiki"
         self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100")
-        self.contact = monitor.contacts(self.db, self.vault)["contacts"][0]
+        self.contact = self.contacts()["contacts"][0]
 
     def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent"):
         """One pipeline entry and, unless suppressed, the person page it points at."""
@@ -75,6 +77,19 @@ class MonitorTests(unittest.TestCase):
             page.write_text(f'---\ntype: "Person"\ntitle: "{slug.title()}"\n'
                             f'email: "{email}"\nphone: "{phone}"\n---\n\nWho {slug} is.\n')
         return entry
+
+    def wiki(self):
+        return {str(p.relative_to(self.vault)): p.read_bytes() for p in self.vault.rglob("*.md")}
+
+    def shasum(self, pages):
+        """What `shasum -a 256` on the Mac prints for these pages."""
+        return "".join(f"{hashlib.sha256(body).hexdigest()}  {rel}\n" for rel, body in sorted(pages.items()))
+
+    def contacts(self, listing=None):
+        """One `contacts` run; by default against a Mac that matches the mirror."""
+        path = self.home / "listing.txt"
+        path.write_text(self.shasum(self.wiki()) if listing is None else listing)
+        return monitor.contacts(self.db, self.vault, monitor.listing(path))
 
     def observation(self, **changes):
         value = {
@@ -212,11 +227,11 @@ class MonitorTests(unittest.TestCase):
         self.write_contact("kit", email="kit@example.com")
         (self.vault / monitor.PIPELINE_ROOT / "kit.md").write_text("---\nunclosed: block\n")
 
-        found = monitor.contacts(self.db, self.vault)
+        found = self.contacts()
         self.assertEqual([c["contact_key"] for c in found["contacts"]], ["alex"])
         # A page cannot claim the namespace the database uses for feed blockers.
         self.write_contact("source:gmail", email="spoof@example.com")
-        found = monitor.contacts(self.db, self.vault)
+        found = self.contacts()
         self.assertEqual(sorted(u["contact_key"] for u in found["unlinked"]),
                          ["dana", "kit", "robin", "sam", "source:gmail"])
         self.assertIn("reserved", next(u for u in found["unlinked"]
@@ -243,13 +258,13 @@ class MonitorTests(unittest.TestCase):
                     "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"}
 
         entry.write_text("---\nunclosed: block\n")
-        monitor.contacts(self.db, self.vault)
+        self.contacts()
         self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
         with self.assertRaisesRegex(ValueError, "not in the latest verified pipeline read"):
             monitor.decide(self.db, item["id"], decision)
 
         entry.write_text(good)
-        monitor.contacts(self.db, self.vault)
+        self.contacts()
         self.assertEqual(monitor.decide(self.db, item["id"], decision)["status"], "approved")
 
         # Approval does not expire on its own. If a later read unlinks the contact,
@@ -257,7 +272,7 @@ class MonitorTests(unittest.TestCase):
         guard = monitor.sibling("external-action", "monitor_guard.py")
         self.assertTrue(guard.monitor_item(self.db, item["id"], approved=True))
         entry.write_text("---\nunclosed: block\n")
-        monitor.contacts(self.db, self.vault)
+        self.contacts()
         self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "approved")
         with self.assertRaisesRegex(ValueError, "not in the latest verified pipeline read"):
             guard.monitor_item(self.db, item["id"], approved=True)
@@ -268,10 +283,62 @@ class MonitorTests(unittest.TestCase):
 
     def test_an_entry_that_leaves_the_pipeline_supersedes_its_suggestion(self):
         monitor.observe(self.db, self.observation())
-        (self.vault / monitor.PIPELINE_ROOT / "alex.md").unlink()
-        found = monitor.contacts(self.db, self.vault)
-        self.assertEqual(found["contacts"], [])
+        # Another entry keeps the root listed: an empty listing is refused, never
+        # read as everyone leaving.
+        self.write_contact("dana", email="dana@example.com")
+        entry = f"{monitor.PIPELINE_ROOT}/alex.md"
+        found = self.contacts(self.shasum({rel: body for rel, body in self.wiki().items() if rel != entry}))
+        self.assertEqual([c["contact_key"] for c in found["contacts"]], ["dana"])
+        self.assertFalse((self.vault / entry).exists(), "the mirror keeps only what the wiki still has")
         self.assertEqual(monitor.suggestion(self.db, 1)["status"], "superseded")
+
+    def test_a_page_not_yet_copied_is_still_in_the_pipeline(self):
+        # The listing is the pipeline; the mirror only caches it. A page it lacks or
+        # holds stale is present and unlinked until copied, so a first run or a
+        # partial copy never supersedes live work.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        mirrored = self.wiki()
+        # A page no entry reads is never copied: the index is generated, and
+        # `entities/people` is shared.
+        mac = {**mirrored, f"{monitor.PIPELINE_ROOT}/index.md": b"| alex |\n",
+               f"{monitor.PEOPLE_ROOT}/jane-doe.md": b"Not in the pipeline.\n"}
+        entry = f"{monitor.PIPELINE_ROOT}/alex.md"
+        edited = {**mac, entry: mac[entry].replace(b"Notes", b"Newer notes")}
+        for case, pages, stale in (("fresh", mac, []), ("changed on the Mac", edited, [entry]),
+                                   ("first run", mac, sorted(mirrored))):
+            with self.subTest(case=case):
+                if case == "first run":
+                    shutil.rmtree(self.vault)
+                found = self.contacts(self.shasum(pages))
+                self.assertEqual([c["page"] for c in found["copy"]], stale)
+                self.assertEqual(found["unlinked"], [{"contact_key": "alex", "reason": "not yet copied from the wiki"}]
+                                 if stale else [])
+                self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+                # Write each page where it says, as the check does; the next run reads it whole.
+                for copy in found["copy"]:
+                    Path(copy["to"]).write_bytes(pages[copy["page"]])
+                found = self.contacts(self.shasum(pages))
+                self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
+
+    def test_a_listing_names_pages_in_the_two_roots_or_is_refused(self):
+        # The check writes each page it is sent to, so a path outside the roots is
+        # refused rather than mirrored. So is a listing with no entries: a failed
+        # `cd` lists nothing, and reading that as every entry leaving would
+        # supersede them all.
+        listed, digest = self.shasum(self.wiki()), "0" * 64
+        for listing, error in (("", "not in the wiki"),
+                               (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\n", "not in the wiki"),
+                               (f"{listed}{digest}  projects/founder-agent/notes.md\n", "outside"),
+                               (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/../escape.md\n", "outside"),
+                               (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/alex.txt\n", "outside")):
+            with self.subTest(listing=listing[-50:]), self.assertRaisesRegex(ValueError, error):
+                self.contacts(listing)
+        # shasum's complaint about an empty glob names no page. Through the CLI,
+        # which keeps the mirror beside the database.
+        path = self.home / "listing.txt"
+        path.write_text(listed + "shasum: entities/people/*.md: No such file or directory\n")
+        found = self.helper("pipeline-monitor", "monitor.py", "contacts", "--listing", str(path))
+        self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
 
     def test_a_check_may_write_the_advice_and_nothing_else(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
