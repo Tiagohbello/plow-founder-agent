@@ -57,13 +57,14 @@ conversation, participants, and body first, then run `drafts.py prepare` before
 claiming that a draft was registered. Report a draft only when the command
 succeeds and its returned id/key/status are observable. If the command fails or
 no record is returned, say “not prepared” and stop without calling a send tool.
-For Gmail, read Founder Profile after the ledger succeeds. If
-`preferences.save_gmail_drafts == true`, follow the Gmail skill's draft reuse
-protocol: verify and reuse an existing provider draft, reconcile the mailbox
-before creating one, and record its verified id with `drafts.py mark-draft-saved`.
-If false or unset, do not create a provider draft. If unavailable or uncertain,
-report that Gmail status could not be verified. Saving a draft never sends it; an
-explicit approval is still required for any send.
+For Gmail, read Founder Profile after the ledger succeeds. Follow the Gmail
+skill's draft reuse protocol when `preferences.save_gmail_drafts == true` or
+when the canonical scheduling contract requires a saved `new_options` proposal
+before automatic holds. Otherwise, do not create a provider draft. Verify and
+reuse an existing provider draft, reconcile the mailbox before creating one,
+and record its verified id with `drafts.py mark-draft-saved`. If unavailable or
+uncertain, report that Gmail status could not be verified. Saving a draft never
+sends it; an explicit approval is still required for any send.
 When a saved Gmail draft becomes obsolete, invalidate its local approval
 immediately and follow Gmail's persistent cleanup protocol. Flag an old mailbox
 draft that remains present; delete only the exact unchanged draft after specific

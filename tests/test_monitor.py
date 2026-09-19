@@ -67,7 +67,8 @@ class MonitorTests(unittest.TestCase):
                     "--status", "available", "--evidence", "calendar:verified", "--is-default")
         self.vault = self.path.parent / "wiki"
         self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
-                           holds="Tuesday 14:00 PT; Wednesday 10:00 PT")
+                           holds=("work@example.com/primary/hold-1; "
+                                  "work@example.com/primary/hold-2"))
         self.contact = self.contacts()["contacts"][0]
 
     def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent", holds=""):
@@ -104,11 +105,11 @@ class MonitorTests(unittest.TestCase):
             "contact_key": self.contact["contact_key"], "conversation_ref": "gmail:thread-1",
             "conversation_context": "Gmail · Alex · Scheduling",
             "calendar_plan": [
-                {"effect": "invitation", "target": "work@example.com/primary/new", "operation": "create",
+                {"effect": "invitation", "target": "work@example.com/primary/new",
                  "intent": "Alex; Tuesday 14:00; guest alex@example.com; video; send invitation"},
-                {"effect": "delete_hold", "target": "work@example.com/primary/hold-1", "operation": "delete",
+                {"effect": "delete_hold", "target": "work@example.com/primary/hold-1",
                  "intent": "Delete verified sibling hold 1 after invitation verification"},
-                {"effect": "delete_hold", "target": "work@example.com/primary/hold-2", "operation": "delete",
+                {"effect": "delete_hold", "target": "work@example.com/primary/hold-2",
                  "intent": "Delete verified sibling hold 2 after invitation verification"},
             ],
             "evidence_refs": ["gmail:message-1"], "evidence_at": "2026-09-17T14:00:00Z",
@@ -127,12 +128,12 @@ class MonitorTests(unittest.TestCase):
             summary="You owe Alex times.",
             next_step="Three held options are drafted. Review and send?",
             calendar_plan=[
-                {"effect": "hold", "target": "work@example.com/primary/new", "operation": "create",
+                {"effect": "hold", "target": "work@example.com/primary/new",
                  "intent": json.dumps(self.hold())},
-                {"effect": "hold", "target": "work@example.com/primary/new", "operation": "create",
+                {"effect": "hold", "target": "work@example.com/primary/new",
                  "intent": json.dumps(self.hold(start="2026-09-23T12:00:00-07:00",
                                                  end="2026-09-23T12:30:00-07:00"))},
-                {"effect": "hold", "target": "work@example.com/primary/new", "operation": "create",
+                {"effect": "hold", "target": "work@example.com/primary/new",
                  "intent": json.dumps(self.hold(start="2026-09-24T12:00:00-07:00",
                                                  end="2026-09-24T12:30:00-07:00"))},
             ],
@@ -449,23 +450,25 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported calendar effect"):
             monitor.observe(self.db, self.observation(calendar_plan=plan))
 
-    def test_calendar_effects_require_matching_operations_and_distinct_deletes(self):
+    def test_calendar_effects_derive_operations_and_require_exact_hold_deletes(self):
         proposal = self.new_options_observation()
-        wrong_operation = [{**proposal["calendar_plan"][0], "operation": "delete"},
-                           *proposal["calendar_plan"][1:]]
         duplicate_hold = [proposal["calendar_plan"][0], proposal["calendar_plan"][0],
                           proposal["calendar_plan"][2]]
         accepted = self.observation()["calendar_plan"]
-        wrong_delete = [accepted[0], {**accepted[1], "operation": "create"}, accepted[2]]
         repeated_delete = [accepted[0], accepted[1], {**accepted[2], "target": accepted[1]["target"]}]
+        unrelated_deletes = [accepted[0],
+                             {**accepted[1], "target": "work@example.com/primary/other-1"},
+                             {**accepted[2], "target": "work@example.com/primary/other-2"}]
         for observation, message in (
-            (self.new_options_observation(calendar_plan=wrong_operation), "hold effect must use create"),
             (self.new_options_observation(calendar_plan=duplicate_hold), "duplicate calendar operation"),
-            (self.observation(calendar_plan=wrong_delete), "delete_hold effect must use delete"),
             (self.observation(calendar_plan=repeated_delete), "unique target"),
+            (self.observation(calendar_plan=unrelated_deletes), "match every live sibling hold"),
         ):
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 monitor.observe(self.db, observation)
+        item = monitor.observe(self.db, proposal)["suggestion"]
+        self.assertEqual([step["operation"] for step in item["payload"]["calendar_plan"]],
+                         ["create", "create", "create"])
 
     def test_automatic_holds_require_structured_private_calendar_parameters(self):
         for changed_hold, message in (

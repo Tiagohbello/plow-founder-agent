@@ -51,19 +51,21 @@ the founder privately; never name it in outgoing text.
 When it is on the founder to propose times, hold all three options. This is
 authorized either by the founder's direct request or by an enabled
 `pipeline-monitor` suggestion whose persisted `new_options` plan contains
-exactly three distinct `effect: hold`, `operation: create` entries targeting
+exactly three distinct `effect: hold` entries targeting
 the available configured default calendar's `/new` destination, plus a prepared
 draft. Through `founder-calendar`/`external-action`, create one busy,
 attendee-free event per option on the account and calendar the founder named,
 or the configured work default
 when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`
 (drop ` / <Firm>` when `Firm` is blank), description `Tentative — no
-invitation sent`, notifications off. Record the times — read the page's
-existing `holds` first and pass the complete `; `-joined value, the same
-append Repurpose uses, so a second hold request never drops the events the
-first one left standing — and set `status` to `held`. Fetch every created hold
-before recording it. An uncertain hold stops the remaining operations and is
-reconciled rather than retried. Holding is never sending.
+invitation sent`, notifications off. Read the page's existing `holds`, then
+fetch each created hold and append its exact
+`<account>/<calendar>/<event-id>` target immediately after verification, before
+creating the next. Keep `holds` as the complete `; `-joined set of live event
+targets, so a later action cannot delete an unrelated event or lose a partial
+success. Set `status` to `held` only after all three targets are recorded. An
+uncertain hold stops the remaining operations and is reconciled rather than
+retried. Holding is never sending.
 
 For an automatic hold, encode the exact provider parameters as JSON in the
 plan entry's existing `intent`: `account`, `calendar`, `start`, `end`,
@@ -118,10 +120,13 @@ the founder, never a silent swap.
 ## Pick
 
 When the contact chooses, the persisted plan starts with the real invitation
-(`effect: invitation`, `operation: create`) and contains one unique
-`effect: delete_hold`, `operation: delete` entry for every semicolon-separated
-live entry in the page's `holds` field. Create the invite from the account and
-calendar the founder named, or the configured work default when the
+(`effect: invitation`) and contains one unique `effect: delete_hold` entry for
+every semicolon-separated provider event target in the page's `holds` field;
+the deletion-target set must match that field exactly. If a legacy entry contains
+only a human-readable time, resolve it to one verified provider event target and
+replace it before creating the plan; ambiguous or missing matches are blocked,
+never guessed. Create the invite from the account and calendar the founder named,
+or the configured work default when the
 founder did not identify one, with every attendee from the prior thread;
 for a video meeting the conferencing link comes from `plow-gog`'s `--with-meet`
 on that create, through `founder-calendar`'s normal write path. Honor the approved

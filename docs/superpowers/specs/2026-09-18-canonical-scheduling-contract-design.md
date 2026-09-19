@@ -46,7 +46,7 @@ external-action seams provides enforcement without introducing another owner.
 
 ## Verification
 
-Regression tests cover three-hold proposals, required drafts, effect/operation
-matching, exact operation authorization, invitation-first confirmation plans,
-and complete sibling-hold deletion. The repository's full unittest discovery
-command is the canonical gate.
+Regression tests cover three-hold proposals, required drafts, derived provider
+operations, exact operation authorization, invitation-first confirmation plans,
+and deletion targets matching the recorded sibling-hold identities. The
+repository's full unittest discovery command is the canonical gate.

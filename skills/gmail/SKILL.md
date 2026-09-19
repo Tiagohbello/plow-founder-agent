@@ -58,10 +58,13 @@ Return the exact recipient, subject, body, and prepared status. Keep the draft
 id and other ledger identifiers internal unless the founder asks for audit
 details. `prepare` never opens Send and never claims that the message was sent.
 
-After the ledger succeeds, read Founder Profile. If
-`preferences.save_gmail_drafts == true`, use the published Gmail/Google
-Workspace capability and the following protocol for the existing ledger record
-(for monitor work, use its linked draft, never prepare a second one):
+After the ledger succeeds, read Founder Profile. For a pipeline-monitor
+`new_options` suggestion, always use the published Gmail/Google Workspace
+capability because the scheduling contract requires a verified saved proposal
+before automatic holds. For other drafts, do so only if
+`preferences.save_gmail_drafts == true`. Use the following protocol for the
+existing ledger record (for monitor work, use its linked draft, never prepare a
+second one):
 
 1. Read the current ledger record; only `draft` or `approved` records qualify.
    If `external_draft_id` exists, fetch that draft in the verified founder
@@ -85,8 +88,8 @@ python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" mark-draft-saved
   --id <ledger-id> --draft-id '<verified-provider-draft-id>' --account '<verified-account>'
 ```
 
-If the preference is false or unset, do not create a provider draft. If the
-provider is unavailable, retain the ledger record and report that Gmail status
+Outside monitor `new_options`, if the preference is false or unset, do not
+create a provider draft. If the provider is unavailable, retain the ledger record and report that Gmail status
 could not be verified. Only say “not saved in Gmail” when no save was attempted
 and no earlier provider draft is known. Never infer a real Gmail draft from
 the local ledger record, and never send as part of saving the draft.

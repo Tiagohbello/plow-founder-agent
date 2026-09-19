@@ -34,7 +34,6 @@ SOURCES = {"gmail", "messages", "plow"}
 # accepted slot outranks a clarification without a second ranking input to keep
 # in agreement with this one.
 ACTIONS = ("accepted", "cancellation", "conflict", "new_options", "modality", "clarification", "blocked")
-PLAN_EFFECTS = ("hold", "invitation", "delete_hold")
 PLAN_OPERATIONS = {"hold": "create", "invitation": "create", "delete_hold": "delete"}
 # One check surfaces the few things worth doing now; the rest stay pending and
 # are reconsidered next run. Strict tiers, so a clarification waits behind any
@@ -533,13 +532,13 @@ def normalize_calendar_plan(action, plan, draft, contact):
         raise ValueError("calendar_plan must be a list of exact operations")
     normalized, validator = [], None
     for step in plan:
-        if not isinstance(step, dict) or set(step) != {"effect", "target", "operation", "intent"}:
-            raise ValueError("each calendar operation needs exactly effect, target, operation and intent")
-        item = {key: required(step[key], key) for key in ("effect", "target", "operation", "intent")}
-        if item["effect"] not in PLAN_EFFECTS:
+        if not isinstance(step, dict) or set(step) != {"effect", "target", "intent"}:
+            raise ValueError("each calendar operation needs exactly effect, target and intent")
+        effect = required(step["effect"], "effect")
+        if effect not in PLAN_OPERATIONS:
             raise ValueError("unsupported calendar effect")
-        if item["operation"] != PLAN_OPERATIONS[item["effect"]]:
-            raise ValueError(f"{item['effect']} effect must use {PLAN_OPERATIONS[item['effect']]}")
+        item = {"effect": effect, "target": required(step["target"], "target"),
+                "operation": PLAN_OPERATIONS[effect], "intent": required(step["intent"], "intent")}
         if item["effect"] == "hold":
             validator = validator or sibling("external-action", "monitor_guard.py")
             item["intent"] = canonical(validator.parse_hold_intent(item["intent"], item["target"]))
@@ -560,9 +559,10 @@ def normalize_calendar_plan(action, plan, draft, contact):
                 or any(item["effect"] != "delete_hold" for item in normalized[1:])):
             raise ValueError("accepted requires the invitation first, followed only by sibling hold deletions")
         fields = (contact or {}).get("fields", {})
-        expected = len([item for item in str(fields.get("holds", "")).split(";") if item.strip()])
-        if len(normalized) - 1 != expected:
-            raise ValueError("accepted must delete every live sibling hold")
+        expected = {item.strip() for item in str(fields.get("holds", "")).split(";") if item.strip()}
+        actual = {item["target"] for item in normalized[1:]}
+        if actual != expected:
+            raise ValueError("accepted deletions must match every live sibling hold")
     return normalized
 
 
