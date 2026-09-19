@@ -27,6 +27,7 @@ PIPELINE_ROOT = "projects/founder-agent/pipeline"
 PEOPLE_ROOT = "entities/people"
 # One line of `shasum -a 256`: digest, two spaces, the page.
 LISTING_LINE = re.compile(r"([0-9a-f]{64})  (\S.*)")
+LISTING_COUNT = re.compile(r"entries\s+(\d+)")
 SOURCES = {"gmail", "messages", "plow"}
 # Most urgent first: the declaration order IS the priority. `observe` validates
 # membership against it and `stage_notice` ranks by position, so a founder's
@@ -340,10 +341,18 @@ def listing(path):
     outside the roots is refused rather than trusted. So is a line it cannot read,
     shasum's own complaints included: the command lists only pages that exist, so
     a complaint is a page it failed to hash, and dropping that line would read its
-    entry as having left and supersede its work."""
+    entry as having left and supersede its work. The count line pins the number of
+    pipeline entries so a dropped line is refused rather than silently superseded."""
     pages = {}
+    expected = None
     for number, line in enumerate(map(str.strip, Path(path).read_text(encoding="utf-8").splitlines()), 1):
         if not line:
+            continue
+        count_match = LISTING_COUNT.fullmatch(line)
+        if count_match:
+            if expected is not None:
+                raise ValueError(f"the listing cannot be read at line {number}; save the command's output verbatim")
+            expected = int(count_match[1])
             continue
         match = LISTING_LINE.fullmatch(line)
         if not match:
@@ -354,6 +363,11 @@ def listing(path):
         if rel.suffix != ".md" or str(rel.parent) not in (PIPELINE_ROOT, PEOPLE_ROOT):
             raise ValueError(f"the listing names {match[2]}, outside the pipeline and people roots")
         pages[str(rel)] = match[1]
+    if expected is None:
+        raise ValueError("the listing has no entries count; save the command's output verbatim")
+    entries = sum(1 for rel in pages if rel.startswith(PIPELINE_ROOT + "/"))
+    if entries != expected:
+        raise ValueError(f"the listing has {entries} pipeline entries, expected {expected}")
     return pages
 
 
