@@ -128,8 +128,9 @@ through the cancelled ledger record.
 
 ## Send only after approval
 
-Only an explicit founder instruction such as `Send it` authorizes sending the
-specific displayed draft. Before clicking Send, restate thread, recipient,
+Only an explicit instruction in a turn carrying the founder's authority, such
+as `Send it`, authorizes sending the specific displayed draft. Before clicking
+Send, restate thread, recipient,
 subject, and draft; if any differs, stop and ask. Mark the ledger approved,
 claim the send once, click Send once in Gmail, then verify the sent message in
 the same thread and record its message id:
