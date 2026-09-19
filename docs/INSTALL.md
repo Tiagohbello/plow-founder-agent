@@ -163,7 +163,9 @@ per contact, each linking to the `entities/people` page for that person. There i
 no path to give and no columns to map: `wiki.toml` says the agent owns that root
 and its schema says what a page carries. Investors and customers share the root.
 An entry the wiki cannot connect to a person — no person page, no email or phone
-on it, or a page that will not parse — is skipped and reported.
+on it, or a page that will not parse — is skipped and reported. The agent keeps a
+copy of the pages it reads beside its database and, each check, re-copies only
+those whose hash changed on your Mac, so only the first check copies them all.
 
 Confirm your timezone, working days/window and video/phone preference. The offer
 is weekdays 09:00–18:00. The agent must show and ask you to choose one frequency:

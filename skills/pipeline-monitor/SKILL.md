@@ -84,8 +84,9 @@ configuration or payloads. Example configuration (synthetic values):
 }
 ```
 
-Run `configure --file <config.json>`, then `contacts --vault <fresh-copy>` to see
-which entries are reachable. Anything it returns as `unlinked` — an entry with no
+Run `configure --file <config.json>`, then read the pipeline as Each check step 3
+does to see which entries are reachable; this first read copies every page once.
+Anything it returns as `unlinked` — an entry with no
 `entities/people` page, or a person page carrying no email or phone — is skipped;
 tell the founder which, and why. On the founder's opt-in run `enable`, then
 `show` and native `cronjob list` to verify the job, private delivery target and
@@ -175,9 +176,30 @@ blockers, which is how advice went stale in one and errored in the other.
    `uncertain`. Never mark delivery from an intended final answer or a generated
    notice. Never replay an uncertain notice blindly. These are private founder
    notifications, not outgoing investor drafts.
-3. Copy the pipeline root and `entities/people` fresh through Latch, then run
-   `contacts`. A page is an identity, so there is nothing to disambiguate: the slug
-   is the key. What it returns as `unlinked` is skipped — prepare one clarification
+3. Read the pipeline through the mirror `contacts` keeps beside the database.
+   Every page an entry reads is checked by hash on every run, so only a changed
+   page is copied:
+   1. Through Latch `plow_run_command`, run this argv, where `<wiki root>` is the
+      directory holding `wiki.toml`:
+
+      ```json
+      ["/bin/sh", "-c", "cd \"$1\" && for f in projects/founder-agent/pipeline/*.md; do shasum -a 256 \"$f\"; p=\"entities/people/${f##*/}\"; if [ -f \"$p\" ]; then shasum -a 256 \"$p\"; fi; done", "sh", "<wiki root>"]
+      ```
+
+      Passing the root as `$1` keeps the path out of the shell code, and listing
+      only each entry's own person page keeps the shared `entities/people` root
+      from growing the listing. A missing person page is simply not listed, so any
+      complaint in the output is a real failure and `contacts` refuses it.
+   2. Save its output verbatim with `write_file` to a scratch file, then run
+      `contacts --listing <file>`.
+   3. For each `copy` entry, read `<wiki root>/<page>` through Latch
+      (`plow_read_file`) and `write_file` it to `to` exactly as read.
+   4. Run `contacts --listing <file>` once more and proceed with what it returns.
+
+   Never transfer pages any other way: no archives, no base64, no `execute_code`,
+   which cron blocks. A page is an identity, so there is nothing to disambiguate:
+   the slug is the key. What it returns as `unlinked`, a page still not copied
+   included, is skipped rather than retried in a loop — prepare one clarification
    alert for those, deduplicated by the slug. No wiki write while enumerating; the
    only write a check makes is step 6's.
 4. For each valid contact and configured source, run `window --contact-key KEY
@@ -294,7 +316,7 @@ An alert is not permission. In the attached founder conversation, resolve
 “approve” to the exact displayed suggestion;
 when multiple suggestions are plausible, ask which one instead of approving all
 pending suggestions or guessing the newest. Read it using `list`,
-re-read the pipeline root via `contacts`, and refresh the conversation and calendars
+re-read the pipeline root as Each check step 3 does, and refresh the conversation and calendars
 before acting. Removed and unlinked contacts and superseded suggestions cannot execute.
 
 If facts, availability, participants or the planned action changed, record a new

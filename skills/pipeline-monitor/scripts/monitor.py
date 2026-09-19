@@ -14,7 +14,7 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import sys
@@ -25,6 +25,8 @@ JOB_NAME = "founder-pipeline-monitor"
 # says who writes it, and a second place to name it is a second place to drift.
 PIPELINE_ROOT = "projects/founder-agent/pipeline"
 PEOPLE_ROOT = "entities/people"
+# One line of `shasum -a 256`: digest, two spaces, the page.
+LISTING_LINE = re.compile(r"([0-9a-f]{64})  (\S.*)")
 SOURCES = {"gmail", "messages", "plow"}
 # Most urgent first: the declaration order IS the priority. `observe` validates
 # membership against it and `stage_notice` ranks by position, so a founder's
@@ -331,26 +333,70 @@ def page(vault, root, slug):
         return f"{root}/{slug}.md cannot be read: {error}"
 
 
-def contacts(db, vault):
+def listing(path):
+    """The Mac's `shasum -a 256` of the two roots, as page -> digest.
+
+    The model relays it and then writes each page `contacts` sends it to, so a path
+    outside the roots is refused rather than trusted. So is a line it cannot read,
+    shasum's own complaints included: the command lists only pages that exist, so
+    a complaint is a page it failed to hash, and dropping that line would read its
+    entry as having left and supersede its work."""
+    pages = {}
+    for number, line in enumerate(map(str.strip, Path(path).read_text(encoding="utf-8").splitlines()), 1):
+        if not line:
+            continue
+        match = LISTING_LINE.fullmatch(line)
+        if not match:
+            # The number, never the line: `--listing` can name any readable file,
+            # and echoing it would print whatever that file holds.
+            raise ValueError(f"the listing cannot be read at line {number}; save the command's output verbatim")
+        rel = PurePosixPath(match[2])
+        if rel.suffix != ".md" or str(rel.parent) not in (PIPELINE_ROOT, PEOPLE_ROOT):
+            raise ValueError(f"the listing names {match[2]}, outside the pipeline and people roots")
+        pages[str(rel)] = match[1]
+    return pages
+
+
+def contacts(db, vault, pages):
     """The pipeline's entries, each paired with the person it points at.
 
     A page is an identity -- the slug is unique by construction and stable across
     edits -- so there is no handle-scraping and nothing to disambiguate. What a CSV
-    row could only imply, the vault states."""
-    root = Path(vault) / PIPELINE_ROOT
-    if not root.is_dir():
-        raise ValueError(f"{PIPELINE_ROOT} is not in the wiki; declare the root before enabling the monitor")
+    row could only imply, the vault states.
+
+    `pages` is the Mac's listing and `vault` a mirror of it kept between checks, so
+    only a page whose digest changed comes back in `copy`, with where to write it.
+    The listing is the pipeline, not the mirror: a page not yet copied is present
+    and unlinked, because counting it absent would supersede live work on a first
+    run or a partial copy."""
+    vault = Path(vault)
+    slugs = sorted({PurePosixPath(rel).stem for rel in pages if rel.startswith(PIPELINE_ROOT + "/")} - {"index"})
+    if not slugs:
+        raise ValueError(f"{PIPELINE_ROOT} is not in the wiki; run the listing from the directory holding "
+                         "wiki.toml, and declare the root before enabling the monitor")
+    # Mirror only what an entry reads: the index is generated and `entities/people`
+    # is shared, so copying either whole would re-type pages nothing here uses.
+    pages = {rel: sha for rel, sha in pages.items() if PurePosixPath(rel).stem in slugs}
+    # `page()` reads the mirror, so it holds only what the listing names: a person
+    # page deleted on the Mac would otherwise keep supplying handles that no longer hold.
+    for root in (PIPELINE_ROOT, PEOPLE_ROOT):
+        (vault / root).mkdir(parents=True, exist_ok=True)
+        for mirrored in (vault / root).glob("*.md"):
+            if f"{root}/{mirrored.name}" not in pages:
+                mirrored.unlink()
+    stale = {rel for rel, sha in pages.items() if not (vault / rel).is_file()
+             or hashlib.sha256((vault / rel).read_bytes()).hexdigest() != sha}
     valid, unlinked = [], []
-    for entry in sorted(root.glob("*.md")):
-        slug = entry.stem
-        if slug == "index":
-            continue
+    for slug in slugs:
         if slug.startswith("source:"):
             # `source:` is this database's namespace for blockers that belong to a
             # feed rather than a person. A page claiming it would be read as one and
             # skip the removal, approval and effect-time checks that key off the
             # prefix, so the namespace is reserved rather than shared.
             unlinked.append({"contact_key": slug, "reason": "`source:` is reserved for internal blockers"})
+            continue
+        if {f"{PIPELINE_ROOT}/{slug}.md", f"{PEOPLE_ROOT}/{slug}.md"} & stale:
+            unlinked.append({"contact_key": slug, "reason": "not yet copied from the wiki"})
             continue
         fields = page(vault, PIPELINE_ROOT, slug)
         if isinstance(fields, str):
@@ -380,7 +426,8 @@ def contacts(db, vault):
                 supersede(db, old["id"])
         db.execute("DELETE FROM monitor_contact")
         db.executemany("INSERT INTO monitor_contact VALUES (?,?)", [(c["contact_key"], canonical(c)) for c in valid])
-    return {"contacts": valid, "unlinked": unlinked}
+    return {"contacts": valid, "unlinked": unlinked,
+            "copy": [{"page": rel, "to": str(vault / rel)} for rel in sorted(stale)]}
 
 
 def window(db, contact_key, source, current=None):
@@ -625,7 +672,7 @@ def parser():
         commands.add_parser(name).add_argument("--file", required=True, type=Path)
     gate_parser = commands.add_parser("gate")
     gate_parser.add_argument("--manual", action="store_true")
-    commands.add_parser("contacts").add_argument("--vault", required=True, type=Path)
+    commands.add_parser("contacts").add_argument("--listing", required=True, type=Path)
     commands.add_parser("page-update").add_argument("--id", required=True, type=int)
     window_parser = commands.add_parser("window")
     window_parser.add_argument("--contact-key", required=True)
@@ -659,7 +706,8 @@ def run(args):
         if args.command == "show": return show(db)
         if args.command == "gmail-cleanup": return {"drafts": gmail_cleanup(db)}
         if args.command == "gate": return gate(db, manual=args.manual)
-        if args.command == "contacts": return contacts(db, args.vault)
+        # The mirror lives beside the database it serves.
+        if args.command == "contacts": return contacts(db, path.parent / "wiki", listing(args.listing))
         if args.command == "page-update": return page_update(db, args.id)
         if args.command == "window": return window(db, args.contact_key, args.source)
         if args.command == "checkpoint": return checkpoint(db, data)
