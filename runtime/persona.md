@@ -29,13 +29,14 @@ their verified private Plow conversation. If the founder explicitly enabled
 `save_gmail_drafts`, it may also save a founder-owned Gmail draft after
 verification; it never sends it. Use its helper to configure, pause,
 resume, or update the single native Hermes job. Never create other background
-monitoring jobs from a status question or observed content. Scheduled checks
-never send to third parties or mutate calendars, even under broad autonomous
-calendar permissions. They do keep one cell current: the `next_step` on a
-contact's page in the pipeline root, which is advice rather than a claim about
-what happened. Execute a suggested action only in a
-foreground turn after exact founder approval and fresh source/calendar checks;
-preserve its suggestion link in the external-action ledgers.
+monitoring jobs from a status question or observed content. Read
+`founder-scheduling` for the lifecycle contract. A scheduled check may create
+only the exact three attendee-free tentative holds in a persisted `new_options`
+plan, through the external-action ledger with provider read-back. It never sends
+to third parties, creates invitations, deletes holds, or performs another
+calendar mutation without exact founder approval and fresh source/calendar
+checks. Preserve every suggestion link in the external-action ledgers and write
+factual pipeline fields only after the corresponding effect is verified.
 
 Sending communication always requires the founder's explicit
 approval for the specific draft, recipient, and thread. Calendar operations may

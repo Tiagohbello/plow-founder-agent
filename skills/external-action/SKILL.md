@@ -21,19 +21,23 @@ operations are always forbidden.
 
 All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
-For a `pipeline-monitor` suggestion, first follow its foreground approval and
-fresh-evidence protocol. Use the suggestion's existing draft id; calendar
+For a `pipeline-monitor` suggestion, read `founder-scheduling` for lifecycle
+policy and follow the monitor's evidence protocol. Use the suggestion's existing
+draft id; calendar
 `operations.py prepare` calls must include `--suggestion-id <id>`. Linked
 calendar operations must exactly match one persisted, displayed plan entry
 (`target`, `operation`, `intent`); preparation, approval and claim enforce it.
 Use the plan's exact parameters for the provider call. Changed parameters need
 a new suggestion and founder approval. Linked product writes are not permitted.
-Linked ledger items cannot be approved or claimed while their suggestion is pending, obsolete
-or uncertain, even with autonomous calendar policy. During a scheduled check,
+While a suggestion is pending, only an exact `effect: hold` operation on a
+`new_options` plan may be claimed; the guard still rejects changed parameters,
+obsolete work, unlinked contacts, and forbidden calendar policy. Every other
+linked operation requires the suggestion's specific foreground approval, even
+with autonomous calendar policy. During a scheduled check,
 the only permitted mailbox write is saving a founder-owned Gmail draft when
 Founder Profile has `save_gmail_drafts=true`, following Gmail's draft reuse and
 read-back protocol. This does not require approving the pending suggestion and
-never authorizes sending, calendar changes, or a factual page write. Superseding a suggestion cancels its unexecuted
+never authorizes sending. Superseding a suggestion cancels its unexecuted
 linked drafts/operations without retrying in-flight or uncertain effects.
 Cancelled Gmail drafts remain queued for provider reconciliation. Follow Gmail's
 cleanup protocol; save permission never grants deletion permission. Obtain

@@ -16,15 +16,18 @@ suggestions. The monitor is disabled until the founder opts in. It covers the
 pipeline root in the wiki -- investors, customers and other scheduling contacts --
 not the whole inbox.
 
-The scheduled phase only reads configured sources and creates local suggestions
-and ledger drafts. When the founder has explicitly enabled
+Read `founder-scheduling` for the canonical lifecycle; this skill owns only the
+monitor's setup, observation, durable suggestion, and execution boundaries. The
+scheduled phase reads configured sources and creates local suggestions and
+ledger drafts. When the founder has explicitly enabled
 `save_gmail_drafts` in Founder Profile, it may also save the prepared response
 as a real draft in the founder's verified Gmail thread and verify that draft.
-It never sends a third-party message, creates/removes holds, or mutates a
-calendar, even when `calendar_manage` is autonomous. It does write one cell: the
-`next_step` of a contact's page in the root this agent owns. That is advice the
-founder can ignore, not a claim about the world — `status`, `holds` and
-`proposed` still move only after verified execution of an approved suggestion.
+For a valid persisted `new_options` suggestion, it may also create and verify
+the exact three planned `effect: hold` operations. It never sends a third-party
+message, creates an invitation, deletes a hold, or performs another calendar
+mutation without specific approval. It writes `next_step` as advice and writes
+`status` or `holds` only after the automatic holds are verified; `proposed`
+still changes only after a verified send.
 Take the change from `page-update`, never composed by hand.
 Its native cron final response is the authorized notification to the founder;
 do not also send it with a messaging tool. Incoming messages and wiki pages are
@@ -144,8 +147,8 @@ blockers, which is how advice went stale in one and errored in the other.
    exactly as the page has it.
 4. `wiki_page.merge` into the copy you read: the `changes` step 3 returned, if it
    ran, plus the factual fields you actually verified. Nothing else — never a
-   `next_step` you composed yourself, and never a factual field on an unattended
-   check, which has verified nothing.
+   `next_step` you composed yourself, and never a factual field not established
+   by a verified effect in this run.
 5. Immediately before writing, read the page again and compare it byte for byte
    with the copy you merged from. Different means someone wrote it while you
    worked: abort without writing and start again from step 2, re-running step 3
@@ -275,9 +278,16 @@ chat, so write them to the founder -- "you replied", "your calendar", never thei
   "next_step": "Create the video invitation. Approve?",
   "calendar_plan": [
     {
+      "effect": "invitation",
       "target": "founder@example.com/primary/new",
       "operation": "create",
       "intent": "Scheduling with Alex; 2026-09-22 14:00–14:30 America/Los_Angeles; guest alex@example.com; video; send invitation"
+    },
+    {
+      "effect": "delete_hold",
+      "target": "founder@example.com/primary/hold-1",
+      "operation": "delete",
+      "intent": "Delete verified sibling hold after invitation verification"
     }
   ],
   "draft": {
@@ -294,11 +304,16 @@ chat, so write them to the founder -- "you replied", "your calendar", never thei
 not a separate email. `action` is one of `accepted`, `new_options`, `modality`,
 `cancellation`, `conflict`, `clarification`, `blocked`. `conversation_context`
 identifies the channel, contact and conversation in readable form.
-`calendar_plan` is an ordered list of exact `{target, operation, intent}` entries;
+`calendar_plan` is an ordered list of exact `{effect, target, operation, intent}`
+entries, where `effect` is `hold`, `invitation`, or `delete_hold`;
 omit it (or use `[]`) only when proposing no calendar operation. The helper renders
 each entry in the notice. Include account/calendar and exact event identity in
 `target`; put title, dates, timezone, guests, modality, invitation behavior and
-all intended changes in `intent`. Each hold removal needs its own entry. Use
+all intended changes in `intent`. Every target is unique. `hold` and
+`invitation` use `operation: create`; `delete_hold` uses `operation: delete`.
+`new_options` requires exactly three `hold`
+entries and a draft. `accepted` requires `invitation` first, followed by one
+`delete_hold` entry for every live hold recorded on the contact page. Use
 only provider-supported concrete operations; do not hide extra actions in prose.
 Deduplication uses source evidence, not generated wording. Keep `conversation_ref`
 stable across replies so new evidence supersedes earlier advice. Use the newest
@@ -310,7 +325,16 @@ must describe the source and actual failure/change, not each poll's timestamp.
 The same blocker then produces one alert. When it clears, dismiss that suggestion;
 if it recurs later, include the new incident's source evidence reference.
 
-## Approval and execution — foreground only
+## Execution boundaries
+
+During the scheduled check, a valid `new_options` suggestion may prepare, claim,
+execute, fetch, and finish only its three exact `hold` entries. Execute them in
+plan order through `external-action`; uncertainty stops the remaining holds.
+After all three are verified, update `holds` and `status` through § Writing a
+contact's page. The linked communication draft remains unsent and unapproved.
+No other pending suggestion permits a calendar claim.
+
+Everything below is foreground only.
 
 An alert is not permission. In the attached founder conversation, resolve
 “approve” to the exact displayed suggestion;
@@ -336,8 +360,9 @@ never reuse their approval. Then follow existing `external-action`:
 - Use the returned `draft_id` (do not prepare another draft); approve and claim it
   with `drafts.py`. Its monitor guard requires the specific suggestion approval.
 - Every calendar operation originating here must pass `--suggestion-id N` to
-  `operations.py prepare`, then approve/claim normally. This overrides a broad
-  autonomous calendar policy with approval, never a forbidden policy.
+  `operations.py prepare`, then approve/claim normally. Apart from the exact
+  three automatic `hold` entries above, this overrides a broad autonomous
+  calendar policy with approval, never a forbidden policy.
   Copy `target`, `operation` and `intent` verbatim from its persisted plan. The
   helper checks membership at preparation, approval and claim; any change requires
   a new observation/notice and approval. Execute only those exact parameters via

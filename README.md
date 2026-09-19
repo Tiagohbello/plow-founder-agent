@@ -30,8 +30,8 @@ result, or a tested draft PR.
 | Google Calendar | Manages availability, events, recurrence, guests, and scheduling preferences |
 | Product Access | Operates your admin or application through the Latch browser and vault |
 | External Action | Records approval, idempotency, and reconciliation of external writes |
-| Founder Scheduling | Runs the investor hold lifecycle — options → holds → send → confirm → sweep — against the pipeline root in your wiki, one page per contact |
-| Pipeline Monitor | Opt-in checks during working hours; prepares the most urgent one or two next steps and notifies you privately in Plow, with approval before external actions |
+| [Founder Scheduling](skills/founder-scheduling/SKILL.md) | Canonical contact lifecycle: track the next action → three held options and a prepared draft → approved send → invitation and complete hold cleanup |
+| Pipeline Monitor | Opt-in checks during working hours; prepares urgent next steps and their three tentative holds, then asks before sending or confirming |
 
 ## Runtime and integrations
 

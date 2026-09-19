@@ -11,19 +11,22 @@ metadata:
 
 # Founder Scheduling
 
-Use for the contact hold lifecycle (investors, customers, and other contacts): proposing times, holding them, sending
-them, confirming a pick, sweeping stale holds, and repurposing a hold to
-another investor. This skill owns the workflow only. It delegates
+Use for the contact scheduling lifecycle (investors, customers, and other
+contacts): track who owes the next action, propose times, hold them, prepare and
+send the proposal, confirm a pick, and sweep stale holds. This skill is the
+canonical behavior contract. Other skills own mechanics and must not redefine
+this lifecycle. It delegates
 availability reads to Latch's `google-workspace`, calendar writes to
 `founder-calendar`/`external-action`, email to `gmail`, and the record to the
 contact's page in the pipeline root, through `pipeline-monitor`'s write-back
 protocol — one destination, so an approved action cannot leave the page stale.
-It never sends anything on its own. Only `pipeline-monitor`
-may configure the explicitly opted-in background check; that check prepares
-suggestions and writes only the contact page's `next_step`, never a factual
-field. Foreground execution of a monitor suggestion requires its
-specific founder approval and fresh evidence, with `--suggestion-id` on calendar
-ledger preparations. Use its existing linked draft for a communication send.
+It never sends anything on its own. Only `pipeline-monitor` may configure the
+explicitly opted-in background check. That check may prepare drafts and create
+the exact three attendee-free tentative holds in a persisted `new_options`
+plan; it may not send, create an invitation, or delete a hold without specific
+founder approval. Every monitor-originated calendar operation uses
+`external-action` with `--suggestion-id`. Use the suggestion's existing linked
+draft for a send.
 Every step leaves each contact's page it touches true of
 the calendar by the end of the same turn: `holds` lists exactly the events
 that still exist, `proposed` describes what was actually sent, and `status`
@@ -38,23 +41,34 @@ across every calendar the founder shows, not just the configured ones.
 Classify each conflict: hard (anything in Founder Profile `preferences`,
 travel, medical, school logistics, or otherwise marked do-not-overbook) or
 soft (internal standups, household services, optional blocks). Apply the
-request's own rules — blackout days, deadlines, duration — and offer N
-options in the counterparty's timezone, none overlapping another investor's
+request's own rules — blackout days, deadlines, duration — and offer exactly
+three options in the counterparty's timezone, none overlapping another contact's
 live holds in the pipeline root. Read the contact's page for them. Explain a soft overlap to
 the founder privately; never name it in outgoing text.
 
 ## Hold
 
-Only on an explicit hold request. Through `founder-calendar`/
-`external-action`, create one busy, attendee-free event per option on the
+When it is on the founder to propose times, hold all three options. This is
+authorized either by the founder's direct request or by an enabled
+`pipeline-monitor` suggestion whose persisted `new_options` plan contains
+exactly three unique `effect: hold`, `operation: create` entries and a prepared draft. Through
+`founder-calendar`/`external-action`, create one busy, attendee-free event per option on the
 account and calendar the founder named, or the configured work default
 when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`
 (drop ` / <Firm>` when `Firm` is blank), description `Tentative — no
 invitation sent`, notifications off. Record the times — read the page's
 existing `holds` first and pass the complete `; `-joined value, the same
 append Repurpose uses, so a second hold request never drops the events the
-first one left standing — and set `status` to `held`. Holding is never
-sending.
+first one left standing — and set `status` to `held`. Fetch every created hold
+before recording it. An uncertain hold stops the remaining operations and is
+reconciled rather than retried. Holding is never sending.
+
+Prepare the proposal in its existing conversation. For Gmail, prepare the
+ledger draft and, when `save_gmail_drafts=true`, save and verify the real Gmail
+draft. For an existing SMS/iMessage or Plow conversation, prepare the exact
+text/Plow draft and ask permission to send; never use the founder's Mac Messages
+identity or substitute email. The proposal is not ready when either its draft
+or any of its three holds is missing.
 
 ## Send
 
@@ -94,16 +108,19 @@ the founder, never a silent swap.
 
 ## Pick
 
-When the investor chooses, create the real invite from the account and
+When the contact chooses, the persisted plan starts with the real invitation
+(`effect: invitation`, `operation: create`) and contains one unique
+`effect: delete_hold`, `operation: delete` entry for every semicolon-separated
+live entry in the page's `holds` field. Create the invite from the account and
 calendar the founder named, or the configured work default when the
 founder did not identify one, with every attendee from the prior thread;
 for a video meeting the conferencing link comes from `plow-gog`'s `--with-meet`
 on that create, through `founder-calendar`'s normal write path. Honor the approved
 meeting format and stored preference; do not substitute phone for requested video,
 and omit a conferencing link for an explicitly approved phone/in-person meeting.
-Fetch and verify the
-created invitation before deleting any holds. Then delete only the matching
-sibling hold events, clear `holds` (merge it empty), and set `status` to
+Fetch and verify the created invitation before deleting any holds. Then delete
+every matching sibling hold event, including the tentative event at the chosen
+time, clear `holds` (merge it empty), and set `status` to
 `confirmed`. A date agreed without a time is not confirmed — say so and
 ask for the time. A partial or uncertain operation stops the remaining steps:
 reconcile the existing ledger records, never recreate a verified invitation.
