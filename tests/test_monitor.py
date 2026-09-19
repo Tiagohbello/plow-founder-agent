@@ -322,21 +322,23 @@ class MonitorTests(unittest.TestCase):
 
     def test_a_listing_names_pages_in_the_two_roots_or_is_refused(self):
         # The check writes each page it is sent to, so a path outside the roots is
-        # refused rather than mirrored. So is a listing with no entries: a failed
-        # `cd` lists nothing, and reading that as every entry leaving would
-        # supersede them all.
+        # refused rather than mirrored. So is a listing with no entries, or a line it
+        # cannot read: a failed `cd` lists nothing and a mangled line drops an entry,
+        # and reading either as entries leaving would supersede their work.
         listed, digest = self.shasum(self.wiki()), "0" * 64
         for listing, error in (("", "not in the wiki"),
                                (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\n", "not in the wiki"),
+                               (f"{digest}  {monitor.PIPELINE_ROOT}/index.md\n", "not in the wiki"),
+                               (listed.replace("  ", " ", 1), "not a line shasum prints"),
                                (f"{listed}{digest}  projects/founder-agent/notes.md\n", "outside"),
                                (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/../escape.md\n", "outside"),
                                (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/alex.txt\n", "outside")):
             with self.subTest(listing=listing[-50:]), self.assertRaisesRegex(ValueError, error):
                 self.contacts(listing)
-        # shasum's complaint about an empty glob names no page. Through the CLI,
-        # which keeps the mirror beside the database.
+        # shasum's complaint about an entry with no person page names no page.
+        # Through the CLI, which keeps the mirror beside the database.
         path = self.home / "listing.txt"
-        path.write_text(listed + "shasum: entities/people/*.md: No such file or directory\n")
+        path.write_text(listed + "shasum: entities/people/dana.md: No such file or directory\n")
         found = self.helper("pipeline-monitor", "monitor.py", "contacts", "--listing", str(path))
         self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
 

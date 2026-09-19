@@ -337,13 +337,17 @@ def listing(path):
     """The Mac's `shasum -a 256` of the two roots, as page -> digest.
 
     The model relays it and then writes each page `contacts` sends it to, so a path
-    outside the roots is refused rather than trusted. A line that is not a digest --
-    shasum's complaint about an empty glob -- names no page."""
+    outside the roots is refused rather than trusted. So is a line it cannot read:
+    dropping one would read its entry as having left and supersede its work. Only
+    shasum's own complaint about a missing page names no page."""
     pages = {}
     for line in Path(path).read_text(encoding="utf-8").splitlines():
-        match = LISTING_LINE.fullmatch(line.strip())
-        if not match:
+        line = line.strip()
+        if not line or line.startswith("shasum: "):
             continue
+        match = LISTING_LINE.fullmatch(line)
+        if not match:
+            raise ValueError(f"{line!r} is not a line shasum prints; save its output verbatim")
         rel = PurePosixPath(match[2])
         if rel.suffix != ".md" or str(rel.parent) not in (PIPELINE_ROOT, PEOPLE_ROOT):
             raise ValueError(f"the listing names {match[2]}, outside the pipeline and people roots")
@@ -364,12 +368,12 @@ def contacts(db, vault, pages):
     and unlinked, because counting it absent would supersede live work on a first
     run or a partial copy."""
     vault = Path(vault)
-    listed = sorted(PurePosixPath(rel).stem for rel in pages if rel.startswith(PIPELINE_ROOT + "/"))
-    if not listed:
-        raise ValueError(f"{PIPELINE_ROOT} is not in the wiki; declare the root before enabling the monitor")
+    slugs = sorted({PurePosixPath(rel).stem for rel in pages if rel.startswith(PIPELINE_ROOT + "/")} - {"index"})
+    if not slugs:
+        raise ValueError(f"{PIPELINE_ROOT} is not in the wiki; run the listing from the directory holding "
+                         "wiki.toml, and declare the root before enabling the monitor")
     # Mirror only what an entry reads: the index is generated and `entities/people`
     # is shared, so copying either whole would re-type pages nothing here uses.
-    slugs = [slug for slug in listed if slug != "index"]
     pages = {rel: sha for rel, sha in pages.items() if PurePosixPath(rel).stem in slugs}
     for root in (PIPELINE_ROOT, PEOPLE_ROOT):
         (vault / root).mkdir(parents=True, exist_ok=True)
