@@ -82,9 +82,12 @@ class MonitorTests(unittest.TestCase):
     def wiki(self):
         return {str(p.relative_to(self.vault)): p.read_bytes() for p in self.vault.rglob("*.md")}
 
-    def shasum(self, pages):
+    def shasum(self, pages, count=None):
         """What `shasum -a 256` on the Mac prints for these pages."""
-        return "".join(f"{hashlib.sha256(body).hexdigest()}  {rel}\n" for rel, body in sorted(pages.items()))
+        pipeline = sum(1 for rel in pages if rel.startswith(monitor.PIPELINE_ROOT + "/"))
+        total = pipeline if count is None else count
+        body = "".join(f"{hashlib.sha256(body).hexdigest()}  {rel}\n" for rel, body in sorted(pages.items()))
+        return f"{body}entries {total}\n"
 
     def contacts(self, listing=None):
         """One `contacts` run; by default against a Mac that matches the mirror."""
@@ -139,7 +142,7 @@ class MonitorTests(unittest.TestCase):
 
     def approve(self, item):
         notice = monitor.notice(self.db)
-        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview")
+        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview", notice["body"])
         return monitor.decide(self.db, item["id"], {"evidence_refs": item["payload"]["evidence_refs"],
             "notice_id": notice["notice_id"],
             "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"})
@@ -278,7 +281,7 @@ class MonitorTests(unittest.TestCase):
         entry = self.vault / monitor.PIPELINE_ROOT / "alex.md"
         good = entry.read_text()
         notice = monitor.notice(self.db)
-        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview")
+        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview", notice["body"])
         decision = {"evidence_refs": item["payload"]["evidence_refs"], "notice_id": notice["notice_id"],
                     "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"}
 
@@ -350,22 +353,39 @@ class MonitorTests(unittest.TestCase):
                 found = self.contacts(self.shasum(pages))
                 self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
 
+    def test_a_dropped_listing_line_is_refused_rather_than_superseding(self):
+        monitor.observe(self.db, self.observation())
+        # Another entry keeps the root listed.
+        self.write_contact("dana", email="dana@example.com")
+        entry = f"{monitor.PIPELINE_ROOT}/alex.md"
+        # The Mac had 2 pipeline entries, but the relay dropped alex.md while keeping the count.
+        listing = self.shasum({rel: body for rel, body in self.wiki().items() if rel != entry}, count=2)
+        with self.assertRaisesRegex(ValueError, r"^the listing has 1 pipeline entries, expected 2$"):
+            self.contacts(listing)
+        self.assertEqual(monitor.suggestion(self.db, 1)["status"], "pending",
+                         "a dropped line must not supersede live work")
+
     def test_a_listing_names_pages_in_the_two_roots_or_is_refused(self):
         # The check writes each page it is sent to, so a path outside the roots is
         # refused rather than mirrored. So is a listing with no entries, or a line it
         # cannot read: a failed `cd` lists nothing and a mangled line drops an entry,
         # and reading either as entries leaving would supersede their work.
         listed, digest = self.shasum(self.wiki()), "0" * 64
-        for listing, error in (("", "not in the wiki"),
-                               (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\n", "not in the wiki"),
-                               (f"{digest}  {monitor.PIPELINE_ROOT}/index.md\n", "not in the wiki"),
+        for listing, error in (("", "no entries count"),
+                               (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\n", "no entries count"),
+                               ("entries 0\n", "not in the wiki"),
+                               (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\nentries 0\n", "not in the wiki"),
+                               (f"{digest}  {monitor.PIPELINE_ROOT}/index.md\nentries 1\n", "not in the wiki"),
                                (listed.replace("  ", " ", 1), "cannot be read"),
                                # Any readable file can be passed, so the refusal names the line, never its text.
                                ("KEY=held-in-some-other-file\n", r"^the listing cannot be read at line 1; save the command's output verbatim$"),
                                (f"{listed}shasum: {monitor.PIPELINE_ROOT}/kit.md: Permission denied\n", "cannot be read"),
                                (f"{listed}{digest}  projects/founder-agent/notes.md\n", "outside"),
                                (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/../escape.md\n", "outside"),
-                               (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/alex.txt\n", "outside")):
+                               (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/alex.txt\n", "outside"),
+                               (f"{listed}entries 1\n", "cannot be read"),
+                               (self.shasum(self.wiki(), count=0), r"^the listing has 1 pipeline entries, expected 0$"),
+                               (self.shasum(self.wiki(), count=2), r"^the listing has 1 pipeline entries, expected 2$")):
             with self.subTest(listing=listing[-50:]), self.assertRaisesRegex(ValueError, error):
                 self.contacts(listing)
         # A blank line names no page. Through the CLI, which keeps the mirror
@@ -630,8 +650,78 @@ class MonitorTests(unittest.TestCase):
         monitor.receipt(self.db, first["notice_id"], "failed", "cron rejected delivery; verified absent")
         retry = monitor.notice(self.db)
         self.assertEqual(first["body"], retry["body"])
-        monitor.receipt(self.db, retry["notice_id"], "delivered", "plow:verified-message-1")
+        monitor.receipt(self.db, retry["notice_id"], "delivered", "plow:verified-message-1", retry["body"])
         self.assertEqual(monitor.notice(self.db)["body"], "[SILENT]")
+
+    def test_receipt_exact_body_reconciliation(self):
+        monitor.observe(self.db, self.observation())
+        notice = monitor.notice(self.db)
+        nid = notice["notice_id"]
+
+        # Delivered requires verified read-back
+        with self.assertRaisesRegex(ValueError, "requires verified read-back"):
+            monitor.receipt(self.db, nid, "delivered", "plow:msg-1")
+
+        # CLI helper rejects delivered read-back with narration prefix ahead of body
+        narration = f"Cleaned up temp files. The notice text is the final output:\n{notice['body']}"
+        bad_file = self.home / "bad-readback.txt"
+        bad_file.write_text(narration)
+        err = self.helper("pipeline-monitor", "monitor.py", "receipt", "--id", str(nid),
+                          "--outcome", "delivered", "--ref", "plow:msg-1", "--file", str(bad_file), ok=False)
+        self.assertIn("delivered body does not match staged notice body", err)
+
+        # Uncertain or failed does not require read-back
+        monitor.receipt(self.db, nid, "uncertain", "plow:msg-1-narration-mismatch")
+        self.assertEqual(self.db.execute("SELECT status FROM monitor_notice WHERE id=?", (nid,)).fetchone()[0], "uncertain")
+
+        # Exact match via file succeeds and marks delivered
+        good_file = self.home / "good-readback.txt"
+        good_file.write_text(notice["body"])
+        res = self.helper("pipeline-monitor", "monitor.py", "receipt", "--id", str(nid),
+                          "--outcome", "delivered", "--ref", "plow:msg-1-clean", "--file", str(good_file))
+        self.assertEqual(res["status"], "delivered")
+        self.assertEqual(self.db.execute("SELECT status FROM monitor_notice WHERE id=?", (nid,)).fetchone()[0], "delivered")
+
+        # CLI rejects deleted --body argument
+        err_body = self.helper("pipeline-monitor", "monitor.py", "receipt", "--id", str(nid),
+                               "--outcome", "delivered", "--ref", "plow:msg-1", "--body", notice["body"], ok=False)
+        self.assertIn("unrecognized arguments: --body", err_body)
+
+    def test_stage_notice_normalizes_outer_whitespace(self):
+        obs = self.observation(
+            evidence_summary="Alex replied in Scheduling at 07:00 PT.  \n",
+            draft={"channel": "gmail", "thread_id": "thread-1", "recipient": "alex@example.com",
+                   "subject": "Re: Scheduling", "body": "Tuesday at 14:00 PT works.  \n\n"}
+        )
+        monitor.observe(self.db, obs)
+        notice = monitor.notice(self.db)
+        self.assertEqual(notice["body"], notice["body"].strip())
+        self.assertFalse(notice["body"].endswith("\n"))
+        # Delivery adapter strips outer whitespace; reconciliation must succeed
+        readback_file = self.home / "readback-whitespace.txt"
+        readback_file.write_text(notice["body"])
+        res = self.helper("pipeline-monitor", "monitor.py", "receipt", "--id", str(notice["notice_id"]),
+                          "--outcome", "delivered", "--ref", "plow:msg-ws", "--file", str(readback_file))
+        self.assertEqual(res["status"], "delivered")
+
+    def test_receipt_serializes_with_begin_immediate(self):
+        monitor.observe(self.db, self.observation())
+        notice = monitor.notice(self.db)
+        nid = notice["notice_id"]
+        executed_stmts = []
+        self.db.set_trace_callback(executed_stmts.append)
+        try:
+            monitor.receipt(self.db, nid, "delivered", "plow:msg-1", notice["body"])
+        finally:
+            self.db.set_trace_callback(None)
+
+        self.assertIn("BEGIN IMMEDIATE", [s.strip() for s in executed_stmts])
+        normalized = [s.strip() for s in executed_stmts]
+        sel_idx = next(i for i, s in enumerate(normalized) if s.startswith("SELECT * FROM monitor_notice WHERE id="))
+        self.assertLess(normalized.index("BEGIN IMMEDIATE"), sel_idx)
+        # Overlapping reconciliation cannot overwrite delivered
+        with self.assertRaisesRegex(ValueError, "notice is not awaiting reconciliation"):
+            monitor.receipt(self.db, nid, "uncertain", "plow:msg-overwrite")
 
     def test_a_notice_carries_the_most_urgent_few_and_holds_the_rest_without_external_writes(self):
         accepted = self.observation(draft=None)
@@ -650,7 +740,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("prefer video", result["body"])
         self.assertLess(result["body"].index("two sibling holds"), result["body"].index("prefer video"))
         self.assertNotIn("named a day with no time", result["body"])
-        monitor.receipt(self.db, result["notice_id"], "delivered", "plow:verified-message-1")
+        monitor.receipt(self.db, result["notice_id"], "delivered", "plow:verified-message-1", result["body"])
         self.assertIn("named a day with no time", monitor.notice(self.db)["body"])
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM draft WHERE status='draft'").fetchone()[0], 1)
         self.assertFalse(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='external_operation'").fetchone())

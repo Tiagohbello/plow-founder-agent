@@ -27,6 +27,7 @@ PIPELINE_ROOT = "projects/founder-agent/pipeline"
 PEOPLE_ROOT = "entities/people"
 # One line of `shasum -a 256`: digest, two spaces, the page.
 LISTING_LINE = re.compile(r"([0-9a-f]{64})  (\S.*)")
+LISTING_COUNT = re.compile(r"entries\s+(\d+)")
 SOURCES = {"gmail", "messages", "plow"}
 # Most urgent first: the declaration order IS the priority. `observe` validates
 # membership against it and `stage_notice` ranks by position, so a founder's
@@ -53,9 +54,10 @@ it names. If Founder Profile preference save_gmail_drafts is true, a prepared
 Gmail response may also be saved as a real founder-owned Gmail draft in the
 verified thread, then read back and recorded in the ledger. A Gmail new_options
 proposal always requires that verified saved draft before its holds; never send
-it. Use monitor.py notice for the consolidated private founder notification, returning
-its body verbatim as your final response. If the gate is closed or nothing needs
-delivery, return exactly [SILENT]."""
+it. Finish all draft reconciliations and cleanup before running monitor.py
+notice. Once monitor.py notice runs, take no further steps: return its body
+verbatim as your final response, with no model narration or prefix. If the gate
+is closed or nothing needs delivery, return exactly [SILENT]."""
 
 
 def utcnow():
@@ -345,10 +347,18 @@ def listing(path):
     outside the roots is refused rather than trusted. So is a line it cannot read,
     shasum's own complaints included: the command lists only pages that exist, so
     a complaint is a page it failed to hash, and dropping that line would read its
-    entry as having left and supersede its work."""
+    entry as having left and supersede its work. The count line pins the number of
+    pipeline entries so a dropped line is refused rather than silently superseded."""
     pages = {}
+    expected = None
     for number, line in enumerate(map(str.strip, Path(path).read_text(encoding="utf-8").splitlines()), 1):
         if not line:
+            continue
+        count_match = LISTING_COUNT.fullmatch(line)
+        if count_match:
+            if expected is not None:
+                raise ValueError(f"the listing cannot be read at line {number}; save the command's output verbatim")
+            expected = int(count_match[1])
             continue
         match = LISTING_LINE.fullmatch(line)
         if not match:
@@ -359,6 +369,11 @@ def listing(path):
         if rel.suffix != ".md" or str(rel.parent) not in (PIPELINE_ROOT, PEOPLE_ROOT):
             raise ValueError(f"the listing names {match[2]}, outside the pipeline and people roots")
         pages[str(rel)] = match[1]
+    if expected is None:
+        raise ValueError("the listing has no entries count; save the command's output verbatim")
+    entries = sum(1 for rel in pages if rel.startswith(PIPELINE_ROOT + "/"))
+    if entries != expected:
+        raise ValueError(f"the listing has {entries} pipeline entries, expected {expected}")
     return pages
 
 
@@ -625,7 +640,7 @@ def decide(db, sid, data):
         shown = db.execute("SELECT * FROM monitor_notice WHERE id=? AND status='delivered'",
                            (data.get("notice_id"),)).fetchone()
         if (shown is None or sid not in json.loads(shown["suggestion_ids"])
-                or render_suggestion(item) not in shown["body"]):
+                or render_suggestion(item).strip() not in shown["body"]):
             raise ValueError("approval requires a verified delivered notice containing this exact plan")
         required(data.get("approval_ref"), "specific founder approval reference")
         required(data.get("validation_ref"), "fresh conversation/calendar validation reference")
@@ -670,19 +685,25 @@ def stage_notice(db):
     # goes first; the id keeps two identical tiers deterministically ordered.
     items = sorted(pending, key=lambda item: (ACTIONS.index(item["payload"]["action"]),
                                               item["evidence_at"], item["id"]))[:NOTICE_LIMIT]
-    body = "\n\n".join(render_suggestion(item) for item in items)
+    body = "\n\n".join(render_suggestion(item) for item in items).strip()
     with db:
         cursor = db.execute("INSERT INTO monitor_notice(suggestion_ids,body,created_at) VALUES (?,?,?)",
                             (canonical([i["id"] for i in items]), body, stamp()))
     return {"notice_id": cursor.lastrowid, "body": body, "status": "staged"}
 
 
-def receipt(db, notice_id, outcome, ref):
+def receipt(db, notice_id, outcome, ref, delivered_text=None):
     required(ref, "delivery read-back or failure evidence")
     with db:
-        row = db.execute("SELECT status FROM monitor_notice WHERE id=?", (notice_id,)).fetchone()
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM monitor_notice WHERE id=?", (notice_id,)).fetchone()
         if row is None or row["status"] not in ("staged", "uncertain"):
             raise ValueError("notice is not awaiting reconciliation")
+        if outcome == "delivered":
+            if delivered_text is None:
+                raise ValueError("delivered outcome requires verified read-back")
+            if delivered_text != row["body"]:
+                raise ValueError("delivered body does not match staged notice body")
         db.execute("UPDATE monitor_notice SET status=?,receipt_ref=? WHERE id=?", (outcome, ref, notice_id))
     return {"notice_id": notice_id, "status": outcome}
 
@@ -716,6 +737,7 @@ def parser():
     delivery.add_argument("--id", type=int, required=True)
     delivery.add_argument("--outcome", choices=("delivered", "failed", "uncertain"), required=True)
     delivery.add_argument("--ref", required=True)
+    delivery.add_argument("--file", dest="readback_file", type=Path)
     finish = commands.add_parser("finish")
     finish.add_argument("--id", type=int, required=True)
     finish.add_argument("--outcome", choices=("completed", "uncertain", "dismissed"), required=True)
@@ -746,7 +768,9 @@ def run(args):
         if args.command == "observe": return observe(db, data)
         if args.command == "approve": return decide(db, args.id, data)
         if args.command == "notice": return notice(db)
-        if args.command == "receipt": return receipt(db, args.id, args.outcome, args.ref)
+        if args.command == "receipt":
+            readback = args.readback_file.read_text(encoding="utf-8") if args.readback_file else None
+            return receipt(db, args.id, args.outcome, args.ref, readback)
         if args.command == "list":
             return {"suggestions": [suggestion(db, row[0]) for row in db.execute("SELECT id FROM monitor_suggestion ORDER BY id DESC")]}
         if args.command == "run-now":

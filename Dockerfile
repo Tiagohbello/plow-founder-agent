@@ -17,20 +17,5 @@ COPY --chmod=0644 runtime/persona.md /opt/hermes/plow-seed/persona.md
 # helpers run as `python3 <path>`, so nothing here needs the exec bit.
 COPY --chown=0:0 skills/ /opt/hermes/skills/
 
-# Agent Index owns its client. Fetch only the reviewed immutable revision and
-# verify its checksum before placing it in the root-owned service path.
-COPY vendor/client.pin /opt/plow/agent-index-client.pin
-RUN set -eu; \
-    sha="$(sed -n 's/^sha=//p' /opt/plow/agent-index-client.pin)"; \
-    want="$(sed -n 's/^sha256=//p' /opt/plow/agent-index-client.pin)"; \
-    path="$(sed -n 's/^path=//p' /opt/plow/agent-index-client.pin)"; \
-    curl -fsS --max-time 60 -o /opt/plow/agent-index-client.py \
-      "https://raw.githubusercontent.com/plow-pbc/agent-index-client/$sha/$path"; \
-    got="$(sha256sum /opt/plow/agent-index-client.py | cut -d' ' -f1)"; \
-    [ "$got" = "$want" ] || { echo "agent-index client is $got, pin says $want" >&2; exit 1; }; \
-    chmod 0644 /opt/plow/agent-index-client.py
-
-# The reporter is supervised beside the gateway and starts only after the
-# credential/identity gate. It stands down when AGENT_ID is absent.
+# Variant s6 configuration (such as cron-config).
 COPY image/s6-overlay/ /etc/s6-overlay/
-RUN chmod 0755 /etc/s6-overlay/s6-rc.d/agent-index/run
