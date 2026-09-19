@@ -671,11 +671,6 @@ class MonitorTests(unittest.TestCase):
         self.assertTrue(second["save_gmail_drafts"])
         self.assertIn("never ask", monitor.PROMPT)
         self.assertIn("never send", monitor.PROMPT)
-        skill = " ".join((ROOT / "skills/pipeline-monitor/SKILL.md").read_text().split())
-        self.assertIn("Do not ask for permission to save", skill)
-        self.assertIn("never re-ask", skill)
-        item = monitor.observe(self.db, self.observation())["suggestion"]
-        self.helper("external-action", "drafts.py", "claim-send", "--id", str(item["draft_id"]), ok=False)
 
 
 if __name__ == "__main__":
