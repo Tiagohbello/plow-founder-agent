@@ -186,9 +186,11 @@ ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox; it is
 never sent automatically. There is no automatic invitation or hold deletion, and
 no factual field changes on its own; a check writes the recommended next step to
-the contact's page and reports it in the notice. Each notice carries the most urgent one or two suggestions rather than every
-outstanding one; the rest arrive in later checks once the current notice is
-delivered, whether or not its suggestions have been acted on. There
+the contact's page and reports it in the notice. Each notice carries one or two suggestions rather than every outstanding one. When
+several contacts are blocked on us, successive checks rotate: a contact that
+was not in the last notice gets a slot so a stale reply cannot sit behind the
+same hot threads for weeks. The rest arrive in later checks once the current
+notice is delivered, whether or not its suggestions have been acted on. There
 are no repeated reminders for unchanged pending suggestions. A new reply
 invalidates the old suggestion's approval.
 The calendar operations must exactly match the plan displayed in that notice.
