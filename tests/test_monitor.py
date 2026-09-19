@@ -61,16 +61,22 @@ class MonitorTests(unittest.TestCase):
                         "messages": {"status": "blocked", "evidence": "permission denied"}},
         }
         monitor.configure(self.db, self.config, self.scheduler)
+        self.helper("founder-context", "profile.py", "set-calendar",
+                    "--account", "work@example.com", "--calendar-id", "primary",
+                    "--default-calendar", "primary", "--timezone", "America/Los_Angeles",
+                    "--status", "available", "--evidence", "calendar:verified", "--is-default")
         self.vault = self.path.parent / "wiki"
-        self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100")
+        self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
+                           holds=("work@example.com/primary/hold-1; "
+                                  "work@example.com/primary/hold-2"))
         self.contact = self.contacts()["contacts"][0]
 
-    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent"):
+    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent", holds=""):
         """One pipeline entry and, unless suppressed, the person page it points at."""
         entry = self.vault / monitor.PIPELINE_ROOT / f"{slug}.md"
         entry.parent.mkdir(parents=True, exist_ok=True)
         entry.write_text(f'---\ntype: "PipelineEntry"\nperson: "{slug}"\nstatus: "{status}"\n'
-                         f'next_step: ""\n---\n\nNotes about {slug}.\n')
+                         f'holds: "{holds}"\nnext_step: ""\n---\n\nNotes about {slug}.\n')
         if person:
             page = self.vault / monitor.PEOPLE_ROOT / f"{slug}.md"
             page.parent.mkdir(parents=True, exist_ok=True)
@@ -98,7 +104,14 @@ class MonitorTests(unittest.TestCase):
         value = {
             "contact_key": self.contact["contact_key"], "conversation_ref": "gmail:thread-1",
             "conversation_context": "Gmail · Alex · Scheduling",
-            "calendar_plan": [{"target": "work/calendar/new", "operation": "create", "intent": "Tuesday 14:00"}],
+            "calendar_plan": [
+                {"effect": "invitation", "target": "work@example.com/primary/new",
+                 "intent": "Alex; Tuesday 14:00; guest alex@example.com; video; send invitation"},
+                {"effect": "delete_hold", "target": "work@example.com/primary/hold-1",
+                 "intent": "Delete verified sibling hold 1 after invitation verification"},
+                {"effect": "delete_hold", "target": "work@example.com/primary/hold-2",
+                 "intent": "Delete verified sibling hold 2 after invitation verification"},
+            ],
             "evidence_refs": ["gmail:message-1"], "evidence_at": "2026-09-17T14:00:00Z",
             "evidence_summary": "Alex replied in Scheduling at 07:00 PT.",
             "action": "accepted", "summary": "Alex accepted Tuesday at 14:00 PT.",
@@ -109,11 +122,44 @@ class MonitorTests(unittest.TestCase):
         value.update(changes)
         return value
 
+    def new_options_observation(self, **changes):
+        value = self.observation(
+            action="new_options",
+            summary="You owe Alex times.",
+            next_step="Three held options are drafted. Review and send?",
+            calendar_plan=[
+                {"effect": "hold", "target": "work@example.com/primary/new",
+                 "intent": json.dumps(self.hold())},
+                {"effect": "hold", "target": "work@example.com/primary/new",
+                 "intent": json.dumps(self.hold(start="2026-09-23T12:00:00-07:00",
+                                                 end="2026-09-23T12:30:00-07:00"))},
+                {"effect": "hold", "target": "work@example.com/primary/new",
+                 "intent": json.dumps(self.hold(start="2026-09-24T12:00:00-07:00",
+                                                 end="2026-09-24T12:30:00-07:00"))},
+            ],
+        )
+        value.update(changes)
+        return value
+
+    def hold(self, **changes):
+        value = {
+            "account": "work@example.com", "calendar": "primary",
+            "start": "2026-09-22T12:00:00-07:00", "end": "2026-09-22T12:30:00-07:00",
+            "timezone": "America/Los_Angeles", "title": "HOLD — Alex / Example",
+            "description": "Tentative — no invitation sent",
+            "attendees": [], "send_updates": "none", "transparency": "opaque",
+        }
+        value.update(changes)
+        return value
+
     def helper(self, skill, filename, *args, ok=True):
         result = subprocess.run([sys.executable, str(ROOT / "skills" / skill / "scripts" / filename),
                                  "--db", str(self.path), *args], text=True, capture_output=True)
         self.assertEqual(result.returncode == 0, ok, result.stderr + result.stdout)
         return json.loads(result.stdout) if ok else result.stderr
+
+    def enable_monitor(self):
+        monitor.sync_job(self.db, self.scheduler, True)
 
     def approve(self, item):
         notice = monitor.notice(self.db)
@@ -383,6 +429,84 @@ class MonitorTests(unittest.TestCase):
         monitor.supersede(self.db, item["id"])
         self.assertEqual(monitor.page_update(self.db, item["id"])["changes"], {"next_step": ""})
 
+    def test_new_options_requires_three_holds_and_a_draft(self):
+        valid = self.new_options_observation()
+        self.assertEqual(len(monitor.observe(self.db, valid)["suggestion"]["payload"]["calendar_plan"]), 3)
+        for broken, message in (
+            ({**valid, "calendar_plan": valid["calendar_plan"][:2]}, "exactly three"),
+            ({**valid, "draft": None}, "prepared draft"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                monitor.observe(self.db, broken)
+
+    def test_accepted_requires_invitation_then_every_sibling_hold_delete(self):
+        for plan, message in (
+            ([], "invitation first"),
+            (self.observation()["calendar_plan"][:2], "every live sibling hold"),
+            (list(reversed(self.observation()["calendar_plan"])), "invitation first"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                monitor.observe(self.db, self.observation(calendar_plan=plan))
+
+    def test_accepted_rejects_legacy_hold_labels_until_resolved_to_event_targets(self):
+        legacy = "Tuesday 14:00 PT; Wednesday 10:00 PT"
+        self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
+                           holds=legacy)
+        self.contact = self.contacts()["contacts"][0]
+        plan = self.observation()["calendar_plan"]
+        plan[1]["target"], plan[2]["target"] = legacy.split("; ")
+        with self.assertRaisesRegex(ValueError, "canonical provider event target"):
+            monitor.observe(self.db, self.observation(calendar_plan=plan))
+
+    def test_calendar_plan_rejects_unknown_effects(self):
+        plan = self.observation()["calendar_plan"]
+        plan[0] = {**plan[0], "effect": "maybe_invitation"}
+        with self.assertRaisesRegex(ValueError, "unsupported calendar effect"):
+            monitor.observe(self.db, self.observation(calendar_plan=plan))
+
+    def test_calendar_effects_derive_operations_and_require_exact_hold_deletes(self):
+        proposal = self.new_options_observation()
+        duplicate_hold = [proposal["calendar_plan"][0], proposal["calendar_plan"][0],
+                          proposal["calendar_plan"][2]]
+        accepted = self.observation()["calendar_plan"]
+        repeated_delete = [accepted[0], accepted[1], {**accepted[2], "target": accepted[1]["target"]}]
+        unrelated_deletes = [accepted[0],
+                             {**accepted[1], "target": "work@example.com/primary/other-1"},
+                             {**accepted[2], "target": "work@example.com/primary/other-2"}]
+        for observation, message in (
+            (self.new_options_observation(calendar_plan=duplicate_hold), "duplicate calendar operation"),
+            (self.observation(calendar_plan=repeated_delete), "unique target"),
+            (self.observation(calendar_plan=unrelated_deletes), "match every live sibling hold"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                monitor.observe(self.db, observation)
+        item = monitor.observe(self.db, proposal)["suggestion"]
+        self.assertEqual([step["operation"] for step in item["payload"]["calendar_plan"]],
+                         ["create", "create", "create"])
+
+    def test_automatic_holds_require_structured_private_calendar_parameters(self):
+        for changed_hold, message in (
+            (self.hold(attendees=["alex@example.com"]), "attendee-free"),
+            (self.hold(send_updates="all"), "notifications off"),
+            (self.hold(transparency="transparent"), "busy"),
+            (self.hold(description="Tentative"), "Tentative — no invitation sent"),
+            (self.hold(account="other@example.com"), "target must match"),
+            (self.hold(timezone="Not/A_Zone"), "valid ISO timestamps and timezone"),
+        ):
+            proposal = self.new_options_observation()
+            proposal["calendar_plan"][0] = {
+                **proposal["calendar_plan"][0], "intent": json.dumps(changed_hold)
+            }
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                monitor.observe(self.db, proposal)
+
+        proposal = self.new_options_observation()
+        duplicate_slot = json.loads(proposal["calendar_plan"][0]["intent"])
+        duplicate_slot["title"] = "HOLD — Alex / Different title"
+        proposal["calendar_plan"][1]["intent"] = json.dumps(duplicate_slot)
+        with self.assertRaisesRegex(ValueError, "distinct start and end"):
+            monitor.observe(self.db, proposal)
+
     def test_current_advice_follows_evidence_and_empties_when_nothing_is_left(self):
         # One lifecycle: an old thread read after a new one does not outrank it,
         # resolving the stale one leaves the recent advice standing, and resolving
@@ -390,10 +514,9 @@ class MonitorTests(unittest.TestCase):
         recent = monitor.observe(self.db, self.observation(
             evidence_at="2026-09-17T18:00:00Z", evidence_refs=["gmail:recent"],
             next_step="Confirm Thursday. Approve?"))["suggestion"]
-        stale = monitor.observe(self.db, self.observation(
+        stale = monitor.observe(self.db, self.new_options_observation(
             conversation_ref="gmail:old-thread", evidence_refs=["gmail:from-last-week"],
-            evidence_at="2026-09-10T09:00:00Z", action="new_options",
-            summary="An older thread offered times.",
+            evidence_at="2026-09-10T09:00:00Z", summary="An older thread offered times.",
             next_step="Reply to the old thread. Approve?"))["suggestion"]
         self.assertGreater(stale["id"], recent["id"])
 
@@ -456,8 +579,10 @@ class MonitorTests(unittest.TestCase):
         item = monitor.observe(self.db, self.observation())["suggestion"]
         self.approve(item)
         self.helper("external-action", "drafts.py", "approve", "--id", str(item["draft_id"]), "--approval-ref", "founder:approve:1")
-        operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar", "--target", "work/calendar/new",
-                                "--operation", "create", "--intent", "Tuesday 14:00", "--suggestion-id", str(item["id"]))["operation"]
+        planned = item["payload"]["calendar_plan"][0]
+        operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
+                                "--target", planned["target"], "--operation", planned["operation"],
+                                "--intent", planned["intent"], "--suggestion-id", str(item["id"]))["operation"]
         newer = self.observation(evidence_refs=["gmail:message-2"], evidence_at="2026-09-17T15:00:00Z", action="modality")
         replacement = monitor.observe(self.db, newer)["suggestion"]
         self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "superseded")
@@ -470,11 +595,13 @@ class MonitorTests(unittest.TestCase):
         monitor.observe(self.db, self.observation(evidence_refs=["older:0"], evidence_at="2026-09-16T14:00:00Z"))
         self.assertEqual(monitor.suggestion(self.db, replacement["id"])["status"], "pending")
 
-    def test_autonomous_calendar_policy_never_auto_approves_monitor_work(self):
+    def test_monitor_invitation_requires_specific_approval_even_with_autonomous_calendar_policy(self):
         self.helper("founder-context", "profile.py", "set-permission", "--capability", "calendar_manage", "--policy", "autonomous")
         item = monitor.observe(self.db, self.observation())["suggestion"]
-        result = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar", "--target", "work/calendar/new",
-                             "--operation", "create", "--intent", "Tuesday 14:00", "--suggestion-id", str(item["id"]))
+        planned = item["payload"]["calendar_plan"][0]
+        result = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
+                             "--target", planned["target"], "--operation", planned["operation"],
+                             "--intent", planned["intent"], "--suggestion-id", str(item["id"]))
         oid = str(result["operation"]["id"])
         self.assertTrue(result["approval_required"])
         self.helper("external-action", "operations.py", "approve", "--id", oid, ok=False)
@@ -485,6 +612,209 @@ class MonitorTests(unittest.TestCase):
         self.assertTrue(self.helper("external-action", "operations.py", "claim", "--id", oid)["claimed"])
         self.helper("external-action", "operations.py", "finish", "--id", oid, "--outcome", "uncertain", "--evidence", "request timed out")
         self.assertFalse(self.helper("external-action", "operations.py", "claim", "--id", oid)["claimed"])
+
+    def test_only_validated_monitor_holds_inherit_automatic_calendar_policy(self):
+        self.helper("founder-context", "profile.py", "set-permission",
+                    "--capability", "calendar_manage", "--policy", "autonomous")
+        direct = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", "work@example.com/primary/new",
+            "--operation", "create", "--intent", "unlinked event",
+        )
+        self.assertTrue(direct["approval_required"])
+
+        self.enable_monitor()
+
+        item = monitor.observe(self.db, self.new_options_observation(draft={
+            "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+            "body": "Could you meet Tuesday, Wednesday, or Thursday?",
+        }))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )
+        self.assertFalse(prepared["approval_required"])
+        self.helper("founder-context", "profile.py", "set-permission",
+                    "--capability", "calendar_manage", "--policy", "forbidden")
+        error = self.helper("external-action", "operations.py", "claim",
+                            "--id", str(prepared["operation"]["id"]), ok=False)
+        self.assertIn("forbidden", error)
+
+    def test_pending_new_options_may_claim_only_its_exact_hold_operations(self):
+        self.enable_monitor()
+        item = monitor.observe(self.db, self.new_options_observation())["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        command = ("--scope", "calendar", "--suggestion-id", str(item["id"]))
+        error = self.helper("external-action", "operations.py", "prepare", *command, ok=False)
+        self.assertIn("saved Gmail draft", error)
+        self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
+                    "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
+        result = self.helper("external-action", "operations.py", "prepare", *command)
+        self.assertEqual(result["operation"]["target"], hold["target"])
+        self.assertEqual(result["operation"]["intent"], hold["intent"])
+        self.assertFalse(result["approval_required"])
+        self.assertTrue(self.helper("external-action", "operations.py", "claim",
+                                    "--id", str(result["operation"]["id"]))["claimed"])
+
+    def test_automatic_hold_plan_must_use_configured_default_calendar(self):
+        self.enable_monitor()
+        proposal = self.new_options_observation()
+        proposal["calendar_plan"] = [
+            {**step, "target": "other@example.com/primary/new",
+             "intent": json.dumps({**json.loads(step["intent"]), "account": "other@example.com"})}
+            for step in proposal["calendar_plan"]
+        ]
+        item = monitor.observe(self.db, proposal)["suggestion"]
+        self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
+                    "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
+        hold = item["payload"]["calendar_plan"][0]
+        error = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]), ok=False,
+        )
+        self.assertIn("configured default calendar", error)
+
+    def test_automatic_holds_execute_in_plan_order(self):
+        self.enable_monitor()
+        item = monitor.observe(self.db, self.new_options_observation())["suggestion"]
+        self.helper("external-action", "drafts.py", "mark-draft-saved", "--id", str(item["draft_id"]),
+                    "--draft-id", "gmail-draft-1", "--account", "owner@example.com")
+        first, second = item["payload"]["calendar_plan"][:2]
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--suggestion-id", str(item["id"]),
+        )["operation"]
+        self.assertEqual(prepared["intent"], first["intent"])
+        oid = str(prepared["id"])
+        self.helper("external-action", "operations.py", "claim", "--id", oid)
+        error = self.helper("external-action", "operations.py", "finish", "--id", oid,
+                            "--outcome", "completed", "--evidence", "calendar:verified-hold-1",
+                            ok=False)
+        self.assertIn("provider event id", error)
+        self.helper("external-action", "operations.py", "finish", "--id", oid,
+                    "--outcome", "completed", "--external-ref", "hold-event-1",
+                    "--evidence", "calendar:verified-hold-1")
+        self.assertTrue(self.helper("external-action", "operations.py", "claim",
+                                    "--id", oid)["already_completed"])
+        error = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--suggestion-id", str(item["id"]), ok=False,
+        )
+        self.assertIn("recorded on the contact page", error)
+        self.write_contact(
+            "alex", email="alex@example.com", phone="+1 415 555 0100",
+            holds=("work@example.com/primary/hold-1; work@example.com/primary/hold-2; "
+                   "work@example.com/primary/hold-event-1"),
+        )
+        self.contact = self.contacts()["contacts"][0]
+        second_result = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--suggestion-id", str(item["id"]),
+        )
+        self.assertEqual(second_result["operation"]["intent"], second["intent"])
+        self.assertFalse(second_result["approval_required"])
+
+    def test_automatic_hold_reconciliation_requires_provider_event_id(self):
+        self.enable_monitor()
+        item = monitor.observe(self.db, self.new_options_observation(draft={
+            "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+            "body": "Could you meet Tuesday, Wednesday, or Thursday?",
+        }))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )["operation"]
+        oid = str(prepared["id"])
+        self.helper("external-action", "operations.py", "claim", "--id", oid)
+        self.helper("external-action", "operations.py", "finish", "--id", oid,
+                    "--outcome", "uncertain", "--evidence", "provider timeout")
+        error = self.helper("external-action", "operations.py", "reconcile", "--id", oid,
+                            "--outcome", "completed", "--evidence", "provider read-back",
+                            ok=False)
+        self.assertIn("provider event id", error)
+        result = self.helper("external-action", "operations.py", "reconcile", "--id", oid,
+                             "--outcome", "completed", "--external-ref", "hold-event-1",
+                             "--evidence", "provider read-back")
+        self.assertEqual(result["operation"]["external_ref"], "hold-event-1")
+
+    def test_automatic_hold_completion_survives_suggestion_supersession(self):
+        self.enable_monitor()
+        item = monitor.observe(self.db, self.new_options_observation(draft={
+            "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+            "body": "Could you meet Tuesday, Wednesday, or Thursday?",
+        }))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )["operation"]
+        oid = str(prepared["id"])
+        self.helper("external-action", "operations.py", "claim", "--id", oid)
+        monitor.observe(self.db, self.observation(
+            action="modality", draft=None, calendar_plan=[],
+            evidence_refs=["gmail:message-2"], evidence_at="2026-09-17T15:00:00Z",
+        ))
+        result = self.helper(
+            "external-action", "operations.py", "finish", "--id", oid,
+            "--outcome", "completed", "--external-ref", "hold-event-1",
+            "--evidence", "calendar:verified-hold-1",
+        )
+        self.assertEqual(result["operation"]["status"], "completed")
+
+    def test_legacy_unlinked_autonomous_calendar_completion_needs_no_hold_identity(self):
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", "work@example.com/primary/legacy-event",
+            "--operation", "update", "--intent", "legacy autonomous update",
+        )["operation"]
+        self.db.execute(
+            "UPDATE external_operation SET policy='autonomous',status='executing' WHERE id=?",
+            (prepared["id"],),
+        )
+        self.db.commit()
+        result = self.helper(
+            "external-action", "operations.py", "finish", "--id", str(prepared["id"]),
+            "--outcome", "completed", "--evidence", "legacy provider receipt",
+        )
+        self.assertEqual(result["operation"]["status"], "completed")
+
+    def test_text_proposal_needs_no_provider_draft_before_automatic_holds(self):
+        self.enable_monitor()
+        draft = {"channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+                 "body": "Could you meet Tuesday, Wednesday, or Thursday?"}
+        item = monitor.observe(self.db, self.new_options_observation(draft=draft))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        result = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )
+        self.assertFalse(result["approval_required"])
+
+    def test_paused_monitor_holds_require_approval(self):
+        item = monitor.observe(self.db, self.new_options_observation(draft={
+            "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+            "body": "Could you meet Tuesday, Wednesday, or Thursday?",
+        }))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        result = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )
+        self.assertTrue(result["approval_required"])
 
     def test_obsolete_gmail_draft_cleanup_survives_restart_and_uncertainty(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
@@ -523,19 +853,66 @@ class MonitorTests(unittest.TestCase):
             monitor.decide(self.db, item["id"], {"evidence_refs": ["calendar:new-conflict"], "approval_ref": "founder:1", "validation_ref": "calendar:2"})
         self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
 
-    def test_calendar_operation_must_match_displayed_plan(self):
+    def test_monitor_prepare_derives_the_next_displayed_operation(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
         with self.assertRaisesRegex(ValueError, "verified delivered notice"):
             monitor.decide(self.db, item["id"], {"evidence_refs": item["payload"]["evidence_refs"],
                            "approval_ref": "founder:1", "validation_ref": "fresh:1"})
         self.approve(item)
-        for change in ({"target": "other/calendar/event"}, {"operation": "delete"},
-                       {"intent": "Wednesday 16:00"}, {"scope": "product"}):
-            args = {"scope": "calendar", **item["payload"]["calendar_plan"][0], **change}
-            error = self.helper("external-action", "operations.py", "prepare",
-                "--scope", args["scope"], "--target", args["target"], "--operation", args["operation"],
-                "--intent", args["intent"], "--suggestion-id", str(item["id"]), ok=False)
-            self.assertIn("differs from", error)
+        expected = item["payload"]["calendar_plan"][0]
+        result = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", "ignored/calendar/event", "--operation", "delete",
+            "--intent", "ignored caller selection", "--suggestion-id", str(item["id"]),
+        )["operation"]
+        self.assertEqual(
+            {key: result[key] for key in ("target", "operation", "intent")},
+            {key: expected[key] for key in ("target", "operation", "intent")},
+        )
+
+    def test_accepted_calendar_operations_execute_in_plan_order(self):
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        self.approve(item)
+        invitation, deletion = item["payload"]["calendar_plan"][:2]
+        created = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--suggestion-id", str(item["id"]),
+        )["operation"]
+        self.assertEqual(created["target"], invitation["target"])
+        oid = str(created["id"])
+        self.helper("external-action", "operations.py", "approve", "--id", oid)
+        self.helper("external-action", "operations.py", "claim", "--id", oid)
+        error = self.helper("external-action", "operations.py", "finish", "--id", oid,
+                            "--outcome", "completed", "--evidence", "calendar:missing-id",
+                            ok=False)
+        self.assertIn("provider event id", error)
+        self.helper("external-action", "operations.py", "finish", "--id", oid,
+                    "--outcome", "completed", "--external-ref", "meeting-event-1",
+                    "--evidence", "calendar:verified-invitation")
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--suggestion-id", str(item["id"]),
+        )
+        self.assertEqual(prepared["operation"]["target"], deletion["target"])
+        self.assertTrue(prepared["approval_required"])
+
+    def test_effectless_legacy_plan_cannot_authorize_calendar_operations(self):
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        self.approve(item)
+        payload = item["payload"]
+        for step in payload["calendar_plan"]:
+            step.pop("effect")
+        self.db.execute("UPDATE monitor_suggestion SET payload=? WHERE id=?",
+                        (json.dumps(payload, sort_keys=True, separators=(",", ":")), item["id"]))
+        self.db.commit()
+        invitation = payload["calendar_plan"][0]
+        error = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", invitation["target"],
+            "--operation", invitation["operation"], "--intent", invitation["intent"],
+            "--suggestion-id", str(item["id"]), ok=False,
+        )
+        self.assertIn("canonical effect", error)
 
     def test_notices_require_readback_and_failed_delivery_can_be_retried(self):
         monitor.observe(self.db, self.observation())
@@ -675,9 +1052,9 @@ class MonitorTests(unittest.TestCase):
             ))["suggestion"]
 
         blocked("cynthia", "blocked", "2026-09-01T14:00:00Z", "gmail:cynthia-stale")
-        blocked("jessica", "accepted", "2026-09-17T14:00:00Z", "gmail:jessica-1")
-        blocked("tammy", "accepted", "2026-09-18T14:00:00Z", "gmail:tammy-1")
-        blocked("alex", "accepted", "2026-09-18T16:00:00Z", "gmail:alex-1")
+        blocked("jessica", "conflict", "2026-09-17T14:00:00Z", "gmail:jessica-1")
+        blocked("tammy", "conflict", "2026-09-18T14:00:00Z", "gmail:tammy-1")
+        blocked("alex", "conflict", "2026-09-18T16:00:00Z", "gmail:alex-1")
         first = monitor.notice(self.db)
         self.assertIn("Jessica", first["body"])
         self.assertIn("Tammy", first["body"])
@@ -685,9 +1062,9 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(first["body"].count("Gmail ·"), 2)
         monitor.receipt(self.db, first["notice_id"], "delivered", "plow:notice-1", first["body"])
 
-        blocked("jessica", "accepted", "2026-09-19T14:00:00Z", "gmail:jessica-2")
-        blocked("tammy", "accepted", "2026-09-19T15:00:00Z", "gmail:tammy-2")
-        blocked("alex", "accepted", "2026-09-19T16:00:00Z", "gmail:alex-2")
+        blocked("jessica", "conflict", "2026-09-19T14:00:00Z", "gmail:jessica-2")
+        blocked("tammy", "conflict", "2026-09-19T15:00:00Z", "gmail:tammy-2")
+        blocked("alex", "conflict", "2026-09-19T16:00:00Z", "gmail:alex-2")
         second = monitor.notice(self.db)
         self.assertIn("Cynthia", second["body"])
         self.assertEqual(second["body"].count("Gmail ·"), 2)

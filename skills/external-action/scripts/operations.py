@@ -163,16 +163,22 @@ def resolve_policy(connection: sqlite3.Connection, scope: str, operation: str, a
 
 
 def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
-    target = required(args.target, "target")
-    operation = required(args.external_operation, "external_operation")
-    intent = required(args.intent, "intent")
+    monitor_id = getattr(args, "suggestion_id", None)
+    monitor_plan = monitor_operation(connection, monitor_id, args.scope)
+    if monitor_id is not None:
+        target, operation, intent = (monitor_plan["entry"][key]
+                                     for key in ("target", "operation", "intent"))
+    else:
+        target = required(args.target, "target")
+        operation = required(args.external_operation, "external_operation")
+        intent = required(args.intent, "intent")
     policy = resolve_policy(connection, args.scope, operation, args.access_name)
     if policy == "forbidden":
         raise ValueError("operation is forbidden by Founder Profile or global policy")
-    monitor_id = getattr(args, "suggestion_id", None)
-    monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
-    if monitor_id is not None:
+    if args.scope == "calendar":
         policy = "approval"
+    if monitor_id is not None:
+        policy = "autonomous" if monitor_plan["automatic_hold"] else "approval"
     key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
     if monitor_id is not None:
         key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"
@@ -209,14 +215,16 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
     connection.execute("BEGIN IMMEDIATE")
     try:
         row = resolve(connection, operation_id)
-        monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
-                          row["operation"], row["intent"], approved=True)
         if row["status"] == "completed":
             connection.rollback()
             return {"claimed": False, "already_completed": True, "operation": as_dict(row)}
+        monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
+                          row["operation"], row["intent"], approved=True)
         if row["status"] in {"executing", "uncertain"}:
             connection.rollback()
             return {"claimed": False, "reconciliation_required": True, "operation": as_dict(row)}
+        if resolve_policy(connection, row["scope"], row["operation"], None) == "forbidden":
+            raise ValueError("operation is forbidden by Founder Profile or global policy")
         if row["status"] != "approved":
             connection.rollback()
             raise ValueError("operation must be approved before execution")
@@ -229,10 +237,19 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
         raise
 
 
+def require_completion_ref(row, outcome, external_ref):
+    monitor_create = (row["scope"] == "calendar" and row["operation"] == "create"
+                      and row["monitor_suggestion_id"] is not None)
+    if (outcome == "completed" and monitor_create
+            and not (external_ref or "").strip()):
+        raise ValueError("completed monitor calendar create requires its verified provider event id")
+
+
 def finish(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "executing":
         raise ValueError("only an executing operation can be finished")
+    require_completion_ref(row, args.outcome, args.external_ref)
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
@@ -245,6 +262,7 @@ def reconcile(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "uncertain":
         raise ValueError("only an uncertain operation can be reconciled")
+    require_completion_ref(row, args.outcome, args.external_ref)
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
@@ -268,8 +286,8 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--db")
     commands = root.add_subparsers(dest="command", required=True)
     create = commands.add_parser("prepare")
-    create.add_argument("--scope", required=True, choices=SCOPES); create.add_argument("--target", required=True)
-    create.add_argument("--operation", dest="external_operation", required=True); create.add_argument("--intent", required=True)
+    create.add_argument("--scope", required=True, choices=SCOPES); create.add_argument("--target")
+    create.add_argument("--operation", dest="external_operation"); create.add_argument("--intent")
     create.add_argument("--access-name"); create.add_argument("--idempotency-key")
     create.add_argument("--suggestion-id", type=int, help="Required for actions originating in a monitor suggestion")
     approval = commands.add_parser("approve"); approval.add_argument("--id", required=True, type=int)

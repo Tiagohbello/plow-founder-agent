@@ -30,8 +30,8 @@ result, or a tested draft PR.
 | Google Calendar | Manages availability, events, recurrence, guests, and scheduling preferences |
 | Product Access | Operates your admin or application through the Latch browser and vault |
 | External Action | Records approval, idempotency, and reconciliation of external writes |
-| Founder Scheduling | Runs the investor hold lifecycle — options → holds → send → confirm → sweep — against the pipeline root in your wiki, one page per contact |
-| Pipeline Monitor | Opt-in checks during working hours; prepares one or two next steps, rotating blocked contacts so none go stale, and notifies you privately in Plow, with approval before external actions |
+| [Founder Scheduling](skills/founder-scheduling/SKILL.md) | Canonical contact lifecycle: track the next action → three held options and a prepared draft → approved send → invitation and complete hold cleanup |
+| Pipeline Monitor | Opt-in checks during working hours; prepares urgent next steps and three tentative holds, rotates blocked contacts so none go stale, then asks before sending or confirming |
 
 ## Runtime and integrations
 
@@ -53,11 +53,12 @@ prepares local suggestions/drafts, keeps each contact's suggested next step
 current in your wiki, and notifies you in your private Plow chat only about new
 actionable evidence or blockers. During onboarding, you choose
 the frequency explicitly and whether prepared Gmail replies should also be saved
-as verified real drafts in your inbox. Monitoring never sends to third parties or
-changes calendars, and the only thing it writes is the suggested next step —
-advice you can ignore. Sending, calendar changes and every factual field require
-your specific approval and fresh checks, even with broader calendar autonomy
-enabled. Pause, resume,
+as verified real drafts in your inbox. Monitoring never sends to third parties;
+its only unattended calendar mutation is creating the exact three attendee-free
+tentative holds for a persisted proposal, after which it records each verified
+event identity in the contact's `holds` field. Sending, invitations, deleting
+holds, and other factual changes require your specific approval and fresh checks,
+even with broader calendar autonomy enabled. Pause, resume,
 check now, and change frequency through chat. See [setup and acceptance checks](docs/INSTALL.md#optional-proactive-scheduling).
 
 For requested work, the agent can observe

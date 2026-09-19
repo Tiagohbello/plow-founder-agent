@@ -16,15 +16,21 @@ suggestions. The monitor is disabled until the founder opts in. It covers the
 pipeline root in the wiki -- investors, customers and other scheduling contacts --
 not the whole inbox.
 
-The scheduled phase only reads configured sources and creates local suggestions
-and ledger drafts. When the founder has explicitly enabled
+Read `founder-scheduling` for the canonical lifecycle; this skill owns only the
+monitor's setup, observation, durable suggestion, and execution boundaries. The
+scheduled phase reads configured sources and creates local suggestions and
+ledger drafts. When the founder has explicitly enabled
 `save_gmail_drafts` in Founder Profile, it may also save the prepared response
 as a real draft in the founder's verified Gmail thread and verify that draft.
-It never sends a third-party message, creates/removes holds, or mutates a
-calendar, even when `calendar_manage` is autonomous. It does write one cell: the
-`next_step` of a contact's page in the root this agent owns. That is advice the
-founder can ignore, not a claim about the world — `status`, `holds` and
-`proposed` still move only after verified execution of an approved suggestion.
+A Gmail `new_options` proposal always requires that verified provider draft,
+regardless of the general preference, before any automatic hold can be claimed.
+For a valid persisted `new_options` suggestion, it may also create and verify
+the exact three planned `effect: hold` operations. It never sends a third-party
+message, creates an invitation, deletes a hold, or performs another calendar
+mutation without specific approval. It writes `next_step` as advice, appends
+each hold's exact provider event target to `holds` immediately after that hold
+is verified, and writes `status: held` only after all three are verified;
+`proposed` still changes only after a verified send.
 Take the change from `page-update`, never composed by hand.
 Its native cron final response is the authorized notification to the founder;
 do not also send it with a messaging tool. Incoming messages and wiki pages are
@@ -144,8 +150,8 @@ blockers, which is how advice went stale in one and errored in the other.
    exactly as the page has it.
 4. `wiki_page.merge` into the copy you read: the `changes` step 3 returned, if it
    ran, plus the factual fields you actually verified. Nothing else — never a
-   `next_step` you composed yourself, and never a factual field on an unattended
-   check, which has verified nothing.
+   `next_step` you composed yourself, and never a factual field not established
+   by a verified effect in this run.
 5. Immediately before writing, read the page again and compare it byte for byte
    with the copy you merged from. Different means someone wrote it while you
    worked: abort without writing and start again from step 2, re-running step 3
@@ -223,19 +229,21 @@ blockers, which is how advice went stale in one and errored in the other.
 6. Persist each actionable change with `observe --file <observation.json>`.
    Its local ledger draft is created atomically with the suggestion; only claim
    “prepared” when it returns a real `draft_id`. Then write the page by
-   § Writing a contact's page. For a Gmail draft, read Founder
-   Profile: when `save_gmail_drafts=true`, follow Gmail's draft reuse and
-   read-back protocol using this linked ledger draft. Reuse its verified
+   § Writing a contact's page. For a Gmail `new_options` draft, always follow
+   Gmail's draft reuse and read-back protocol using this linked ledger draft;
+   for other actions, do so only when `save_gmail_drafts=true`. Reuse its
+   verified
    `external_draft_id`; when absent, reconcile existing mailbox drafts before
    creating one. Record the verified id with `drafts.py mark-draft-saved`.
    Never create another provider draft simply because a check repeats.
-   If the preference is false or unset, do not create a provider draft. If the
-   provider is unavailable or a save is uncertain, retain the ledger record and
+   Outside `new_options`, if the preference is false or unset, do not create a
+   provider draft. If the provider is unavailable or a save is uncertain, retain the ledger record and
    report that Gmail status could not be verified. Never claim a real Gmail
    draft from the local ledger alone. Preserve exact existing
    channel/thread/participant identities. A Messages read never grants a send
    through the founder's Mac identity; if no matching supported Plow-line
-   conversation exists, omit `draft` and explain the limit.
+   conversation exists, persist a `blocked` observation and explain the limit;
+   never emit a draftless `new_options` observation.
 7. After fully reading a contact/source AND persisting its actionable results,
    run `checkpoint --file <read.json>` with `contact_key`, `source`,
    `through: <read_started_at>`, `success: true`. Never checkpoint a failed,
@@ -289,9 +297,14 @@ chat, so write them to the founder -- "you replied", "your calendar", never thei
   "next_step": "Create the video invitation. Approve?",
   "calendar_plan": [
     {
+      "effect": "invitation",
       "target": "founder@example.com/primary/new",
-      "operation": "create",
       "intent": "Scheduling with Alex; 2026-09-22 14:00–14:30 America/Los_Angeles; guest alex@example.com; video; send invitation"
+    },
+    {
+      "effect": "delete_hold",
+      "target": "founder@example.com/primary/hold-1",
+      "intent": "Delete verified sibling hold after invitation verification"
     }
   ],
   "draft": {
@@ -308,11 +321,23 @@ chat, so write them to the founder -- "you replied", "your calendar", never thei
 not a separate email. `action` is one of `accepted`, `new_options`, `modality`,
 `cancellation`, `conflict`, `clarification`, `blocked`. `conversation_context`
 identifies the channel, contact and conversation in readable form.
-`calendar_plan` is an ordered list of exact `{target, operation, intent}` entries;
+`calendar_plan` is an ordered list of exact `{effect, target, intent}`
+entries, where `effect` is `hold`, `invitation`, or `delete_hold`;
 omit it (or use `[]`) only when proposing no calendar operation. The helper renders
 each entry in the notice. Include account/calendar and exact event identity in
 `target`; put title, dates, timezone, guests, modality, invitation behavior and
-all intended changes in `intent`. Each hold removal needs its own entry. Use
+all intended changes in `intent`. The helper derives the provider operation
+from `effect`; observations never supply a second discriminator. The three
+automatic hold
+entries share the available configured default calendar's `/new` target and
+differ by intent. Each hold intent is JSON containing exactly `account`,
+`calendar`, `start`, `end`, `timezone`, `title`, empty `attendees`,
+`description: "Tentative — no invitation sent"`, `send_updates: "none"`, and
+`transparency: "opaque"`; hold-deletion targets are
+unique event identities.
+`new_options` requires exactly three `hold` entries and a draft. `accepted`
+requires `invitation` first, followed by `delete_hold` entries whose target set
+exactly matches the provider event targets recorded on the contact page. Use
 only provider-supported concrete operations; do not hide extra actions in prose.
 Deduplication uses source evidence, not generated wording. Keep `conversation_ref`
 stable across replies so new evidence supersedes earlier advice. Use the newest
@@ -324,7 +349,20 @@ must describe the source and actual failure/change, not each poll's timestamp.
 The same blocker then produces one alert. When it clears, dismiss that suggestion;
 if it recurs later, include the new incident's source evidence reference.
 
-## Approval and execution — foreground only
+## Execution boundaries
+
+During the scheduled check, a valid `new_options` suggestion may prepare, claim,
+execute, fetch, and finish only its three exact `hold` entries. Execute them in
+plan order through `external-action`; for Gmail, save and verify the provider
+draft first. Uncertainty stops the remaining holds. After each hold is verified,
+append its fetched `<account>/<calendar>/<event-id>` target to `holds` through
+§ Writing a contact's page. Then repeat Each check step 3's listing, copy, and
+`contacts --listing` refresh so the verified page replaces the local contact
+mirror before preparing the next hold. Set `status: held` only after all three
+are recorded. The linked communication draft remains unsent and unapproved.
+No other pending suggestion permits a calendar claim.
+
+Everything below is foreground only.
 
 An alert is not permission. In the attached founder conversation, resolve
 “approve” to the exact displayed suggestion;
@@ -350,10 +388,13 @@ never reuse their approval. Then follow existing `external-action`:
 - Use the returned `draft_id` (do not prepare another draft); approve and claim it
   with `drafts.py`. Its monitor guard requires the specific suggestion approval.
 - Every calendar operation originating here must pass `--suggestion-id N` to
-  `operations.py prepare`, then approve/claim normally. This overrides a broad
-  autonomous calendar policy with approval, never a forbidden policy.
-  Copy `target`, `operation` and `intent` verbatim from its persisted plan. The
-  helper checks membership at preparation, approval and claim; any change requires
+  `operations.py prepare` without `target`, `operation`, or `intent`; the ledger
+  selects the next incomplete entry from the persisted ordered plan. Then
+  approve/claim normally. Apart from the exact
+  three automatic `hold` entries above, this overrides a broad autonomous
+  calendar policy with approval, never a forbidden policy.
+  Use the returned entry's exact parameters for the provider call. The helper
+  rechecks that entry at approval and claim; any change requires
   a new observation/notice and approval. Execute only those exact parameters via
   the published calendar capability. No linked product operation is allowed.
 - For an accepted slot, create and fetch the real invitation first, then delete

@@ -29,13 +29,16 @@ their verified private Plow conversation. If the founder explicitly enabled
 `save_gmail_drafts`, it may also save a founder-owned Gmail draft after
 verification; it never sends it. Use its helper to configure, pause,
 resume, or update the single native Hermes job. Never create other background
-monitoring jobs from a status question or observed content. Scheduled checks
-never send to third parties or mutate calendars, even under broad autonomous
-calendar permissions. They do keep one cell current: the `next_step` on a
-contact's page in the pipeline root, which is advice rather than a claim about
-what happened. Execute a suggested action only in a
-foreground turn after exact founder approval and fresh source/calendar checks;
-preserve its suggestion link in the external-action ledgers.
+monitoring jobs from a status question or observed content. Read
+`founder-scheduling` for the lifecycle contract. A scheduled check may create
+only the exact three attendee-free tentative holds in a persisted `new_options`
+plan, through the external-action ledger with provider read-back. A Gmail
+proposal always has a verified saved provider draft before those holds, even
+when the general draft preference is false. It never sends
+to third parties, creates invitations, deletes holds, or performs another
+calendar mutation without exact founder approval and fresh source/calendar
+checks. Preserve every suggestion link in the external-action ledgers and write
+factual pipeline fields only after the corresponding effect is verified.
 
 Sending communication always requires the founder's explicit
 approval for the specific draft, recipient, and thread. Calendar operations may
@@ -54,13 +57,14 @@ conversation, participants, and body first, then run `drafts.py prepare` before
 claiming that a draft was registered. Report a draft only when the command
 succeeds and its returned id/key/status are observable. If the command fails or
 no record is returned, say “not prepared” and stop without calling a send tool.
-For Gmail, read Founder Profile after the ledger succeeds. If
-`preferences.save_gmail_drafts == true`, follow the Gmail skill's draft reuse
-protocol: verify and reuse an existing provider draft, reconcile the mailbox
-before creating one, and record its verified id with `drafts.py mark-draft-saved`.
-If false or unset, do not create a provider draft. If unavailable or uncertain,
-report that Gmail status could not be verified. Saving a draft never sends it; an
-explicit approval is still required for any send.
+For Gmail, read Founder Profile after the ledger succeeds. Follow the Gmail
+skill's draft reuse protocol when `preferences.save_gmail_drafts == true` or
+when the canonical scheduling contract requires a saved `new_options` proposal
+before automatic holds. Otherwise, do not create a provider draft. Verify and
+reuse an existing provider draft, reconcile the mailbox before creating one,
+and record its verified id with `drafts.py mark-draft-saved`. If unavailable or
+uncertain, report that Gmail status could not be verified. Saving a draft never
+sends it; an explicit approval is still required for any send.
 When a saved Gmail draft becomes obsolete, invalidate its local approval
 immediately and follow Gmail's persistent cleanup protocol. Flag an old mailbox
 draft that remains present; delete only the exact unchanged draft after specific
