@@ -12,6 +12,12 @@ def add_monitor_column(connection, table):
             connection.execute(f"ALTER TABLE {table} ADD COLUMN monitor_suggestion_id INTEGER")
 
 
+def require_current_contact(connection, row):
+    if not row["contact_key"].startswith("source:") and not connection.execute(
+            "SELECT 1 FROM monitor_contact WHERE contact_key=?", (row["contact_key"],)).fetchone():
+        raise ValueError("contact is not in the latest verified pipeline read; re-read it first")
+
+
 def monitor_item(connection, suggestion_id, approved=False):
     if suggestion_id is None:
         return
@@ -29,17 +35,16 @@ def monitor_item(connection, suggestion_id, approved=False):
         # whether this identity is still placeable. Asked here, where the external
         # effect happens -- staging a local draft is not an effect and stays allowed,
         # so reconciling one for a contact that has since unlinked still works.
-        if not row["contact_key"].startswith("source:") and not connection.execute(
-                "SELECT 1 FROM monitor_contact WHERE contact_key=?", (row["contact_key"],)).fetchone():
-            raise ValueError("contact is not in the latest verified pipeline read; re-read it first")
+        require_current_contact(connection, row)
     return row
 
 
 def monitor_operation(connection, suggestion_id, scope, target, operation, intent, approved=False):
-    row = monitor_item(connection, suggestion_id, approved=approved)
+    row = monitor_item(connection, suggestion_id)
     if row is None:
         return
-    plan = json.loads(row["payload"]).get("calendar_plan", [])
+    payload = json.loads(row["payload"])
+    plan = payload.get("calendar_plan", [])
     exact = {"target": target, "operation": operation, "intent": intent}
     if scope != "calendar" or not isinstance(plan, list):
         raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")
@@ -47,3 +52,11 @@ def monitor_operation(connection, suggestion_id, scope, target, operation, inten
                and {key: entry.get(key) for key in exact} == exact]
     if len(matches) != 1:
         raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")
+    entry = matches[0]
+    automatic_hold = payload.get("action") == "new_options" and entry.get("effect") == "hold"
+    if approved:
+        if automatic_hold:
+            require_current_contact(connection, row)
+        else:
+            monitor_item(connection, suggestion_id, approved=True)
+    return {"entry": entry, "automatic_hold": automatic_hold}

@@ -170,9 +170,9 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     if policy == "forbidden":
         raise ValueError("operation is forbidden by Founder Profile or global policy")
     monitor_id = getattr(args, "suggestion_id", None)
-    monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
+    monitor_plan = monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
     if monitor_id is not None:
-        policy = "approval"
+        policy = "autonomous" if monitor_plan["automatic_hold"] else "approval"
     key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
     if monitor_id is not None:
         key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"

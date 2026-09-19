@@ -501,7 +501,7 @@ class MonitorTests(unittest.TestCase):
         monitor.observe(self.db, self.observation(evidence_refs=["older:0"], evidence_at="2026-09-16T14:00:00Z"))
         self.assertEqual(monitor.suggestion(self.db, replacement["id"])["status"], "pending")
 
-    def test_autonomous_calendar_policy_never_auto_approves_monitor_work(self):
+    def test_monitor_invitation_requires_specific_approval_even_with_autonomous_calendar_policy(self):
         self.helper("founder-context", "profile.py", "set-permission", "--capability", "calendar_manage", "--policy", "autonomous")
         item = monitor.observe(self.db, self.observation())["suggestion"]
         planned = item["payload"]["calendar_plan"][0]
@@ -518,6 +518,19 @@ class MonitorTests(unittest.TestCase):
         self.assertTrue(self.helper("external-action", "operations.py", "claim", "--id", oid)["claimed"])
         self.helper("external-action", "operations.py", "finish", "--id", oid, "--outcome", "uncertain", "--evidence", "request timed out")
         self.assertFalse(self.helper("external-action", "operations.py", "claim", "--id", oid)["claimed"])
+
+    def test_pending_new_options_may_claim_only_its_exact_hold_operations(self):
+        item = monitor.observe(self.db, self.new_options_observation())["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        result = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )
+        self.assertFalse(result["approval_required"])
+        self.assertTrue(self.helper("external-action", "operations.py", "claim",
+                                    "--id", str(result["operation"]["id"]))["claimed"])
 
     def test_obsolete_gmail_draft_cleanup_survives_restart_and_uncertainty(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
