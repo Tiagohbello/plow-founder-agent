@@ -639,23 +639,23 @@ def stage_notice(db):
     # goes first; the id keeps two identical tiers deterministically ordered.
     items = sorted(pending, key=lambda item: (ACTIONS.index(item["payload"]["action"]),
                                               item["evidence_at"], item["id"]))[:NOTICE_LIMIT]
-    body = "\n\n".join(render_suggestion(item) for item in items)
+    body = "\n\n".join(render_suggestion(item) for item in items).strip()
     with db:
         cursor = db.execute("INSERT INTO monitor_notice(suggestion_ids,body,created_at) VALUES (?,?,?)",
                             (canonical([i["id"] for i in items]), body, stamp()))
     return {"notice_id": cursor.lastrowid, "body": body, "status": "staged"}
 
 
-def receipt(db, notice_id, outcome, ref, file=None, body=None):
+def receipt(db, notice_id, outcome, ref, delivered_text=None):
     required(ref, "delivery read-back or failure evidence")
     with db:
+        db.execute("BEGIN IMMEDIATE")
         row = db.execute("SELECT * FROM monitor_notice WHERE id=?", (notice_id,)).fetchone()
         if row is None or row["status"] not in ("staged", "uncertain"):
             raise ValueError("notice is not awaiting reconciliation")
         if outcome == "delivered":
-            if file is None and body is None:
-                raise ValueError("delivered outcome requires verified read-back file or body")
-            delivered_text = Path(file).read_text(encoding="utf-8") if file is not None else body
+            if delivered_text is None:
+                raise ValueError("delivered outcome requires verified read-back")
             if delivered_text != row["body"]:
                 raise ValueError("delivered body does not match staged notice body")
         db.execute("UPDATE monitor_notice SET status=?,receipt_ref=? WHERE id=?", (outcome, ref, notice_id))
@@ -691,8 +691,7 @@ def parser():
     delivery.add_argument("--id", type=int, required=True)
     delivery.add_argument("--outcome", choices=("delivered", "failed", "uncertain"), required=True)
     delivery.add_argument("--ref", required=True)
-    delivery.add_argument("--file", type=Path)
-    delivery.add_argument("--body")
+    delivery.add_argument("--file", dest="readback_file", type=Path)
     finish = commands.add_parser("finish")
     finish.add_argument("--id", type=int, required=True)
     finish.add_argument("--outcome", choices=("completed", "uncertain", "dismissed"), required=True)
@@ -704,8 +703,7 @@ def run(args):
     path = args.db or database_path()
     db = connect(path)
     try:
-        json_file_commands = {"configure", "observe", "checkpoint", "approve"}
-        data = json.loads(args.file.read_text()) if getattr(args, "file", None) and args.command in json_file_commands else None
+        data = json.loads(args.file.read_text()) if getattr(args, "file", None) else None
         if args.command in ("configure", "enable", "resume", "pause"):
             with control_lock(path):
                 if args.command == "configure":
@@ -724,7 +722,9 @@ def run(args):
         if args.command == "observe": return observe(db, data)
         if args.command == "approve": return decide(db, args.id, data)
         if args.command == "notice": return notice(db)
-        if args.command == "receipt": return receipt(db, args.id, args.outcome, args.ref, file=args.file, body=args.body)
+        if args.command == "receipt":
+            readback = args.readback_file.read_text(encoding="utf-8") if args.readback_file else None
+            return receipt(db, args.id, args.outcome, args.ref, readback)
         if args.command == "list":
             return {"suggestions": [suggestion(db, row[0]) for row in db.execute("SELECT id FROM monitor_suggestion ORDER BY id DESC")]}
         if args.command == "run-now":
