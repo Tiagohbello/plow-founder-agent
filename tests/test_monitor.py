@@ -754,6 +754,31 @@ class MonitorTests(unittest.TestCase):
                              "--evidence", "provider read-back")
         self.assertEqual(result["operation"]["external_ref"], "hold-event-1")
 
+    def test_automatic_hold_completion_survives_suggestion_supersession(self):
+        item = monitor.observe(self.db, self.new_options_observation(draft={
+            "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+            "body": "Could you meet Tuesday, Wednesday, or Thursday?",
+        }))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )["operation"]
+        oid = str(prepared["id"])
+        self.helper("external-action", "operations.py", "claim", "--id", oid)
+        monitor.observe(self.db, self.observation(
+            action="modality", draft=None, calendar_plan=[],
+            evidence_refs=["gmail:message-2"], evidence_at="2026-09-17T15:00:00Z",
+        ))
+        result = self.helper(
+            "external-action", "operations.py", "finish", "--id", oid,
+            "--outcome", "completed", "--external-ref", "hold-event-1",
+            "--evidence", "calendar:verified-hold-1",
+        )
+        self.assertEqual(result["operation"]["status"], "completed")
+
     def test_text_proposal_needs_no_provider_draft_before_automatic_holds(self):
         draft = {"channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
                  "body": "Could you meet Tuesday, Wednesday, or Thursday?"}

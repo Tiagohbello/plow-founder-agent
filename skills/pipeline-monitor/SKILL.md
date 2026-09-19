@@ -353,9 +353,10 @@ execute, fetch, and finish only its three exact `hold` entries. Execute them in
 plan order through `external-action`; for Gmail, save and verify the provider
 draft first. Uncertainty stops the remaining holds. After each hold is verified,
 append its fetched `<account>/<calendar>/<event-id>` target to `holds` through
-§ Writing a contact's page before executing the next hold. Set `status: held`
-only after all three are recorded. The linked communication draft remains unsent
-and unapproved.
+§ Writing a contact's page. Then repeat Each check step 3's listing, copy, and
+`contacts --listing` refresh so the verified page replaces the local contact
+mirror before preparing the next hold. Set `status: held` only after all three
+are recorded. The linked communication draft remains unsent and unapproved.
 No other pending suggestion permits a calendar claim.
 
 Everything below is foreground only.

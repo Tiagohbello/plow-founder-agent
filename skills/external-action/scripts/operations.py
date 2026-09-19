@@ -233,10 +233,9 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
         raise
 
 
-def require_completion_ref(connection, row, outcome, external_ref):
-    monitor_plan = monitor_operation(connection, row["monitor_suggestion_id"], row["scope"],
-                                     row["target"], row["operation"], row["intent"])
-    if (outcome == "completed" and monitor_plan and monitor_plan["automatic_hold"]
+def require_completion_ref(row, outcome, external_ref):
+    automatic_hold = row["scope"] == "calendar" and row["policy"] == "autonomous"
+    if (outcome == "completed" and automatic_hold
             and not (external_ref or "").strip()):
         raise ValueError("completed automatic hold requires its verified provider event id")
 
@@ -245,7 +244,7 @@ def finish(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "executing":
         raise ValueError("only an executing operation can be finished")
-    require_completion_ref(connection, row, args.outcome, args.external_ref)
+    require_completion_ref(row, args.outcome, args.external_ref)
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
@@ -258,7 +257,7 @@ def reconcile(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "uncertain":
         raise ValueError("only an uncertain operation can be reconciled")
-    require_completion_ref(connection, row, args.outcome, args.external_ref)
+    require_completion_ref(row, args.outcome, args.external_ref)
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
