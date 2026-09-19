@@ -31,7 +31,7 @@ result, or a tested draft PR.
 | Product Access | Operates your admin or application through the Latch browser and vault |
 | External Action | Records approval, idempotency, and reconciliation of external writes |
 | Founder Scheduling | Runs the investor hold lifecycle — options → holds → send → confirm → sweep — against the pipeline root in your wiki, one page per contact |
-| Pipeline Monitor | Opt-in checks during working hours; prepares the most urgent one or two next steps and notifies you privately in Plow, with approval before external actions |
+| Pipeline Monitor | Opt-in checks during working hours; prepares one or two next steps, rotating blocked contacts so none go stale, and notifies you privately in Plow, with approval before external actions |
 
 ## Runtime and integrations
 
