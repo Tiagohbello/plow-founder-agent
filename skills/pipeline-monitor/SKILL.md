@@ -267,10 +267,12 @@ blockers, which is how advice went stale in one and errored in the other.
    raw thread ids, a second summary or a second delivery.
    Clean up any temporary/scratch files created during earlier steps now. All
    reconciliation and cleanup must finish before step 9.
-9. Run `notice`. It carries only the most urgent one or two suggestions — ranked
-   by action, longest-waiting first within a tier. The rest stay pending and are
-   reconsidered next check, so the founder gets what to do now instead of
-   everything outstanding. Never summarize or append the ones it left out.
+9. Run `notice`. It carries only one or two suggestions. Rank by action,
+   longest-waiting first within a tier, then give at least one slot to a
+   contact that is blocked on us and was not in the last delivered notice
+   whenever others remain blocked — so a hot thread with new evidence cannot
+   starve a stale unsent draft or overdue follow-up. The rest stay pending and
+   are reconsidered next check. Never summarize or append the ones it left out.
    Return its `body` verbatim as the cron's final response, including `[SILENT]`
    when empty. **No other step is allowed after `notice`.** Do not run any further
    tool calls, cleanup, or scratch-file deletion. The final response must consist

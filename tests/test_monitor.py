@@ -980,5 +980,42 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.db.execute("PRAGMA user_version").fetchone()[0], 1)
 
 
+    def test_successive_notices_rotate_a_blocked_contact_that_would_starve(self):
+        for slug in ("jessica", "tammy", "alex", "cynthia"):
+            self.write_contact(slug, email=f"{slug}@example.com")
+        self.contacts()
+
+        def blocked(slug, action, when, ref):
+            return monitor.observe(self.db, self.observation(
+                contact_key=slug, conversation_ref=f"gmail:{slug}",
+                conversation_context=f"Gmail · {slug.title()} · Scheduling",
+                evidence_refs=[ref], evidence_at=when, action=action,
+                summary=f"{slug.title()} is waiting on you.",
+                next_step=f"Unblock {slug.title()}. Approve?",
+                calendar_plan=[],
+                draft={"channel": "gmail", "thread_id": slug, "recipient": f"{slug}@example.com",
+                       "body": f"Following up with {slug}."},
+            ))["suggestion"]
+
+        blocked("cynthia", "blocked", "2026-09-01T14:00:00Z", "gmail:cynthia-stale")
+        blocked("jessica", "conflict", "2026-09-17T14:00:00Z", "gmail:jessica-1")
+        blocked("tammy", "conflict", "2026-09-18T14:00:00Z", "gmail:tammy-1")
+        blocked("alex", "conflict", "2026-09-18T16:00:00Z", "gmail:alex-1")
+        first = monitor.notice(self.db)
+        self.assertIn("Jessica", first["body"])
+        self.assertIn("Tammy", first["body"])
+        self.assertNotIn("Cynthia", first["body"])
+        self.assertEqual(first["body"].count("Gmail ·"), 2)
+        monitor.receipt(self.db, first["notice_id"], "delivered", "plow:notice-1", first["body"])
+
+        blocked("jessica", "conflict", "2026-09-19T14:00:00Z", "gmail:jessica-2")
+        blocked("tammy", "conflict", "2026-09-19T15:00:00Z", "gmail:tammy-2")
+        blocked("alex", "conflict", "2026-09-19T16:00:00Z", "gmail:alex-2")
+        second = monitor.notice(self.db)
+        self.assertIn("Cynthia", second["body"])
+        self.assertEqual(second["body"].count("Gmail ·"), 2)
+        self.assertLess(second["body"].index("Jessica"), second["body"].index("Cynthia"))
+
+
 if __name__ == "__main__":
     unittest.main()

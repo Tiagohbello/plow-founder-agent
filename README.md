@@ -31,7 +31,7 @@ result, or a tested draft PR.
 | Product Access | Operates your admin or application through the Latch browser and vault |
 | External Action | Records approval, idempotency, and reconciliation of external writes |
 | [Founder Scheduling](skills/founder-scheduling/SKILL.md) | Canonical contact lifecycle: track the next action → three held options and a prepared draft → approved send → invitation and complete hold cleanup |
-| Pipeline Monitor | Opt-in checks during working hours; prepares urgent next steps and their three tentative holds, then asks before sending or confirming |
+| Pipeline Monitor | Opt-in checks during working hours; prepares urgent next steps and three tentative holds, rotates blocked contacts so none go stale, then asks before sending or confirming |
 
 ## Runtime and integrations
 

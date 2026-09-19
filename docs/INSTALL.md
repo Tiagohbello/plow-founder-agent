@@ -192,8 +192,11 @@ verifies exactly three attendee-free tentative holds through the durable action
 ledger. There is no automatic invitation or hold deletion. A check writes the
 verified holds plus the recommended next step to the contact's page and reports
 it in the notice. Each notice carries the most urgent one or two suggestions rather than every
-outstanding one; the rest arrive in later checks once the current notice is
-delivered, whether or not its suggestions have been acted on. There
+outstanding one. When
+several contacts are blocked on us, successive checks rotate: a contact that
+was not in the last notice gets a slot so a stale reply cannot sit behind the
+same hot threads for weeks. The rest arrive in later checks once the current
+notice is delivered, whether or not its suggestions have been acted on. There
 are no repeated reminders for unchanged pending suggestions. A new reply
 invalidates the old suggestion's approval.
 The calendar operations must exactly match the plan displayed in that notice.

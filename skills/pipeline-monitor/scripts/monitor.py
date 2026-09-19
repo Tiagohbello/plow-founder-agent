@@ -39,7 +39,9 @@ PLAN_OPERATIONS = {"hold": "create", "invitation": "create", "delete_hold": "del
 # are reconsidered next run. Strict tiers, so a clarification waits behind any
 # steady stream of accepted slots -- intended at one founder's volume, where a
 # few checks an hour clear the queue and the buried item is the one that could
-# afford to wait. Revisit if a real pipeline ever outruns it.
+# afford to wait. A contact blocked on us that was not in the last notice still
+# gets a slot when others remain blocked, so new evidence on a hot thread cannot
+# starve a stale reply for weeks.
 NOTICE_LIMIT = 2
 INTERVAL_MINUTES = (15, 30, 45)
 PROMPT = """Run the configured Founder Agent pipeline monitor. Read the pipeline-monitor
@@ -700,8 +702,15 @@ def stage_notice(db):
         return {"body": "[SILENT]"}
     # Oldest evidence first within a tier, so the item that has waited longest
     # goes first; the id keeps two identical tiers deterministically ordered.
-    items = sorted(pending, key=lambda item: (ACTIONS.index(item["payload"]["action"]),
-                                              item["evidence_at"], item["id"]))[:NOTICE_LIMIT]
+    ranked = sorted(pending, key=lambda item: (ACTIONS.index(item["payload"]["action"]),
+                                               item["evidence_at"], item["id"]))
+    previous = db.execute("SELECT suggestion_ids FROM monitor_notice WHERE status='delivered' ORDER BY id DESC LIMIT 1").fetchone()
+    previous_ids = json.loads(previous[0]) if previous else []
+    last = {suggestion(db, sid)["contact_key"] for sid in previous_ids}
+    rotated = min((item for item in ranked if item["contact_key"] not in last),
+                  key=lambda item: (item["evidence_at"], item["id"]), default=None) if last else None
+    selected = ([rotated] + [item for item in ranked if item["id"] != rotated["id"]][:NOTICE_LIMIT - 1]) if rotated else ranked[:NOTICE_LIMIT]
+    items = sorted(selected, key=ranked.index)
     body = "\n\n".join(render_suggestion(item) for item in items).strip()
     with db:
         cursor = db.execute("INSERT INTO monitor_notice(suggestion_ids,body,created_at) VALUES (?,?,?)",
