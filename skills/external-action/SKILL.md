@@ -19,6 +19,11 @@ Reads do not require a ledger. Merge, deploy, money movement, critical
 credential changes, destructive production deletion, and destructive
 operations are always forbidden.
 
+Calendar operations without a validated pipeline-monitor link are
+approval-required even when Founder Profile carries a broader autonomous
+calendar policy. The only automatic calendar authorization is an exact validated
+`new_options` hold; `forbidden` is rechecked immediately before every claim.
+
 All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
 For a `pipeline-monitor` suggestion, read `founder-scheduling` for lifecycle

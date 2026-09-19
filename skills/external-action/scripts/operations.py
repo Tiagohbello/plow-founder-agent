@@ -171,6 +171,8 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
         raise ValueError("operation is forbidden by Founder Profile or global policy")
     monitor_id = getattr(args, "suggestion_id", None)
     monitor_plan = monitor_operation(connection, monitor_id, args.scope, target, operation, intent)
+    if args.scope == "calendar":
+        policy = "approval"
     if monitor_id is not None:
         policy = "autonomous" if monitor_plan["automatic_hold"] else "approval"
     key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
@@ -217,6 +219,8 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
         if row["status"] in {"executing", "uncertain"}:
             connection.rollback()
             return {"claimed": False, "reconciliation_required": True, "operation": as_dict(row)}
+        if resolve_policy(connection, row["scope"], row["operation"], None) == "forbidden":
+            raise ValueError("operation is forbidden by Founder Profile or global policy")
         if row["status"] != "approved":
             connection.rollback()
             raise ValueError("operation must be approved before execution")
@@ -233,6 +237,11 @@ def finish(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     row = resolve(connection, args.id)
     if row["status"] != "executing":
         raise ValueError("only an executing operation can be finished")
+    monitor_plan = monitor_operation(connection, row["monitor_suggestion_id"], row["scope"],
+                                     row["target"], row["operation"], row["intent"])
+    if (args.outcome == "completed" and monitor_plan
+            and monitor_plan["automatic_hold"] and not (args.external_ref or "").strip()):
+        raise ValueError("completed automatic hold requires its verified provider event id")
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),

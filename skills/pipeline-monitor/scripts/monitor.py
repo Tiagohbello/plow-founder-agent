@@ -530,7 +530,7 @@ def page_update(db, suggestion_id):
 def normalize_calendar_plan(action, plan, draft, contact):
     if not isinstance(plan, list):
         raise ValueError("calendar_plan must be a list of exact operations")
-    normalized, validator = [], None
+    normalized, validator, hold_slots = [], None, set()
     for step in plan:
         if not isinstance(step, dict) or set(step) != {"effect", "target", "intent"}:
             raise ValueError("each calendar operation needs exactly effect, target and intent")
@@ -541,8 +541,15 @@ def normalize_calendar_plan(action, plan, draft, contact):
                 "operation": PLAN_OPERATIONS[effect], "intent": required(step["intent"], "intent")}
         if item["effect"] == "hold":
             validator = validator or sibling("external-action", "monitor_guard.py")
-            item["intent"] = canonical(validator.parse_hold_intent(item["intent"], item["target"]))
-        if item in normalized:
+            hold = validator.parse_hold_intent(item["intent"], item["target"])
+            item["intent"] = canonical(hold)
+            if item in normalized:
+                raise ValueError("duplicate calendar operation")
+            slot = tuple(parse_time(hold[key]) for key in ("start", "end"))
+            if slot in hold_slots:
+                raise ValueError("three hold options require distinct start and end times")
+            hold_slots.add(slot)
+        elif item in normalized:
             raise ValueError("duplicate calendar operation")
         if item["effect"] == "delete_hold" and any(
                 existing["effect"] == "delete_hold" and existing["target"] == item["target"]

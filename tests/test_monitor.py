@@ -485,6 +485,13 @@ class MonitorTests(unittest.TestCase):
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 monitor.observe(self.db, proposal)
 
+        proposal = self.new_options_observation()
+        duplicate_slot = json.loads(proposal["calendar_plan"][0]["intent"])
+        duplicate_slot["title"] = "HOLD — Alex / Different title"
+        proposal["calendar_plan"][1]["intent"] = json.dumps(duplicate_slot)
+        with self.assertRaisesRegex(ValueError, "distinct start and end"):
+            monitor.observe(self.db, proposal)
+
     def test_current_advice_follows_evidence_and_empties_when_nothing_is_left(self):
         # One lifecycle: an old thread read after a new one does not outrank it,
         # resolving the stale one leaves the recent advice standing, and resolving
@@ -591,6 +598,34 @@ class MonitorTests(unittest.TestCase):
         self.helper("external-action", "operations.py", "finish", "--id", oid, "--outcome", "uncertain", "--evidence", "request timed out")
         self.assertFalse(self.helper("external-action", "operations.py", "claim", "--id", oid)["claimed"])
 
+    def test_only_validated_monitor_holds_inherit_automatic_calendar_policy(self):
+        self.helper("founder-context", "profile.py", "set-permission",
+                    "--capability", "calendar_manage", "--policy", "autonomous")
+        direct = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", "work@example.com/primary/new",
+            "--operation", "create", "--intent", "unlinked event",
+        )
+        self.assertTrue(direct["approval_required"])
+
+        item = monitor.observe(self.db, self.new_options_observation(draft={
+            "channel": "text", "thread_id": "sms-thread-1", "recipient": "+14155550100",
+            "body": "Could you meet Tuesday, Wednesday, or Thursday?",
+        }))["suggestion"]
+        hold = item["payload"]["calendar_plan"][0]
+        prepared = self.helper(
+            "external-action", "operations.py", "prepare",
+            "--scope", "calendar", "--target", hold["target"],
+            "--operation", hold["operation"], "--intent", hold["intent"],
+            "--suggestion-id", str(item["id"]),
+        )
+        self.assertFalse(prepared["approval_required"])
+        self.helper("founder-context", "profile.py", "set-permission",
+                    "--capability", "calendar_manage", "--policy", "forbidden")
+        error = self.helper("external-action", "operations.py", "claim",
+                            "--id", str(prepared["operation"]["id"]), ok=False)
+        self.assertIn("forbidden", error)
+
     def test_pending_new_options_may_claim_only_its_exact_hold_operations(self):
         item = monitor.observe(self.db, self.new_options_observation())["suggestion"]
         hold = item["payload"]["calendar_plan"][0]
@@ -656,6 +691,10 @@ class MonitorTests(unittest.TestCase):
         )["operation"]
         oid = str(prepared["id"])
         self.helper("external-action", "operations.py", "claim", "--id", oid)
+        error = self.helper("external-action", "operations.py", "finish", "--id", oid,
+                            "--outcome", "completed", "--evidence", "calendar:verified-hold-1",
+                            ok=False)
+        self.assertIn("provider event id", error)
         self.helper("external-action", "operations.py", "finish", "--id", oid,
                     "--outcome", "completed", "--external-ref", "hold-event-1",
                     "--evidence", "calendar:verified-hold-1")
