@@ -12,7 +12,7 @@ You need:
 - Docker Desktop running, with Docker Compose available.
 - Git and Python 3 on the host.
 - A Plow account and a free assistant line. The login flow uses your phone.
-- A product repository for engineering work, or a scheduling CSV for a pipeline-first setup.
+- A product repository for engineering work, or a `plow-wiki` vault for a pipeline-first setup.
 
 Check the local tools:
 
@@ -140,7 +140,7 @@ Be ready to identify:
 4. Google account, calendars, timezone, working hours, and scheduling preferences.
 5. Gmail, GitHub, and Sentry sources you want to connect.
 6. Operations it can perform autonomously and operations requiring approval.
-7. Optionally, a scheduling pipeline CSV and proactive checks (see below).
+7. Optionally, the wiki pipeline root and proactive checks (see below).
 
 The Founder Agent checkout is infrastructure, not automatically your product.
 Keep product credentials in the Latch vault and give the agent an item reference,
@@ -153,16 +153,19 @@ One blocked connection should not stop work with sources already available.
 
 Tell the agent:
 
-> Monitor replies from the contacts in this CSV. Show me the frequency options
+> Monitor replies from the contacts in my wiki pipeline. Show me the frequency options
 > (15, 30, or 45 minutes) so I can choose during onboarding. Then monitor them
 > during my working hours. Prepare next steps and notify me in Plow. Ask for
 > approval before sending messages, creating invitations, or removing holds.
 
-Provide the CSV's exact Mac path. It can stay in its current cloud directory;
-Latch must have access. The agent verifies the file and maps name, email/phone,
-organization and status, plus optional contact type/holds/proposals, without
-renaming headers or creating another copy. Investors and customers can share the
-same CSV. Ambiguous contacts are skipped and reported for clarification.
+The contacts come from `projects/founder-agent/pipeline` in your wiki, one page
+per contact, each linking to the `entities/people` page for that person. There is
+no path to give and no columns to map: `wiki.toml` says the agent owns that root
+and its schema says what a page carries. Investors and customers share the root.
+An entry the wiki cannot connect to a person — no person page, no email or phone
+on it, or a page that will not parse — is skipped and reported. The agent keeps a
+copy of the pages it reads beside its database and, each check, re-copies only
+those whose hash changed on your Mac, so only the first check copies them all.
 
 Confirm your timezone, working days/window and video/phone preference. The offer
 is weekdays 09:00–18:00. The agent must show and ask you to choose one frequency:
@@ -181,9 +184,9 @@ Subsequent checks use each contact/source's successful-read cursor with a
 one-hour overlap. New evidence produces a suggestion and, where useful, a local
 ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox; it is
-never sent automatically. There is no automatic invitation, hold deletion or
-CSV write; a check's recommended next step reaches the founder in its notice,
-and the sheet on the approved write that follows. Each notice carries the most urgent one or two suggestions rather than every
+never sent automatically. There is no automatic invitation or hold deletion, and
+no factual field changes on its own; a check writes the recommended next step to
+the contact's page and reports it in the notice. Each notice carries the most urgent one or two suggestions rather than every
 outstanding one; the rest arrive in later checks once the current notice is
 delivered, whether or not its suggestions have been acted on. There
 are no repeated reminders for unchanged pending suggestions. A new reply
@@ -276,7 +279,7 @@ command checks those connections.
 
 ## Verify Agent Index reporting
 
-The supervised reporter attempts registration and reports usage hourly. It uses
+The supervised reporter attempts registration and reports usage every 5 minutes. It uses
 the official client pinned in `vendor/client.pin`. After a real conversation:
 
 ```sh
@@ -323,9 +326,59 @@ pending upstream
 Preserve the volume and history; do not edit Hermes session records to work
 around this.
 
+That last rule cuts both ways on an upgrade: a skill **removed** from the image
+is not removed from a home that already has it, so an existing install keeps
+discovering and running it. `investor-pipeline` was retired when the pipeline
+moved into the wiki. Remove its seeded copy once, per install:
+
+```
+docker compose exec --user hermes agent sh -c 'd=/var/lib/hermes; s=$d/skills/investor-pipeline; \
+  a=$d/.retired/investor-pipeline; \
+  if [ ! -d "$s" ]; then echo "already retired"; exit 0; fi; \
+  if [ -e "$a" ]; then echo "$a already exists; move it aside first" >&2; exit 1; fi; \
+  mkdir -p "$d/.retired" && mv "$s" "$a"'
+docker compose exec agent ls /var/lib/hermes/skills/investor-pipeline   # expect: No such file
+```
+
+`--user hermes` is load-bearing, not tidiness. `exec` runs as root by default and
+`/var/lib/hermes` is writable by the agent, so a compromised agent could leave
+`.retired` behind as a symlink into the root-owned `/opt/hermes/skills` and have
+root follow it. Running as the agent keeps the move inside the permissions the
+agent already has.
+
+Neither `hermes skills uninstall` nor `hermes skills reset --restore` does this,
+which is worth stating because both look like they should. `uninstall` refuses —
+*"not a hub-installed skill (may be a builtin)"* — and `reset --restore` refuses
+too once the bundle no longer carries it: *"not a tracked bundled skill. Nothing
+to reset."* The boot log's `1 cleaned from manifest` refers to the manifest
+entry, not the directory, which stays until something moves it.
+
+Moving rather than deleting keeps the copy recoverable, which is what the
+rollback below needs. The archive has a fixed name, so there is never more than
+one, and a missing skill exits early: running this on a fresh install, or twice,
+says `already retired` and changes nothing. A `mv` that genuinely fails still
+fails, rather than being reported as nothing to do. The archive is refused if it
+somehow already exists alongside the skill: `mv` would otherwise nest the skill
+*inside* it and exit 0, which is the same silent wrong answer in a new costume.
+Refusing rather than overwriting, because an existing archive is someone's copy.
+
 Before significant changes, back up the persistent volume with the agent stopped.
 For rollback, run the prior image/version against the same volume.
 Do not remove the volume as part of a normal update.
+
+The same rule makes that removal outlive a rollback: the home no longer has the
+skill, and reconciliation will not reinstate one it has been told is gone, so
+the prior image comes back without the skill its scheduling workflow depends on.
+Rolling back past the wiki pipeline therefore takes one more step — move the
+archived copy back:
+
+```
+docker compose exec --user hermes agent sh -c 'd=/var/lib/hermes; a=$d/.retired/investor-pipeline; \
+  s=$d/skills/investor-pipeline; \
+  if [ ! -d "$a" ]; then echo "nothing archived to restore"; exit 0; fi; \
+  if [ -e "$s" ]; then echo "$s already exists; move it aside first" >&2; exit 1; fi; \
+  mv "$a" "$s"'
+```
 
 ## Stop or uninstall
 

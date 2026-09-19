@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -53,16 +55,41 @@ class MonitorTests(unittest.TestCase):
         self.addCleanup(lambda: self.db.close())
         self.scheduler = Scheduler()
         self.config = {
-            "csv_path": "~/Plow/pipeline.csv", "csv_verified_ref": "read:file:1",
-            "mapping": {"name": "Name", "email": "Email", "phone": "Phone", "status": "Stage", "type": "Type"},
+            "wiki_verified_ref": "read:wiki:1",
             "timezone": "America/Los_Angeles", "interval_minutes": 30,
             "sources": {"gmail": {"status": "available", "evidence": "read:mail:1"},
                         "messages": {"status": "blocked", "evidence": "permission denied"}},
         }
         monitor.configure(self.db, self.config, self.scheduler)
-        self.csv = self.home / "snapshot.csv"
-        self.csv.write_text("Name,Email,Phone,Stage,Type,Notes\nAlex,alex@example.com,+1 415 555 0100,Times sent,customer,Keep me\n")
-        self.contact = monitor.contacts(self.db, self.csv)["contacts"][0]
+        self.vault = self.path.parent / "wiki"
+        self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100")
+        self.contact = self.contacts()["contacts"][0]
+
+    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent"):
+        """One pipeline entry and, unless suppressed, the person page it points at."""
+        entry = self.vault / monitor.PIPELINE_ROOT / f"{slug}.md"
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        entry.write_text(f'---\ntype: "PipelineEntry"\nperson: "{slug}"\nstatus: "{status}"\n'
+                         f'next_step: ""\n---\n\nNotes about {slug}.\n')
+        if person:
+            page = self.vault / monitor.PEOPLE_ROOT / f"{slug}.md"
+            page.parent.mkdir(parents=True, exist_ok=True)
+            page.write_text(f'---\ntype: "Person"\ntitle: "{slug.title()}"\n'
+                            f'email: "{email}"\nphone: "{phone}"\n---\n\nWho {slug} is.\n')
+        return entry
+
+    def wiki(self):
+        return {str(p.relative_to(self.vault)): p.read_bytes() for p in self.vault.rglob("*.md")}
+
+    def shasum(self, pages):
+        """What `shasum -a 256` on the Mac prints for these pages."""
+        return "".join(f"{hashlib.sha256(body).hexdigest()}  {rel}\n" for rel, body in sorted(pages.items()))
+
+    def contacts(self, listing=None):
+        """One `contacts` run; by default against a Mac that matches the mirror."""
+        path = self.home / "listing.txt"
+        path.write_text(self.shasum(self.wiki()) if listing is None else listing)
+        return monitor.contacts(self.db, self.vault, monitor.listing(path))
 
     def observation(self, **changes):
         value = {
@@ -171,9 +198,8 @@ class MonitorTests(unittest.TestCase):
     def test_invalid_configuration_and_private_destination(self):
         for change in ({"timezone": "Invalid/Zone"}, {"interval_minutes": 1}, {"interval_minutes": 5},
                        {"interval_minutes": 60}, {"weekdays": []},
-                       {"start": "18:00", "end": "09:00"}, {"csv_verified_ref": ""},
-                       {"sources": {"gmail": {"status": "blocked", "evidence": "403"}}},
-                       {"csv_path": "relative.csv"}):
+                       {"start": "18:00", "end": "09:00"}, {"wiki_verified_ref": ""},
+                       {"sources": {"gmail": {"status": "blocked", "evidence": "403"}}}):
             with self.subTest(change=change), self.assertRaises((ValueError, KeyError)):
                 monitor.configure(self.db, {**self.config, **change}, self.scheduler)
         result = monitor.configure(self.db, {**self.config, "deliver": "plow_chat:group",
@@ -184,16 +210,205 @@ class MonitorTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "PLOW_HOME_CHANNEL"):
                 monitor.configure(self.db, self.config, self.scheduler)
 
-    def test_contacts_phones_duplicates_and_no_csv_mutation(self):
-        original = self.csv.read_bytes()
-        self.assertEqual(self.contact["handles"], ["+14155550100", "alex@example.com"])
+    def test_an_entry_is_reachable_only_through_a_person_the_wiki_knows(self):
+        self.assertEqual(self.contact["handles"], ["+1 415 555 0100", "alex@example.com"])
+        self.assertEqual(self.contact["contact_key"], "alex")
+        vault_before = sorted((p, p.read_bytes()) for p in self.vault.rglob("*.md"))
         monitor.observe(self.db, self.observation())
-        self.assertEqual(self.csv.read_bytes(), original)
-        self.csv.write_text(original.decode() + "Another,alex@example.com,,Interested,investor,\nLocal,,4155550101,New,customer,\n")
-        found = monitor.contacts(self.db, self.csv)
-        self.assertEqual(found["contacts"], [])
-        self.assertEqual(len(found["ambiguous"]), 3)
+        self.assertEqual(sorted((p, p.read_bytes()) for p in self.vault.rglob("*.md")), vault_before,
+                         "reading the pipeline must not write to the vault")
+
+        self.write_contact("dana", person=False)                      # entry with no person page
+        self.write_contact("robin", email="", phone="")               # person page with no handles
+        # entities/people is shared and edited in Obsidian, so a half-written page is
+        # ordinary. It must cost that one contact, never the whole check.
+        self.write_contact("sam", email="sam@example.com")
+        (self.vault / monitor.PEOPLE_ROOT / "sam.md").write_text("# no frontmatter yet\n")
+        self.write_contact("kit", email="kit@example.com")
+        (self.vault / monitor.PIPELINE_ROOT / "kit.md").write_text("---\nunclosed: block\n")
+
+        found = self.contacts()
+        self.assertEqual([c["contact_key"] for c in found["contacts"]], ["alex"])
+        # A page cannot claim the namespace the database uses for feed blockers.
+        self.write_contact("source:gmail", email="spoof@example.com")
+        found = self.contacts()
+        self.assertEqual(sorted(u["contact_key"] for u in found["unlinked"]),
+                         ["dana", "kit", "robin", "sam", "source:gmail"])
+        self.assertIn("reserved", next(u for u in found["unlinked"]
+                                       if u["contact_key"] == "source:gmail")["reason"])
+        self.assertIn("cannot be read", next(u for u in found["unlinked"] if u["contact_key"] == "sam")["reason"])
+
+    def test_reconfiguring_keeps_the_work_already_prepared(self):
+        # The root is fixed, so no reconfigure changes which pipeline this is.
+        # Re-proving the read must not throw away pending suggestions or cursors.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        monitor.configure(self.db, {**self.config, "wiki_verified_ref": "read:wiki:2"}, self.scheduler)
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+        self.assertTrue(self.db.execute("SELECT 1 FROM monitor_contact").fetchone())
+
+    def test_an_unlinked_contact_can_recover_but_cannot_execute(self):
+        # The two halves of the same rule: its suggestion survives an unreadable
+        # page, and cannot be approved while the pipeline cannot place the contact.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        entry = self.vault / monitor.PIPELINE_ROOT / "alex.md"
+        good = entry.read_text()
+        notice = monitor.notice(self.db)
+        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview")
+        decision = {"evidence_refs": item["payload"]["evidence_refs"], "notice_id": notice["notice_id"],
+                    "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"}
+
+        entry.write_text("---\nunclosed: block\n")
+        self.contacts()
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+        with self.assertRaisesRegex(ValueError, "not in the latest verified pipeline read"):
+            monitor.decide(self.db, item["id"], decision)
+
+        entry.write_text(good)
+        self.contacts()
+        self.assertEqual(monitor.decide(self.db, item["id"], decision)["status"], "approved")
+
+        # Approval does not expire on its own. If a later read unlinks the contact,
+        # the already-approved suggestion must not still authorize an external effect.
+        guard = monitor.sibling("external-action", "monitor_guard.py")
+        self.assertTrue(guard.monitor_item(self.db, item["id"], approved=True))
+        entry.write_text("---\nunclosed: block\n")
+        self.contacts()
+        self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "approved")
+        with self.assertRaisesRegex(ValueError, "not in the latest verified pipeline read"):
+            guard.monitor_item(self.db, item["id"], approved=True)
+        # Staging and reconciling a local record is not an external effect, so it
+        # must not be blocked by the same gate.
+        self.assertTrue(guard.monitor_item(self.db, item["id"]))
+
+
+    def test_an_entry_that_leaves_the_pipeline_supersedes_its_suggestion(self):
+        monitor.observe(self.db, self.observation())
+        # Another entry keeps the root listed: an empty listing is refused, never
+        # read as everyone leaving.
+        self.write_contact("dana", email="dana@example.com")
+        entry = f"{monitor.PIPELINE_ROOT}/alex.md"
+        found = self.contacts(self.shasum({rel: body for rel, body in self.wiki().items() if rel != entry}))
+        self.assertEqual([c["contact_key"] for c in found["contacts"]], ["dana"])
+        self.assertFalse((self.vault / entry).exists(), "the mirror keeps only what the wiki still has")
         self.assertEqual(monitor.suggestion(self.db, 1)["status"], "superseded")
+
+    def test_a_person_page_deleted_on_the_mac_stops_supplying_handles(self):
+        person = f"{monitor.PEOPLE_ROOT}/alex.md"
+        found = self.contacts(self.shasum({rel: body for rel, body in self.wiki().items() if rel != person}))
+        self.assertEqual(found["unlinked"], [{"contact_key": "alex", "reason": f"no {monitor.PEOPLE_ROOT} page"}])
+
+    def test_a_page_not_yet_copied_is_still_in_the_pipeline(self):
+        # The listing is the pipeline; the mirror only caches it. A page it lacks or
+        # holds stale is present and unlinked until copied, so a first run or a
+        # partial copy never supersedes live work.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        mirrored = self.wiki()
+        # A page no entry reads is never copied: the index is generated, and
+        # `entities/people` is shared.
+        mac = {**mirrored, f"{monitor.PIPELINE_ROOT}/index.md": b"| alex |\n",
+               f"{monitor.PEOPLE_ROOT}/jane-doe.md": b"Not in the pipeline.\n"}
+        entry = f"{monitor.PIPELINE_ROOT}/alex.md"
+        edited = {**mac, entry: mac[entry].replace(b"Notes", b"Newer notes")}
+        for case, pages, stale in (("fresh", mac, []), ("changed on the Mac", edited, [entry]),
+                                   ("first run", mac, sorted(mirrored))):
+            with self.subTest(case=case):
+                if case == "first run":
+                    shutil.rmtree(self.vault)
+                found = self.contacts(self.shasum(pages))
+                self.assertEqual([c["page"] for c in found["copy"]], stale)
+                self.assertEqual(found["unlinked"], [{"contact_key": "alex", "reason": "not yet copied from the wiki"}]
+                                 if stale else [])
+                self.assertEqual(monitor.suggestion(self.db, item["id"])["status"], "pending")
+                # Write each page where it says, as the check does; the next run reads it whole.
+                for copy in found["copy"]:
+                    Path(copy["to"]).write_bytes(pages[copy["page"]])
+                found = self.contacts(self.shasum(pages))
+                self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
+
+    def test_a_listing_names_pages_in_the_two_roots_or_is_refused(self):
+        # The check writes each page it is sent to, so a path outside the roots is
+        # refused rather than mirrored. So is a listing with no entries, or a line it
+        # cannot read: a failed `cd` lists nothing and a mangled line drops an entry,
+        # and reading either as entries leaving would supersede their work.
+        listed, digest = self.shasum(self.wiki()), "0" * 64
+        for listing, error in (("", "not in the wiki"),
+                               (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\n", "not in the wiki"),
+                               (f"{digest}  {monitor.PIPELINE_ROOT}/index.md\n", "not in the wiki"),
+                               (listed.replace("  ", " ", 1), "cannot be read"),
+                               # Any readable file can be passed, so the refusal names the line, never its text.
+                               ("KEY=held-in-some-other-file\n", r"^the listing cannot be read at line 1; save the command's output verbatim$"),
+                               (f"{listed}shasum: {monitor.PIPELINE_ROOT}/kit.md: Permission denied\n", "cannot be read"),
+                               (f"{listed}{digest}  projects/founder-agent/notes.md\n", "outside"),
+                               (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/../escape.md\n", "outside"),
+                               (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/alex.txt\n", "outside")):
+            with self.subTest(listing=listing[-50:]), self.assertRaisesRegex(ValueError, error):
+                self.contacts(listing)
+        # A blank line names no page. Through the CLI, which keeps the mirror
+        # beside the database.
+        path = self.home / "listing.txt"
+        path.write_text(listed + "\n\n")
+        found = self.helper("pipeline-monitor", "monitor.py", "contacts", "--listing", str(path))
+        self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
+
+    def test_a_check_may_write_the_advice_and_nothing_else(self):
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        update = monitor.page_update(self.db, item["id"])
+        self.assertEqual(update["path"], f"{monitor.PIPELINE_ROOT}/alex.md")
+        # The payload carries a calendar plan and a draft; none of that is a fact
+        # about the world an unattended check gets to assert in the founder's wiki.
+        self.assertEqual(list(update["changes"]), ["next_step"])
+        self.assertEqual(update["changes"]["next_step"], self.observation()["next_step"])
+        # Once it is resolved the answer is what is left standing, which here is
+        # nothing — the field never widens and the page never keeps stale advice.
+        monitor.supersede(self.db, item["id"])
+        self.assertEqual(monitor.page_update(self.db, item["id"])["changes"], {"next_step": ""})
+
+    def test_current_advice_follows_evidence_and_empties_when_nothing_is_left(self):
+        # One lifecycle: an old thread read after a new one does not outrank it,
+        # resolving the stale one leaves the recent advice standing, and resolving
+        # that one empties the page.
+        recent = monitor.observe(self.db, self.observation(
+            evidence_at="2026-09-17T18:00:00Z", evidence_refs=["gmail:recent"],
+            next_step="Confirm Thursday. Approve?"))["suggestion"]
+        stale = monitor.observe(self.db, self.observation(
+            conversation_ref="gmail:old-thread", evidence_refs=["gmail:from-last-week"],
+            evidence_at="2026-09-10T09:00:00Z", action="new_options",
+            summary="An older thread offered times.",
+            next_step="Reply to the old thread. Approve?"))["suggestion"]
+        self.assertGreater(stale["id"], recent["id"])
+
+        # Naming either suggestion answers for the contact, so an older thread's id
+        # cannot put older advice on the page.
+        for named in (stale, recent):
+            with self.subTest(named=named["id"]):
+                self.assertEqual(monitor.page_update(self.db, named["id"])["changes"]["next_step"],
+                                 "Confirm Thursday. Approve?")
+
+        for resolved, remaining in ((stale, "Confirm Thursday. Approve?"), (recent, "")):
+            with self.subTest(resolved=resolved["id"]):
+                monitor.supersede(self.db, resolved["id"])
+                self.assertEqual(monitor.current_advice(self.db, "alex")["changes"]["next_step"], remaining)
+
+    def test_a_resolved_suggestion_still_answers_for_its_contact(self):
+        # Asked after `finish`, which is when the caller asks: the answer is what is
+        # left standing, not an error and not the advice just completed.
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        self.approve(item)
+        self.helper("pipeline-monitor", "monitor.py", "finish", "--id", str(item["id"]),
+                    "--outcome", "completed", "--ref", "calendar:invite-1")
+        update = monitor.page_update(self.db, item["id"])
+        self.assertEqual(update["path"], f"{monitor.PIPELINE_ROOT}/alex.md")
+        self.assertEqual(update["changes"]["next_step"], "")
+
+    def test_a_source_blocker_yields_no_page_update(self):
+        blocked = self.observation(contact_key="source:gmail", action="blocked", draft=None,
+                                   calendar_plan=[], conversation_ref="source:gmail",
+                                   evidence_refs=["gmail:auth-failure"],
+                                   summary="Gmail access is blocked.", next_step="Reconnect Gmail. Approve?")
+        item = monitor.observe(self.db, blocked)["suggestion"]
+        # No page rather than an error, so both workflows can ask unconditionally
+        # and neither needs its own eligibility rule.
+        self.assertIsNone(monitor.page_update(self.db, item["id"]))
 
     def test_window_overlap_failure_and_source_isolation(self):
         key = self.contact["contact_key"]
@@ -343,7 +558,7 @@ class MonitorTests(unittest.TestCase):
         for script in ("drafts.py", "operations.py"):
             self.helper("external-action", script, "list")
         profile = self.helper("founder-context", "profile.py", "show")
-        self.assertEqual(profile["pipeline_monitor"]["config"]["csv_path"], self.config["csv_path"])
+        self.assertEqual(profile["pipeline_monitor"]["config"]["wiki_verified_ref"], self.config["wiki_verified_ref"])
         self.assertFalse(profile["pipeline_monitor"]["enabled"])
         self.assertEqual(profile["preferences"], {})
         updated = self.helper("founder-context", "profile.py", "set-preference",

@@ -1,7 +1,7 @@
 # Founder Agent variant built on the official Plow Hermes image.
 # Keep the base pinned by immutable tag and digest: it contains the Hermes
 # runtime, Plow Chat integration, and Latch configuration.
-FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-51f83158a70a383f03a4d03dbd8b6ea102cf0361@sha256:253d7ed3409effa7fa59113d93b4b79bb731d8264cdaf4cd60294924d0110a2e
+FROM public.ecr.aws/e1h7x4a2/plow-cloud-agents:base-ef0019372ff8bca593611b31ebd2e08f9f1458ff@sha256:a8a2f97ad78b8192d80a984dce81d3bf5a9a883d18cb7b677704913a09b56aee
 
 # Link the GHCR package to the public source repository.
 LABEL org.opencontainers.image.source="https://github.com/Tiagohbello/plow-founder-agent"
