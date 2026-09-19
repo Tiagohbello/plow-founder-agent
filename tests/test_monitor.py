@@ -656,6 +656,27 @@ class MonitorTests(unittest.TestCase):
         self.assertTrue(updated["preferences"]["save_gmail_drafts"])
         self.assertEqual(self.db.execute("PRAGMA user_version").fetchone()[0], 1)
 
+    def test_real_gmail_drafts_mode_is_standing_and_never_reasks(self):
+        # Unset until the founder answers once. Every later gate/check must see the
+        # persisted value so the agent cannot treat "save now?" as an open question.
+        self.assertIsNone(monitor.show(self.db)["save_gmail_drafts"])
+        self.assertIsNone(monitor.gate(self.db, manual=True)["save_gmail_drafts"])
+        self.helper("founder-context", "profile.py", "set-preference",
+                    "--key", "save_gmail_drafts", "--value", "true")
+        self.assertTrue(monitor.show(self.db)["save_gmail_drafts"])
+        self.assertTrue(monitor.gate(self.db, manual=True)["save_gmail_drafts"])
+        self.db.close()
+        self.db = monitor.connect(self.path)
+        second = monitor.gate(self.db, manual=True)
+        self.assertTrue(second["save_gmail_drafts"])
+        self.assertIn("never ask", monitor.PROMPT)
+        self.assertIn("never send", monitor.PROMPT)
+        skill = " ".join((ROOT / "skills/pipeline-monitor/SKILL.md").read_text().split())
+        self.assertIn("Do not ask for permission to save", skill)
+        self.assertIn("never re-ask", skill)
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        self.helper("external-action", "drafts.py", "claim-send", "--id", str(item["draft_id"]), ok=False)
+
 
 if __name__ == "__main__":
     unittest.main()

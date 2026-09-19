@@ -172,8 +172,8 @@ is weekdays 09:00–18:00. The agent must show and ask you to choose one frequen
 15, 30 or 45 minutes; there is no assumed default. During onboarding, it also
 asks whether every prepared email should be saved as a real Gmail draft in the
 founder's inbox for review. The explicit yes/no answer is persisted as
-`save_gmail_drafts`; a real Gmail draft is reported only after provider
-read-back verification.
+`save_gmail_drafts` and is standing: later checks do not ask again. A real
+Gmail draft is reported only after provider read-back verification.
 Existing calendar preferences are reused. Available Gmail, Messages through
 Latch, and agent Plow conversations can be checked; unavailable sources are
 reported rather than treated as empty. Verify the destination is your private
@@ -183,8 +183,8 @@ The first check looks back 30 days and follows referenced scheduling threads.
 Subsequent checks use each contact/source's successful-read cursor with a
 one-hour overlap. New evidence produces a suggestion and, where useful, a local
 ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
-response is also saved as a verified real draft in the founder's inbox; it is
-never sent automatically. There is no automatic invitation or hold deletion, and
+response is also saved as a verified real draft in the founder's inbox in the
+same turn, without a second confirmation; it is never sent automatically. There is no automatic invitation or hold deletion, and
 no factual field changes on its own; a check writes the recommended next step to
 the contact's page and reports it in the notice. Each notice carries the most urgent one or two suggestions rather than every
 outstanding one; the rest arrive in later checks once the current notice is
@@ -226,8 +226,9 @@ Acceptance check, using test contacts you control:
    until read-back/reconciliation; it is not blindly resent.
 5. During onboarding choose “yes” for Gmail drafts, prepare a reply, and verify
    that the same recipient, subject, body, and thread appear as a real draft in
-   the founder's inbox. Choosing “no” must leave only the internal ledger
-   record; neither path sends the message.
+   the founder's inbox. A later prepared reply for another contact must save
+   the same way with no “save to inbox now?” question. Choosing “no” must leave
+   only the internal ledger record; neither path sends the message.
 
 Existing installs remain disabled until configured. A chat started before this
 capability shipped retains its old persona until its automatic idle reset (see

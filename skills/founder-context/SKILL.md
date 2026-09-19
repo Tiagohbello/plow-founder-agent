@@ -32,11 +32,12 @@ enough context exists to produce useful work. Collect, in order:
    private founder Plow destination. Show 15, 30 and 45 minutes and require an
    explicit choice; never assume a frequency. Declining or skipping this step
    leaves monitoring disabled;
-8. ask whether every prepared Gmail response should also be saved as a real draft
-   in the founder's inbox for review. Persist the explicit answer as
-   `save_gmail_drafts=true|false`. This controls founder-owned drafts only and
-   never grants send permission. No product repo is required if scheduling is the
-   founder's first useful task.
+8. if `save_gmail_drafts` is unset, ask whether every prepared Gmail response
+   should also be saved as a real draft in the founder's inbox for review.
+   Persist the explicit answer as `save_gmail_drafts=true|false`. Once set, do
+   not ask again. This controls founder-owned drafts only and never grants send
+   permission. No product repo is required if scheduling is the founder's first
+   useful task.
 
 Never scan arbitrary Mac directories or request secrets in chat. Test configured
 access through Latch and record `available`, `blocked`, or `unconfigured` with

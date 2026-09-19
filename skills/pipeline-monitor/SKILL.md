@@ -18,8 +18,10 @@ not the whole inbox.
 
 The scheduled phase only reads configured sources and creates local suggestions
 and ledger drafts. When the founder has explicitly enabled
-`save_gmail_drafts` in Founder Profile, it may also save the prepared response
-as a real draft in the founder's verified Gmail thread and verify that draft.
+`save_gmail_drafts` in Founder Profile, it always saves the prepared response
+as a real draft in the founder's verified Gmail thread and verifies that draft
+in the same turn — never ask whether to save. A second contact in a later
+check uses that standing preference; do not collect it again.
 It never sends a third-party message, creates/removes holds, or mutates a
 calendar, even when `calendar_manage` is autonomous. It does write one cell: the
 `next_step` of a contact's page in the root this agent owns. That is advice the
@@ -43,10 +45,12 @@ founder selects one. Ask video/phone only if it matters and no preference exists
 `ask` preserves uncertainty.
 
 Ask whether every prepared Gmail response should also be saved as a real draft in
-the founder's inbox for review. Persist the answer as Founder Profile preference
-`save_gmail_drafts=true|false`; an unset preference must be collected before
-creating real Gmail drafts. This preference authorizes only a founder-owned
-draft, never sending.
+the founder's inbox for review **only when** Founder Profile has no
+`save_gmail_drafts` value yet. Persist the answer as
+`save_gmail_drafts=true|false`. Once set, it is standing across restarts and new
+chats: never re-ask, and never treat “save to inbox now?” as an open question.
+An unset preference must be collected before creating real Gmail drafts. This
+preference authorizes only a founder-owned draft, never sending.
 
 Read the pipeline root and confirm it is there: `wiki.toml` must declare
 `projects/founder-agent/pipeline` with writer `founder-agent`, and its schema must
@@ -224,11 +228,13 @@ blockers, which is how advice went stale in one and errored in the other.
    Its local ledger draft is created atomically with the suggestion; only claim
    “prepared” when it returns a real `draft_id`. Then write the page by
    § Writing a contact's page. For a Gmail draft, read Founder
-   Profile: when `save_gmail_drafts=true`, follow Gmail's draft reuse and
-   read-back protocol using this linked ledger draft. Reuse its verified
-   `external_draft_id`; when absent, reconcile existing mailbox drafts before
-   creating one. Record the verified id with `drafts.py mark-draft-saved`.
-   Never create another provider draft simply because a check repeats.
+   Profile (`gate`/`show` report `save_gmail_drafts`): when it is true, follow
+   Gmail's draft reuse and read-back protocol using this linked ledger draft
+   immediately — write the mailbox draft in this turn, then continue. Do not
+   ask for permission to save. Reuse its verified `external_draft_id`; when
+   absent, reconcile existing mailbox drafts before creating one. Record the
+   verified id with `drafts.py mark-draft-saved`. Never create another provider
+   draft simply because a check repeats.
    If the preference is false or unset, do not create a provider draft. If the
    provider is unavailable or a save is uncertain, retain the ledger record and
    report that Gmail status could not be verified. Never claim a real Gmail

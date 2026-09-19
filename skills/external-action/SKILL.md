@@ -32,7 +32,8 @@ Linked ledger items cannot be approved or claimed while their suggestion is pend
 or uncertain, even with autonomous calendar policy. During a scheduled check,
 the only permitted mailbox write is saving a founder-owned Gmail draft when
 Founder Profile has `save_gmail_drafts=true`, following Gmail's draft reuse and
-read-back protocol. This does not require approving the pending suggestion and
+read-back protocol. Do that in the same turn as preparing the reply; do not ask
+whether to save. This does not require approving the pending suggestion and
 never authorizes sending, calendar changes, or a factual page write. Superseding a suggestion cancels its unexecuted
 linked drafts/operations without retrying in-flight or uncertain effects.
 Cancelled Gmail drafts remain queued for provider reconciliation. Follow Gmail's

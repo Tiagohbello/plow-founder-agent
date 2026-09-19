@@ -53,7 +53,8 @@ prepares local suggestions/drafts, keeps each contact's suggested next step
 current in your wiki, and notifies you in your private Plow chat only about new
 actionable evidence or blockers. During onboarding, you choose
 the frequency explicitly and whether prepared Gmail replies should also be saved
-as verified real drafts in your inbox. Monitoring never sends to third parties or
+as verified real drafts in your inbox. That draft choice is standing: once you
+say yes, every prepared Gmail reply is saved without asking again. Monitoring never sends to third parties or
 changes calendars, and the only thing it writes is the suggested next step —
 advice you can ignore. Sending, calendar changes and every factual field require
 your specific approval and fresh checks, even with broader calendar autonomy

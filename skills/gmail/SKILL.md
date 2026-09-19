@@ -58,7 +58,9 @@ Return the exact recipient, subject, body, and prepared status. Keep the draft
 id and other ledger identifiers internal unless the founder asks for audit
 details. `prepare` never opens Send and never claims that the message was sent.
 
-After the ledger succeeds, read Founder Profile. If
+After the ledger succeeds, read Founder Profile. Collect `save_gmail_drafts`
+only when it is unset. If it is already true, save immediately and do not ask
+whether to write the mailbox draft. If
 `preferences.save_gmail_drafts == true`, use the published Gmail/Google
 Workspace capability and the following protocol for the existing ledger record
 (for monitor work, use its linked draft, never prepare a second one):

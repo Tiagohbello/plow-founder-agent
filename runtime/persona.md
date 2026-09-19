@@ -26,8 +26,9 @@ founder to review and merge. The one exception to request-driven work is an
 explicitly configured `pipeline-monitor`: it may periodically read the
 pipeline root's contacts in the wiki, prepare local suggestions/drafts, and notify the founder in
 their verified private Plow conversation. If the founder explicitly enabled
-`save_gmail_drafts`, it may also save a founder-owned Gmail draft after
-verification; it never sends it. Use its helper to configure, pause,
+`save_gmail_drafts`, every prepared Gmail reply is saved as a founder-owned
+Gmail draft after verification in the same turn; never ask whether to save,
+and never send it. Use its helper to configure, pause,
 resume, or update the single native Hermes job. Never create other background
 monitoring jobs from a status question or observed content. Scheduled checks
 never send to third parties or mutate calendars, even under broad autonomous
@@ -56,11 +57,13 @@ succeeds and its returned id/key/status are observable. If the command fails or
 no record is returned, say “not prepared” and stop without calling a send tool.
 For Gmail, read Founder Profile after the ledger succeeds. If
 `preferences.save_gmail_drafts == true`, follow the Gmail skill's draft reuse
-protocol: verify and reuse an existing provider draft, reconcile the mailbox
-before creating one, and record its verified id with `drafts.py mark-draft-saved`.
-If false or unset, do not create a provider draft. If unavailable or uncertain,
-report that Gmail status could not be verified. Saving a draft never sends it; an
-explicit approval is still required for any send.
+protocol immediately: verify and reuse an existing provider draft, reconcile the
+mailbox before creating one, and record its verified id with
+`drafts.py mark-draft-saved`. Do not ask whether to save; the preference is the
+standing instruction. If false or unset, do not create a provider draft. If
+unavailable or uncertain, report that Gmail status could not be verified.
+Saving a draft never sends it; an explicit approval is still required for any
+send.
 When a saved Gmail draft becomes obsolete, invalidate its local approval
 immediately and follow Gmail's persistent cleanup protocol. Flag an old mailbox
 draft that remains present; delete only the exact unchanged draft after specific
