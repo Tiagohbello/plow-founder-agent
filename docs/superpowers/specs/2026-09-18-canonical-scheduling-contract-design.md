@@ -79,7 +79,8 @@ scheduling transition:
 - `new_options` requires exactly three hold-creation operations and a prepared
   communication draft.
 - The three options and three holds must be concrete and independently
-  identifiable; duplicate operations are invalid.
+  identifiable with unique targets; duplicate operations are invalid. `hold`
+  and `invitation` effects use `create`, while `delete_hold` uses `delete`.
 - A Gmail proposal identifies the verified existing thread and can be saved as
   a provider draft under the existing profile preference. A text/Plow proposal
   remains ledger-only and asks for send permission.

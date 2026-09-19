@@ -413,6 +413,22 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported calendar effect"):
             monitor.observe(self.db, self.observation(calendar_plan=plan))
 
+    def test_calendar_effects_require_matching_operations_and_unique_targets(self):
+        proposal = self.new_options_observation()
+        wrong_operation = [{**proposal["calendar_plan"][0], "operation": "delete"},
+                           *proposal["calendar_plan"][1:]]
+        repeated_target = [*proposal["calendar_plan"]]
+        repeated_target[1] = {**repeated_target[1], "target": repeated_target[0]["target"]}
+        accepted = self.observation()["calendar_plan"]
+        wrong_delete = [accepted[0], {**accepted[1], "operation": "create"}, accepted[2]]
+        for observation, message in (
+            (self.new_options_observation(calendar_plan=wrong_operation), "hold effect must use create"),
+            (self.new_options_observation(calendar_plan=repeated_target), "unique target"),
+            (self.observation(calendar_plan=wrong_delete), "delete_hold effect must use delete"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                monitor.observe(self.db, observation)
+
     def test_current_advice_follows_evidence_and_empties_when_nothing_is_left(self):
         # One lifecycle: an old thread read after a new one does not outrank it,
         # resolving the stale one leaves the recent advice standing, and resolving
