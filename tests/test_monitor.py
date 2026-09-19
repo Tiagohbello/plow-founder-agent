@@ -754,6 +754,21 @@ class MonitorTests(unittest.TestCase):
             "--suggestion-id", str(revisit["id"]), ok=False)
         self.assertIn("cannot delete hold present in current hold_plan", cant_delete)
 
+        # Title-only change in hold_plan still prevents deleting the active slot
+        revisit_title = monitor.observe(self.db, self.observation(
+            action="accepted", evidence_refs=["gmail:message-2b"], evidence_at="2026-09-17T16:30:00Z",
+            conversation_ref="gmail:thread-title",
+            hold_plan=[self.hold(title="HOLD — Alex")], calendar_plan=[],
+            summary="Alex took the noon slot with modified title.",
+            next_step="Send invite.",
+        ))["suggestion"]
+        cant_delete_title = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", f"{first_hold['account']}/{first_hold['calendar']}/{first_op['external_ref']}",
+            "--operation", "delete_private_hold", "--intent", first_op["intent"],
+            "--suggestion-id", str(revisit_title["id"]), ok=False)
+        self.assertIn("cannot delete hold present in current hold_plan", cant_delete_title)
+
         stale = next(row for row in placed if row["external_ref"] == f"evt-{created[1]}")
         stale_hold = json.loads(stale["intent"])
         cleared = self.helper(
@@ -764,6 +779,11 @@ class MonitorTests(unittest.TestCase):
         self.assertFalse(cleared["approval_required"])
         cid = str(cleared["operation"]["id"])
         self.assertTrue(self.helper("external-action", "operations.py", "claim", "--id", cid)["claimed"])
+        mismatched = self.helper(
+            "external-action", "operations.py", "finish", "--id", cid,
+            "--outcome", "completed", "--external-ref", "wrong-event-id",
+            "--evidence", "calendar:deleted", ok=False)
+        self.assertIn("deletion external_ref must match the target event id", mismatched)
         self.helper("external-action", "operations.py", "finish", "--id", cid,
                     "--outcome", "completed", "--external-ref", stale["external_ref"],
                     "--evidence", "calendar:deleted")
@@ -813,6 +833,10 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("requires a linked draft", prep_fail)
 
         self.db.execute("UPDATE calendar_account SET active=0")
+        self.db.commit()
+        with self.assertRaisesRegex(ValueError, "default calendar"):
+            monitor.observe(self.db, self.observation(hold_plan=[first], calendar_plan=[]))
+        self.db.execute("UPDATE calendar_account SET active=1, is_default=1, status='blocked'")
         self.db.commit()
         with self.assertRaisesRegex(ValueError, "default calendar"):
             monitor.observe(self.db, self.observation(hold_plan=[first], calendar_plan=[]))

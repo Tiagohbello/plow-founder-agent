@@ -11,7 +11,14 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from monitor_guard import HOLD_CREATE, HOLD_DELETE, add_monitor_column, hold_key, monitor_operation
+from monitor_guard import (
+    HOLD_CREATE,
+    HOLD_DELETE,
+    add_monitor_column,
+    hold_key,
+    monitor_operation,
+    parse_hold_intent,
+)
 
 
 SCOPES = ("calendar", "product")
@@ -245,19 +252,25 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
 
 
 def retire_hold_create(connection: sqlite3.Connection, delete_row: sqlite3.Row, external_ref: str) -> None:
-    event_id = external_ref or delete_row["target"].rsplit("/", 1)[-1]
-    if not event_id:
+    target_event_id = delete_row["target"].rsplit("/", 1)[-1]
+    if external_ref and external_ref != target_event_id:
+        raise ValueError("deletion external_ref must match the target event id")
+    sugg = connection.execute(
+        "SELECT contact_key FROM monitor_suggestion WHERE id=?",
+        (delete_row["monitor_suggestion_id"],),
+    ).fetchone()
+    if not sugg:
         return
-    creates = connection.execute(
-        "SELECT id, idempotency_key FROM external_operation WHERE operation=? AND external_ref=?",
-        (HOLD_CREATE, event_id),
-    ).fetchall()
-    timestamp = now()
-    for create in creates:
+    key = hold_key(sugg["contact_key"], parse_hold_intent(delete_row["intent"]))
+    create = connection.execute(
+        "SELECT id, idempotency_key FROM external_operation WHERE idempotency_key=?",
+        (key,),
+    ).fetchone()
+    if create:
         retired_key = f"{create['idempotency_key']}:retired:{create['id']}"
         connection.execute(
             "UPDATE external_operation SET status='cancelled', idempotency_key=?, updated_at=? WHERE id=?",
-            (retired_key, timestamp, create["id"]),
+            (retired_key, now(), create["id"]),
         )
 
 
@@ -267,12 +280,12 @@ def finish(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
         raise ValueError("only an executing operation can be finished")
     if row["operation"] == HOLD_CREATE and args.outcome == "completed":
         required(args.external_ref, "verified hold event id")
+    if row["operation"] == HOLD_DELETE and args.outcome == "completed":
+        retire_hold_create(connection, row, (args.external_ref or "").strip())
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
     )
-    if row["operation"] == HOLD_DELETE and args.outcome == "completed":
-        retire_hold_create(connection, row, (args.external_ref or "").strip())
     connection.commit()
     return {"finished": True, "operation": as_dict(resolve(connection, args.id))}
 
@@ -283,12 +296,12 @@ def reconcile(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
         raise ValueError("only an uncertain operation can be reconciled")
     if row["operation"] == HOLD_CREATE and args.outcome == "completed":
         required(args.external_ref, "verified hold event id")
+    if row["operation"] == HOLD_DELETE and args.outcome == "completed":
+        retire_hold_create(connection, row, (args.external_ref or "").strip())
     connection.execute(
         "UPDATE external_operation SET status=?,external_ref=?,evidence=?,updated_at=? WHERE id=?",
         (args.outcome, (args.external_ref or "").strip(), required(args.evidence, "evidence"), now(), args.id),
     )
-    if row["operation"] == HOLD_DELETE and args.outcome == "completed":
-        retire_hold_create(connection, row, (args.external_ref or "").strip())
     connection.commit()
     return {"reconciled": True, "operation": as_dict(resolve(connection, args.id))}
 

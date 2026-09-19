@@ -84,7 +84,7 @@ def active_default_calendar(connection):
     ).fetchone():
         return None
     return connection.execute(
-        "SELECT account, default_calendar FROM calendar_account WHERE active=1 AND is_default=1"
+        "SELECT account, default_calendar FROM calendar_account WHERE active=1 AND is_default=1 AND status='available'"
     ).fetchone()
 
 
@@ -112,7 +112,8 @@ def authorize_private_hold(connection, suggestion_id, scope, target, operation, 
     if not event_id or event_id == "new" or target != f"{hold['account']}/{hold['calendar']}/{event_id}":
         raise ValueError("hold deletion target is not authorized")
     plan = json.loads(row["payload"]).get("hold_plan", [])
-    if isinstance(plan, list) and hold in plan:
+    planned_keys = {hold_key(row["contact_key"], p) for p in plan} if isinstance(plan, list) else set()
+    if hold_key(row["contact_key"], hold) in planned_keys:
         raise ValueError("cannot delete hold present in current hold_plan")
     existing = connection.execute(
         "SELECT * FROM external_operation WHERE idempotency_key=? AND status='completed'",
