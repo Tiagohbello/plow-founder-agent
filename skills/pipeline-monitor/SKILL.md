@@ -236,7 +236,9 @@ blockers, which is how advice went stale in one and errored in the other.
    raw thread ids, a second summary or a second delivery. Keep the exact emitted
    text available for the next check's delivery reconciliation.
 
-Observation shape (source refs are internal; `evidence_summary` is human-facing):
+Observation shape. Source refs are internal; `conversation_context`, `summary`,
+`next_step` and `evidence_summary` reach the founder verbatim in their private
+chat, so write them to the founder as "you", never by name:
 
 ```json
 {
@@ -247,7 +249,7 @@ Observation shape (source refs are internal; `evidence_summary` is human-facing)
   "evidence_at": "2026-09-17T14:00:00Z",
   "evidence_summary": "Reply in Scheduling, Thursday at 11:00; include a usable source link when available.",
   "action": "accepted",
-  "summary": "Alex accepted Tuesday at 14:00 PT.",
+  "summary": "Alex accepted your Tuesday 14:00 PT slot.",
   "next_step": "Create the video invitation. Approve?",
   "calendar_plan": [
     {
