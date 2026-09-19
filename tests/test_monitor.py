@@ -81,9 +81,12 @@ class MonitorTests(unittest.TestCase):
     def wiki(self):
         return {str(p.relative_to(self.vault)): p.read_bytes() for p in self.vault.rglob("*.md")}
 
-    def shasum(self, pages):
+    def shasum(self, pages, count=None):
         """What `shasum -a 256` on the Mac prints for these pages."""
-        return "".join(f"{hashlib.sha256(body).hexdigest()}  {rel}\n" for rel, body in sorted(pages.items()))
+        pipeline = sum(1 for rel in pages if rel.startswith(monitor.PIPELINE_ROOT + "/"))
+        total = pipeline if count is None else count
+        body = "".join(f"{hashlib.sha256(body).hexdigest()}  {rel}\n" for rel, body in sorted(pages.items()))
+        return f"{body}entries {total}\n"
 
     def contacts(self, listing=None):
         """One `contacts` run; by default against a Mac that matches the mirror."""
@@ -325,22 +328,39 @@ class MonitorTests(unittest.TestCase):
                 found = self.contacts(self.shasum(pages))
                 self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
 
+    def test_a_dropped_listing_line_is_refused_rather_than_superseding(self):
+        monitor.observe(self.db, self.observation())
+        # Another entry keeps the root listed.
+        self.write_contact("dana", email="dana@example.com")
+        entry = f"{monitor.PIPELINE_ROOT}/alex.md"
+        # The Mac had 2 pipeline entries, but the relay dropped alex.md while keeping the count.
+        listing = self.shasum({rel: body for rel, body in self.wiki().items() if rel != entry}, count=2)
+        with self.assertRaisesRegex(ValueError, r"^the listing has 1 pipeline entries, expected 2$"):
+            self.contacts(listing)
+        self.assertEqual(monitor.suggestion(self.db, 1)["status"], "pending",
+                         "a dropped line must not supersede live work")
+
     def test_a_listing_names_pages_in_the_two_roots_or_is_refused(self):
         # The check writes each page it is sent to, so a path outside the roots is
         # refused rather than mirrored. So is a listing with no entries, or a line it
         # cannot read: a failed `cd` lists nothing and a mangled line drops an entry,
         # and reading either as entries leaving would supersede their work.
         listed, digest = self.shasum(self.wiki()), "0" * 64
-        for listing, error in (("", "not in the wiki"),
-                               (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\n", "not in the wiki"),
-                               (f"{digest}  {monitor.PIPELINE_ROOT}/index.md\n", "not in the wiki"),
+        for listing, error in (("", "no entries count"),
+                               (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\n", "no entries count"),
+                               ("entries 0\n", "not in the wiki"),
+                               (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\nentries 0\n", "not in the wiki"),
+                               (f"{digest}  {monitor.PIPELINE_ROOT}/index.md\nentries 1\n", "not in the wiki"),
                                (listed.replace("  ", " ", 1), "cannot be read"),
                                # Any readable file can be passed, so the refusal names the line, never its text.
                                ("KEY=held-in-some-other-file\n", r"^the listing cannot be read at line 1; save the command's output verbatim$"),
                                (f"{listed}shasum: {monitor.PIPELINE_ROOT}/kit.md: Permission denied\n", "cannot be read"),
                                (f"{listed}{digest}  projects/founder-agent/notes.md\n", "outside"),
                                (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/../escape.md\n", "outside"),
-                               (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/alex.txt\n", "outside")):
+                               (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/alex.txt\n", "outside"),
+                               (f"{listed}entries 1\n", "cannot be read"),
+                               (self.shasum(self.wiki(), count=0), r"^the listing has 1 pipeline entries, expected 0$"),
+                               (self.shasum(self.wiki(), count=2), r"^the listing has 1 pipeline entries, expected 2$")):
             with self.subTest(listing=listing[-50:]), self.assertRaisesRegex(ValueError, error):
                 self.contacts(listing)
         # A blank line names no page. Through the CLI, which keeps the mirror
