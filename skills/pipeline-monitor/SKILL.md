@@ -378,7 +378,7 @@ suggestion/draft instead of revising its ledger draft independently.
 
 For unchanged facts and exact founder approval, run `approve --id N --file
 <approval.json>` containing `evidence_refs` matching the suggestion,
-`approval_ref` identifying the founder's message, and `validation_ref` identifying
+`approval_ref` identifying the owner's approval message, and `validation_ref` identifying
 the fresh conversation/calendar checks, plus `notice_id` of the exact displayed
 notice. Read back that notice and mark its receipt delivered first. Approval is
 rejected if its stored body does not contain the exact rendered suggestion.
@@ -407,7 +407,7 @@ never reuse their approval. Then follow existing `external-action`:
   an already completed calendar operation to retry a page write.
 - Run `finish --id N --outcome completed|uncertain|dismissed --ref <evidence>`.
   Uncertain suggestions are not automatically re-approved. Inspect/reconcile
-  their linked ledgers and obtain a new concrete founder decision before any
+  their linked ledgers and obtain a new concrete owner decision in the private home conversation before any
   replacement action. Preserve completed external effects in subsequent plans.
 - Then write the page by § Writing a contact's page, whose step 4 carries the
   factual fields you verified in the same merge. A resolved suggestion left
