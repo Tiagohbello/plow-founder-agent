@@ -114,7 +114,7 @@ class MonitorTests(unittest.TestCase):
 
     def approve(self, item):
         notice = monitor.notice(self.db)
-        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview")
+        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview", body=notice["body"])
         return monitor.decide(self.db, item["id"], {"evidence_refs": item["payload"]["evidence_refs"],
             "notice_id": notice["notice_id"],
             "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"})
@@ -253,7 +253,7 @@ class MonitorTests(unittest.TestCase):
         entry = self.vault / monitor.PIPELINE_ROOT / "alex.md"
         good = entry.read_text()
         notice = monitor.notice(self.db)
-        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview")
+        monitor.receipt(self.db, notice["notice_id"], "delivered", "plow:verified-preview", body=notice["body"])
         decision = {"evidence_refs": item["payload"]["evidence_refs"], "notice_id": notice["notice_id"],
                     "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"}
 
@@ -528,8 +528,41 @@ class MonitorTests(unittest.TestCase):
         monitor.receipt(self.db, first["notice_id"], "failed", "cron rejected delivery; verified absent")
         retry = monitor.notice(self.db)
         self.assertEqual(first["body"], retry["body"])
-        monitor.receipt(self.db, retry["notice_id"], "delivered", "plow:verified-message-1")
+        monitor.receipt(self.db, retry["notice_id"], "delivered", "plow:verified-message-1", body=retry["body"])
         self.assertEqual(monitor.notice(self.db)["body"], "[SILENT]")
+
+    def test_receipt_exact_body_reconciliation(self):
+        monitor.observe(self.db, self.observation())
+        notice = monitor.notice(self.db)
+        nid = notice["notice_id"]
+
+        # Delivered requires verified read-back file or body
+        with self.assertRaisesRegex(ValueError, "requires verified read-back file or body"):
+            monitor.receipt(self.db, nid, "delivered", "plow:msg-1")
+
+        # Delivered with narration prefix ahead of body (issue #38 symptom) must be rejected
+        narration = f"Cleaned up temp files. The notice text is the final output:\n{notice['body']}"
+        with self.assertRaisesRegex(ValueError, "delivered body does not match staged notice body"):
+            monitor.receipt(self.db, nid, "delivered", "plow:msg-1", body=narration)
+
+        # CLI helper also rejects mismatched file
+        bad_file = self.home / "bad-readback.txt"
+        bad_file.write_text(narration)
+        err = self.helper("pipeline-monitor", "monitor.py", "receipt", "--id", str(nid),
+                          "--outcome", "delivered", "--ref", "plow:msg-1", "--file", str(bad_file), ok=False)
+        self.assertIn("delivered body does not match staged notice body", err)
+
+        # Uncertain or failed does not require body/file
+        monitor.receipt(self.db, nid, "uncertain", "plow:msg-1-narration-mismatch")
+        self.assertEqual(self.db.execute("SELECT status FROM monitor_notice WHERE id=?", (nid,)).fetchone()[0], "uncertain")
+
+        # Exact match via file succeeds and marks delivered
+        good_file = self.home / "good-readback.txt"
+        good_file.write_text(notice["body"])
+        res = self.helper("pipeline-monitor", "monitor.py", "receipt", "--id", str(nid),
+                          "--outcome", "delivered", "--ref", "plow:msg-1-clean", "--file", str(good_file))
+        self.assertEqual(res["status"], "delivered")
+        self.assertEqual(self.db.execute("SELECT status FROM monitor_notice WHERE id=?", (nid,)).fetchone()[0], "delivered")
 
     def test_a_notice_carries_the_most_urgent_few_and_holds_the_rest_without_external_writes(self):
         accepted = self.observation(draft=None)
@@ -548,7 +581,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("prefer video", result["body"])
         self.assertLess(result["body"].index("two sibling holds"), result["body"].index("prefer video"))
         self.assertNotIn("named a day with no time", result["body"])
-        monitor.receipt(self.db, result["notice_id"], "delivered", "plow:verified-message-1")
+        monitor.receipt(self.db, result["notice_id"], "delivered", "plow:verified-message-1", body=result["body"])
         self.assertIn("named a day with no time", monitor.notice(self.db)["body"])
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM draft WHERE status='draft'").fetchone()[0], 1)
         self.assertFalse(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='external_operation'").fetchone())
