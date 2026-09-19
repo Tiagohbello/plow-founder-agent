@@ -540,12 +540,8 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires verified read-back"):
             monitor.receipt(self.db, nid, "delivered", "plow:msg-1")
 
-        # Delivered with narration prefix ahead of body (issue #38 symptom) must be rejected
+        # CLI helper rejects delivered read-back with narration prefix ahead of body
         narration = f"Cleaned up temp files. The notice text is the final output:\n{notice['body']}"
-        with self.assertRaisesRegex(ValueError, "delivered body does not match staged notice body"):
-            monitor.receipt(self.db, nid, "delivered", "plow:msg-1", narration)
-
-        # CLI helper also rejects mismatched file
         bad_file = self.home / "bad-readback.txt"
         bad_file.write_text(narration)
         err = self.helper("pipeline-monitor", "monitor.py", "receipt", "--id", str(nid),

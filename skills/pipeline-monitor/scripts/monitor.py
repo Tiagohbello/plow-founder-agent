@@ -594,7 +594,7 @@ def decide(db, sid, data):
         shown = db.execute("SELECT * FROM monitor_notice WHERE id=? AND status='delivered'",
                            (data.get("notice_id"),)).fetchone()
         if (shown is None or sid not in json.loads(shown["suggestion_ids"])
-                or render_suggestion(item) not in shown["body"]):
+                or render_suggestion(item).strip() not in shown["body"]):
             raise ValueError("approval requires a verified delivered notice containing this exact plan")
         required(data.get("approval_ref"), "specific founder approval reference")
         required(data.get("validation_ref"), "fresh conversation/calendar validation reference")
