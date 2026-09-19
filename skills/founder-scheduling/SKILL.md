@@ -51,9 +51,10 @@ the founder privately; never name it in outgoing text.
 When it is on the founder to propose times, hold all three options. This is
 authorized either by the founder's direct request or by an enabled
 `pipeline-monitor` suggestion whose persisted `new_options` plan contains
-exactly three unique `effect: hold`, `operation: create` entries and a prepared draft. Through
-`founder-calendar`/`external-action`, create one busy, attendee-free event per option on the
-account and calendar the founder named, or the configured work default
+exactly three unique `effect: hold`, `operation: create` entries and a prepared
+draft. Through `founder-calendar`/`external-action`, create one busy,
+attendee-free event per option on the account and calendar the founder named,
+or the configured work default
 when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`
 (drop ` / <Firm>` when `Firm` is blank), description `Tentative — no
 invitation sent`, notifications off. Record the times — read the page's
@@ -66,10 +67,10 @@ reconciled rather than retried. Holding is never sending.
 Prepare the proposal in its existing conversation. For Gmail, prepare the
 ledger draft, then always save and verify the real Gmail draft before claiming
 any automatic hold; this scheduling invariant is narrower than the general
-`save_gmail_drafts` preference. For an existing SMS/iMessage or Plow conversation, prepare the exact
-text/Plow draft and ask permission to send; never use the founder's Mac Messages
-identity or substitute email. The proposal is not ready when either its draft
-or any of its three holds is missing.
+`save_gmail_drafts` preference. For an existing SMS/iMessage or Plow
+conversation, prepare the exact text/Plow draft and ask permission to send;
+never use the founder's Mac Messages identity or substitute email. The proposal
+is not ready when either its draft or any of its three holds is missing.
 
 ## Send
 
