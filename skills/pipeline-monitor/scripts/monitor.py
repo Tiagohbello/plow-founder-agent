@@ -342,12 +342,14 @@ def listing(path):
     a complaint is a page it failed to hash, and dropping that line would read its
     entry as having left and supersede its work."""
     pages = {}
-    for line in map(str.strip, Path(path).read_text(encoding="utf-8").splitlines()):
+    for number, line in enumerate(map(str.strip, Path(path).read_text(encoding="utf-8").splitlines()), 1):
         if not line:
             continue
         match = LISTING_LINE.fullmatch(line)
         if not match:
-            raise ValueError(f"the listing cannot be read at {line!r}; save the command's output verbatim")
+            # The number, never the line: `--listing` can name any readable file,
+            # and echoing it would print whatever that file holds.
+            raise ValueError(f"the listing cannot be read at line {number}; save the command's output verbatim")
         rel = PurePosixPath(match[2])
         if rel.suffix != ".md" or str(rel.parent) not in (PIPELINE_ROOT, PEOPLE_ROOT):
             raise ValueError(f"the listing names {match[2]}, outside the pipeline and people roots")
@@ -375,6 +377,8 @@ def contacts(db, vault, pages):
     # Mirror only what an entry reads: the index is generated and `entities/people`
     # is shared, so copying either whole would re-type pages nothing here uses.
     pages = {rel: sha for rel, sha in pages.items() if PurePosixPath(rel).stem in slugs}
+    # `page()` reads the mirror, so it holds only what the listing names: a person
+    # page deleted on the Mac would otherwise keep supplying handles that no longer hold.
     for root in (PIPELINE_ROOT, PEOPLE_ROOT):
         (vault / root).mkdir(parents=True, exist_ok=True)
         for mirrored in (vault / root).glob("*.md"):

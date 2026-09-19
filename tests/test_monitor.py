@@ -292,6 +292,11 @@ class MonitorTests(unittest.TestCase):
         self.assertFalse((self.vault / entry).exists(), "the mirror keeps only what the wiki still has")
         self.assertEqual(monitor.suggestion(self.db, 1)["status"], "superseded")
 
+    def test_a_person_page_deleted_on_the_mac_stops_supplying_handles(self):
+        person = f"{monitor.PEOPLE_ROOT}/alex.md"
+        found = self.contacts(self.shasum({rel: body for rel, body in self.wiki().items() if rel != person}))
+        self.assertEqual(found["unlinked"], [{"contact_key": "alex", "reason": f"no {monitor.PEOPLE_ROOT} page"}])
+
     def test_a_page_not_yet_copied_is_still_in_the_pipeline(self):
         # The listing is the pipeline; the mirror only caches it. A page it lacks or
         # holds stale is present and unlinked until copied, so a first run or a
@@ -330,6 +335,8 @@ class MonitorTests(unittest.TestCase):
                                (f"{digest}  {monitor.PEOPLE_ROOT}/alex.md\n", "not in the wiki"),
                                (f"{digest}  {monitor.PIPELINE_ROOT}/index.md\n", "not in the wiki"),
                                (listed.replace("  ", " ", 1), "cannot be read"),
+                               # Any readable file can be passed, so the refusal names the line, never its text.
+                               ("KEY=held-in-some-other-file\n", r"^the listing cannot be read at line 1; save the command's output verbatim$"),
                                (f"{listed}shasum: {monitor.PIPELINE_ROOT}/kit.md: Permission denied\n", "cannot be read"),
                                (f"{listed}{digest}  projects/founder-agent/notes.md\n", "outside"),
                                (f"{listed}{digest}  {monitor.PIPELINE_ROOT}/../escape.md\n", "outside"),
