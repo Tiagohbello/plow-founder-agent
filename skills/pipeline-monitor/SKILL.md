@@ -177,11 +177,18 @@ blockers, which is how advice went stale in one and errored in the other.
    notice. Never replay an uncertain notice blindly. These are private founder
    notifications, not outgoing investor drafts.
 3. Read the pipeline through the mirror `contacts` keeps beside the database.
-   Every page is checked by hash on every run, so only a changed page is copied:
-   1. Through Latch `plow_run_command`, run argv `["/bin/sh", "-c", "cd \"$1\" &&
-      shasum -a 256 projects/founder-agent/pipeline/*.md entities/people/*.md",
-      "sh", "<wiki root>"]`, where `<wiki root>` is the directory holding
-      `wiki.toml`. Passing it as `$1` keeps the path out of the shell code.
+   Every page an entry reads is checked by hash on every run, so only a changed
+   page is copied:
+   1. Through Latch `plow_run_command`, run this argv, where `<wiki root>` is the
+      directory holding `wiki.toml`:
+
+      ```json
+      ["/bin/sh", "-c", "cd \"$1\" && for f in projects/founder-agent/pipeline/*.md; do shasum -a 256 \"$f\" \"entities/people/${f##*/}\"; done", "sh", "<wiki root>"]
+      ```
+
+      Passing the root as `$1` keeps the path out of the shell code, and listing
+      only each entry's own person page keeps the shared `entities/people` root
+      from growing the listing.
    2. Save its output verbatim with `write_file` to a scratch file, then run
       `contacts --listing <file>`.
    3. For each `copy` entry, read `<wiki root>/<page>` through Latch
