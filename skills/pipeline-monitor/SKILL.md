@@ -372,8 +372,8 @@ re-read the pipeline root as Each check step 3 does, and refresh the conversatio
 before acting. Removed and unlinked contacts and superseded suggestions cannot execute.
 
 If facts, availability, participants or the planned action changed, record a new
-observation and request fresh approval. An edit requested by the founder is new
-evidence too: include that founder message ref/timestamp and prepare a replacement
+observation and request fresh approval. An edit requested in an authority-bearing
+turn is new evidence too: include that turn's ref/timestamp and prepare a replacement
 suggestion/draft instead of revising its ledger draft independently.
 
 For unchanged facts and an approval in an authority-bearing turn, run `approve --id N --file

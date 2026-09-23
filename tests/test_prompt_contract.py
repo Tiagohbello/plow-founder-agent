@@ -25,7 +25,8 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn("approval in an authority-bearing turn", pipeline)
         self.assertNotIn("exact founder approval", pipeline)
         self.assertIn("identifying the authority-bearing approval turn", pipeline)
-        self.assertNotIn("founder's message", pipeline)
+        self.assertIn("edit requested in an authority-bearing turn", pipeline)
+        self.assertNotIn("founder message ref", pipeline)
         self.assertIn("PLOW_HOME_CHANNEL", pipeline)
         self.assertNotIn("authority-bearing approval message", pipeline)
 
