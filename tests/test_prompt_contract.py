@@ -12,7 +12,9 @@ class PromptContractTests(unittest.TestCase):
         gmail = " ".join((ROOT / "skills/gmail/SKILL.md").read_text().split())
 
         self.assertIn("turn carrying the founder's authority", persona)
+        self.assertIn("not the speaker's identity", persona)
         self.assertIn("turn carrying the founder's authority", external_action)
+        self.assertIn("without requiring a literal founder-authored message", external_action)
         self.assertIn("turn carrying the founder's authority", gmail)
         self.assertNotIn("Only an explicit founder instruction", gmail)
         self.assertNotIn("<founder-message", gmail)
@@ -20,7 +22,12 @@ class PromptContractTests(unittest.TestCase):
         calendar = " ".join((ROOT / "skills/founder-calendar/SKILL.md").read_text().split())
         pipeline = " ".join((ROOT / "skills/pipeline-monitor/SKILL.md").read_text().split())
         self.assertIn("authority-bearing turn", calendar)
-        self.assertIn("owner's approval message", pipeline)
+        self.assertIn("approval in an authority-bearing turn", pipeline)
+        self.assertNotIn("exact founder approval", pipeline)
+        self.assertIn("identifying the authority-bearing approval turn", pipeline)
+        self.assertIn("edit requested in an authority-bearing turn", pipeline)
+        self.assertNotIn("founder message ref", pipeline)
+        self.assertIn("PLOW_HOME_CHANNEL", pipeline)
         self.assertNotIn("authority-bearing approval message", pipeline)
 
 
