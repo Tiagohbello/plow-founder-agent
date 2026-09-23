@@ -376,9 +376,9 @@ observation and request fresh approval. An edit requested by the founder is new
 evidence too: include that founder message ref/timestamp and prepare a replacement
 suggestion/draft instead of revising its ledger draft independently.
 
-For unchanged facts and exact founder approval, run `approve --id N --file
+For unchanged facts and an approval in an authority-bearing turn, run `approve --id N --file
 <approval.json>` containing `evidence_refs` matching the suggestion,
-`approval_ref` identifying the owner's approval message, and `validation_ref` identifying
+`approval_ref` identifying the authority-bearing approval turn, and `validation_ref` identifying
 the fresh conversation/calendar checks, plus `notice_id` of the exact displayed
 notice. Read back that notice and mark its receipt delivered first. Approval is
 rejected if its stored body does not contain the exact rendered suggestion.
