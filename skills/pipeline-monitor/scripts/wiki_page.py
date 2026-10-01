@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """One wiki page's frontmatter: read it, change the fields you name, keep the rest.
 
-Stdlib only, like every helper here. The parser is deliberately narrow -- flat
-`key: value` scalars, which is all a pipeline page's frontmatter holds -- so a page
-using a YAML feature it does not cover fails loudly instead of being silently
-rewritten into something else.
+Stdlib only, like every helper here. The parser is deliberately narrow -- one
+top-level `key: value` per unindented line; indented lines continue the key above
+them (a block list) and travel with it -- so a page using a YAML feature it does
+not cover fails loudly instead of being silently rewritten into something else.
 """
 from __future__ import annotations
 
@@ -30,8 +30,9 @@ def decode(raw: str) -> str:
     return raw
 
 
-def encode(value: str) -> str:
-    """A JSON string literal, which is also a valid YAML double-quoted scalar.
+def encode(value: str | list) -> str:
+    """A JSON literal on one line, which is also valid YAML: a double-quoted
+    scalar for a string, a flow sequence for a list such as `sources`.
 
     Hand-written escaping kept missing things -- first a terminal newline, then
     U+0085 and U+2028, which `splitlines` breaks on and which would have turned
@@ -50,7 +51,7 @@ def read(text: str) -> tuple[dict, str]:
         raise ValueError("page frontmatter block is not closed")
     front = {}
     for number, line in enumerate(text[len(FENCE) + 1:closing].splitlines(), start=2):
-        if not line.strip():
+        if not line.strip() or line[0].isspace():
             continue
         key, separator, value = line.partition(":")
         if not separator:
@@ -66,16 +67,23 @@ def merge(text: str, changes: dict) -> str:
     type, spacing and quoting survive it -- `generated: true` stays a boolean
     rather than becoming the string "true" because some unrelated field moved.
     It also means a value the page already held cannot be corrupted here, and an
-    odd one somewhere else cannot block a legitimate update."""
-    read(text)  # a page whose block does not parse is not one to edit
+    odd one somewhere else cannot block a legitimate update. A change equal to
+    what `read` reports is no change, so passing a field back untouched keeps it
+    as written (a flow list stays a list). A replaced field takes its indented
+    continuation lines with it, and only top-level keys are matched."""
+    front = read(text)[0]  # a page whose block does not parse is not one to edit
     for key, value in changes.items():
-        if not SAFE_KEY.fullmatch(key) or not isinstance(value, str):
+        if not SAFE_KEY.fullmatch(key) or not isinstance(value, (str, list)):
             raise ValueError(f"{key!r}: cannot be written to frontmatter safely")
+    changes = {key: value for key, value in changes.items() if front.get(key) != value}
     closing = text.find("\n" + FENCE + "\n", len(FENCE))
-    written, lines = set(), []
+    written, lines, replacing = set(), [], False
     for line in text[len(FENCE) + 1:closing].splitlines():
+        if line[:1].isspace() and replacing:
+            continue
         key = line.partition(":")[0].strip()
-        if key in changes:
+        replacing = not line[:1].isspace() and key in changes
+        if replacing:
             lines.append(f"{key}: {encode(changes[key])}")
             written.add(key)
         else:

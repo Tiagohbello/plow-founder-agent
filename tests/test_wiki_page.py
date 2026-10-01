@@ -62,6 +62,22 @@ class WikiPageTests(unittest.TestCase):
                 self.assertEqual(wiki_page.read(out)[0]["status"], "Awaiting reply")
                 self.assertEqual(wiki_page.read(out)[0]["next_step"], hostile)
 
+    def test_list_fields_stay_lists_through_a_merge(self) -> None:
+        # A merge stringified a page's `sources` flow list, and replacing a block
+        # list left its indented items orphaned -- invalid YAML either way.
+        flow = PAGE.replace("status:", "sources: [{resource: gmail, id: m1}]\nstatus:")
+        block = PAGE.replace("status:", "sources:\n  - resource: gmail\n    id: m1\nstatus:")
+        for page, sources in ((flow, ["sources: [{resource: gmail, id: m1}]"]),
+                              (block, ["sources:", "  - resource: gmail", "    id: m1"])):
+            front = wiki_page.read(page)[0]
+            for changes in ({"status": "Met"}, {**front, "status": "Met"}, {"id": "m2", "status": "Met"}):
+                with self.subTest(page=sources[0], changes=changes):
+                    out = wiki_page.merge(page, changes)
+                    self.assertIn("\n".join(sources) + "\n", out)
+                    self.assertEqual(wiki_page.read(out)[0]["status"], "Met")
+            out = wiki_page.merge(page, {"sources": [{"resource": "gmail", "id": "m2\n---"}]})
+            self.assertIn('\nsources: [{"resource": "gmail", "id": "m2\\n---"}]\nstatus:', out)
+
     def test_a_key_is_still_a_strict_identifier(self) -> None:
         for key in ("rogue\nstatus", "rogue: colon", "has space", ""):
             with self.subTest(key=key):
