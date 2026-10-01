@@ -158,6 +158,10 @@ blockers, which is how advice went stale in one and errored in the other.
    if it applied — the write replaces the page whole and would otherwise put
    their fields back.
 6. Write, then read back to confirm.
+7. Before finishing, validate once per writer label you wrote under:
+   `plow_run_command(argv=["wiki", "validate", "--writer", "founder-agent"])` for
+   pipeline pages, and `["wiki", "validate", "--writer", "shared"]` if you wrote an
+   `entities/people/` page. Fix what it names, then validate again.
 
 ## Each check
 
