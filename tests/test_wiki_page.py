@@ -75,7 +75,7 @@ class WikiPageTests(unittest.TestCase):
                     out = wiki_page.merge(page, changes)
                     self.assertIn("\n".join(sources) + "\n", out)
                     self.assertEqual(wiki_page.read(out)[0]["status"], "Met")
-            out = wiki_page.merge(page, {"sources": [{"resource": "gmail", "id": "m2\n---"}]})
+            out = wiki_page.merge(page.replace("  - resource", "\n  - resource"), {"sources": [{"resource": "gmail", "id": "m2\n---"}]})
             self.assertIn('\nsources: [{"resource": "gmail", "id": "m2\\n---"}]\nstatus:', out)
 
     def test_a_key_is_still_a_strict_identifier(self) -> None:

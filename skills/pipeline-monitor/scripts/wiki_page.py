@@ -79,7 +79,7 @@ def merge(text: str, changes: dict) -> str:
     closing = text.find("\n" + FENCE + "\n", len(FENCE))
     written, lines, replacing = set(), [], False
     for line in text[len(FENCE) + 1:closing].splitlines():
-        if line[:1].isspace() and replacing:
+        if replacing and (not line.strip() or line[0].isspace()):
             continue
         key = line.partition(":")[0].strip()
         replacing = not line[:1].isspace() and key in changes
