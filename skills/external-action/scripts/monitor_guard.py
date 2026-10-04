@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import json
+import re
 from zoneinfo import ZoneInfo
 
 
@@ -15,10 +16,18 @@ PIPELINE_STATUS_SET = {
 
 
 def contact_fields(connection, contact_key):
-    row = connection.execute(
-        "SELECT data FROM monitor_contact WHERE contact_key=?", (contact_key,)
-    ).fetchone()
-    return json.loads(row["data"]).get("fields", {}) if row else None
+    for table in ("monitor_contact", "monitor_contact_guard"):
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if not exists:
+            continue
+        row = connection.execute(
+            f"SELECT data FROM {table} WHERE contact_key=?", (contact_key,)
+        ).fetchone()
+        if row:
+            return json.loads(row["data"]).get("fields", {})
+    return None
 
 
 def require_contact_not_terminal(fields):
@@ -50,6 +59,69 @@ def require_current_contact(connection, row):
     require_contact_not_terminal(fields)
     if fields.get("status") not in PIPELINE_STATUS_SET:
         raise ValueError("contact pipeline status is noncanonical; reconcile it before monitor actions")
+
+
+def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), context_text=()):
+    """Resolve explicit or handle-linked direct context and enforce current status."""
+    matched = set()
+    normalized_identifiers = {str(value).strip().casefold() for value in identifiers
+                              if isinstance(value, str) and value.strip()}
+    normalized_context = [value.casefold() for value in context_text
+                          if isinstance(value, str) and value.strip()]
+    if normalized_identifiers:
+        seen = set()
+        for table in ("monitor_contact", "monitor_contact_guard"):
+            if not connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                continue
+            for row in connection.execute(f"SELECT contact_key,data FROM {table}"):
+                if row["contact_key"] in seen:
+                    continue
+                seen.add(row["contact_key"])
+                data = json.loads(row["data"])
+                handles = {str(value).strip().casefold() for value in data.get("handles", [])
+                           if isinstance(value, str) and value.strip()}
+                candidates = handles | {row["contact_key"].casefold()}
+                name = data.get("name")
+                if isinstance(name, str) and name.strip():
+                    candidates.add(name.strip().casefold())
+                exact_match = bool(candidates & normalized_identifiers)
+                mentioned = any(
+                    re.search(rf"(?<![A-Za-z0-9]){re.escape(candidate)}(?![A-Za-z0-9])",
+                              text, flags=re.IGNORECASE)
+                    for candidate in candidates if len(candidate) >= 3
+                    for text in normalized_context
+                )
+                if exact_match or mentioned:
+                    matched.add(row["contact_key"])
+    if len(matched) > 1:
+        raise ValueError("direct action recipient matches multiple pipeline contacts; provide an exact --contact-key")
+    if contact_key is not None:
+        if (not isinstance(contact_key, str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", contact_key)
+                or contact_key in {"index", ".", ".."}):
+            raise ValueError("contact_key must be one pipeline page slug")
+        if matched and contact_key not in matched:
+            raise ValueError("--contact-key differs from the pipeline contact matched by recipient")
+        resolved = contact_key
+    else:
+        resolved = next(iter(matched), None)
+    if resolved is not None:
+        require_current_contact(connection, {"contact_key": resolved})
+    return resolved
+
+
+def require_direct_contact(connection, contact_key, identifiers=(), context_text=()):
+    return resolve_direct_contact_key(connection, contact_key, identifiers, context_text)
+
+
+def add_pipeline_contact_key_column(connection, table):
+    connection.commit()
+    with connection:
+        connection.execute("BEGIN IMMEDIATE")
+        columns = {r[1] for r in connection.execute(f"PRAGMA table_info({table})")}
+        if "pipeline_contact_key" not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN pipeline_contact_key TEXT")
 
 
 def require_proposal_draft(connection, row):

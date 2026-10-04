@@ -141,6 +141,9 @@ def connect(path):
         CREATE TABLE IF NOT EXISTS monitor_contact (
             contact_key TEXT PRIMARY KEY, data TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS monitor_contact_guard (
+            contact_key TEXT PRIMARY KEY, data TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS monitor_suggestion (
             id INTEGER PRIMARY KEY, item_key TEXT NOT NULL UNIQUE,
             case_key TEXT NOT NULL, contact_key TEXT NOT NULL, evidence_key TEXT NOT NULL,
@@ -414,7 +417,7 @@ def contacts(db, vault, pages):
                 mirrored.unlink()
     stale = {rel for rel, sha in pages.items() if not (vault / rel).is_file()
              or hashlib.sha256((vault / rel).read_bytes()).hexdigest() != sha}
-    valid, unlinked = [], []
+    valid, unlinked, guard_contacts = [], [], []
     terminal = set()
     for slug in slugs:
         if slug.startswith("source:"):
@@ -435,6 +438,18 @@ def contacts(db, vault, pages):
         mapped_status = map_pipeline_status(status)
         if mapped_status in TERMINAL_PIPELINE_STATUSES:
             terminal.add(slug)
+            person = page(vault, PEOPLE_ROOT, slug)
+            handles = []
+            name = slug
+            if isinstance(person, dict):
+                handles = sorted({handle for handle in (person.get("email", ""), person.get("phone", ""))
+                                  if isinstance(handle, str) and handle.strip()})
+                name = person.get("title") or slug
+            guard_fields = dict(fields)
+            guard_fields["status"] = mapped_status
+            guard_contacts.append({"contact_key": slug,
+                                   "name": name,
+                                   "handles": handles, "fields": guard_fields})
             unlinked.append({"contact_key": slug,
                              "reason": f"terminal pipeline status {mapped_status}; no monitor actions allowed"})
             continue
@@ -453,8 +468,10 @@ def contacts(db, vault, pages):
         if not handles:
             unlinked.append({"contact_key": slug, "reason": "the person page carries no email or phone"})
             continue
-        valid.append({"contact_key": slug, "name": person.get("title") or slug,
-                      "handles": handles, "fields": fields})
+        contact = {"contact_key": slug, "name": person.get("title") or slug,
+                   "handles": handles, "fields": fields}
+        valid.append(contact)
+        guard_contacts.append(contact)
     with db:
         # Superseding is one-way -- `observe` returns the existing row for identical
         # evidence whatever its status -- so only an entry that has actually left the
@@ -468,7 +485,10 @@ def contacts(db, vault, pages):
             if old["contact_key"] not in present and not old["contact_key"].startswith("source:"):
                 supersede(db, old["id"])
         db.execute("DELETE FROM monitor_contact")
+        db.execute("DELETE FROM monitor_contact_guard")
         db.executemany("INSERT INTO monitor_contact VALUES (?,?)", [(c["contact_key"], canonical(c)) for c in valid])
+        db.executemany("INSERT INTO monitor_contact_guard VALUES (?,?)",
+                       [(c["contact_key"], canonical(c)) for c in guard_contacts])
     return {"contacts": valid, "unlinked": unlinked,
             "copy": [{"page": rel, "to": str(vault / rel)} for rel in sorted(stale)]}
 
@@ -681,8 +701,8 @@ def validate_page_facts(data, current=None):
     current = current or {}
     if set(data) & {"status", "holds"}:
         final_status = result.get("status", current.get("status"))
-        if current and final_status is None:
-            raise ValueError("current page status is missing; reconcile it before changing status or holds")
+        if final_status is None:
+            raise ValueError("current page status is required to determine the resulting status before changing status or holds")
         if final_status is not None:
             validate_pipeline_status(final_status)
         if "holds" in result:

@@ -23,6 +23,12 @@ Calendar operations without a validated pipeline-monitor link are
 approval-required even when Founder Profile carries a broader autonomous
 calendar policy. The only automatic calendar authorization is an exact validated
 `new_options` hold; `forbidden` is rechecked immediately before every claim.
+For direct drafts or calendar operations whose recipient, target, or context is a
+pipeline contact, pass `--contact-key <page-slug>`. Direct drafts also resolve an
+exact recipient handle; direct operations resolve a page slug or verified
+contact identity mentioned in their target/intent. The ledger stores that contact
+context and rechecks its current status before approval and claim; terminal,
+noncanonical, or unlinked contacts are blocked.
 
 All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
@@ -72,7 +78,8 @@ possible:
 2. Run
    `python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" prepare ...`
    with channel `gmail`, `text`, or `plow`, the stable conversation id as
-   `--thread-id`, and canonical external participant identifiers in
+   `--thread-id`, `--contact-key <page-slug>` when the recipient is a pipeline
+   contact, and canonical external participant identifiers in
    deterministic order as `--recipient`. Omit `--subject` for text and Plow.
 3. Inspect the command result. Only a successful result containing the draft
    id/key and status may be described as “prepared”. If the command fails,

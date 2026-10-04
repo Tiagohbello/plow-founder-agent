@@ -11,7 +11,10 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from monitor_guard import add_monitor_column, monitor_operation
+from monitor_guard import (
+    add_monitor_column, add_pipeline_contact_key_column, monitor_operation,
+    require_direct_contact, resolve_direct_contact_key,
+)
 
 
 SCOPES = ("calendar", "product")
@@ -108,6 +111,7 @@ def connect(path: Path) -> sqlite3.Connection:
     )
     migrate_legacy(connection, path)
     add_monitor_column(connection, "external_operation")
+    add_pipeline_contact_key_column(connection, "external_operation")
     # Keep the shared compatibility version at 1 so the previous image can use
     # this volume; component changes use founder_agent_migration markers.
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -164,14 +168,21 @@ def resolve_policy(connection: sqlite3.Connection, scope: str, operation: str, a
 
 def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     monitor_id = getattr(args, "suggestion_id", None)
+    supplied_contact_key = getattr(args, "contact_key", None)
+    if monitor_id is not None and supplied_contact_key is not None:
+        raise ValueError("--contact-key cannot be combined with --suggestion-id")
     monitor_plan = monitor_operation(connection, monitor_id, args.scope)
     if monitor_id is not None:
         target, operation, intent = (monitor_plan["entry"][key]
                                      for key in ("target", "operation", "intent"))
+        contact_key = None
     else:
         target = required(args.target, "target")
         operation = required(args.external_operation, "external_operation")
         intent = required(args.intent, "intent")
+        contact_key = resolve_direct_contact_key(
+            connection, supplied_contact_key, (target,), (intent,)
+        )
     policy = resolve_policy(connection, args.scope, operation, args.access_name)
     if policy == "forbidden":
         raise ValueError("operation is forbidden by Founder Profile or global policy")
@@ -182,6 +193,8 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
     if monitor_id is not None:
         key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"
+    elif contact_key is not None:
+        key = f"pipeline:{contact_key}:{key}"
     existing = connection.execute("SELECT * FROM external_operation WHERE idempotency_key=?", (key,)).fetchone()
     if existing:
         return {"created": False, "duplicate": True, "operation": as_dict(existing)}
@@ -189,9 +202,9 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     timestamp = now()
     cursor = connection.execute(
         """INSERT INTO external_operation(scope,target,operation,intent,policy,status,idempotency_key,
-                                            created_at,updated_at,monitor_suggestion_id)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
-        (args.scope, target, operation, intent, policy, status, key, timestamp, timestamp, monitor_id),
+                                            created_at,updated_at,monitor_suggestion_id,pipeline_contact_key)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (args.scope, target, operation, intent, policy, status, key, timestamp, timestamp, monitor_id, contact_key),
     )
     connection.commit()
     return {"created": True, "duplicate": False, "approval_required": status == "pending",
@@ -202,6 +215,9 @@ def approve(connection: sqlite3.Connection, operation_id: int) -> dict:
     row = resolve(connection, operation_id)
     monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
                       row["operation"], row["intent"], approved=True)
+    if row["monitor_suggestion_id"] is None:
+        require_direct_contact(connection, row["pipeline_contact_key"],
+                               (row["target"],), (row["intent"],))
     if row["status"] == "approved":
         return {"approved": True, "already_approved": True, "operation": as_dict(row)}
     if row["status"] != "pending":
@@ -220,6 +236,9 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
             return {"claimed": False, "already_completed": True, "operation": as_dict(row)}
         monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
                           row["operation"], row["intent"], approved=True)
+        if row["monitor_suggestion_id"] is None:
+            require_direct_contact(connection, row["pipeline_contact_key"],
+                                   (row["target"],), (row["intent"],))
         if row["status"] in {"executing", "uncertain"}:
             connection.rollback()
             return {"claimed": False, "reconciliation_required": True, "operation": as_dict(row)}
@@ -290,6 +309,7 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--operation", dest="external_operation"); create.add_argument("--intent")
     create.add_argument("--access-name"); create.add_argument("--idempotency-key")
     create.add_argument("--suggestion-id", type=int, help="Required for actions originating in a monitor suggestion")
+    create.add_argument("--contact-key", help="Pipeline contact context for direct operations")
     approval = commands.add_parser("approve"); approval.add_argument("--id", required=True, type=int)
     execution = commands.add_parser("claim"); execution.add_argument("--id", required=True, type=int)
     done = commands.add_parser("finish"); done.add_argument("--id", required=True, type=int)
