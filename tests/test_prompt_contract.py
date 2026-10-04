@@ -40,21 +40,27 @@ class PromptContractTests(unittest.TestCase):
         for token in ("video_provider", "zoom_link_mode", "zoom_personal_room_url",
                       "set-video-preference", "never infer Google Meet"):
             self.assertIn(token, context)
-        self.assertIn("meeting-specific format approved by the founder takes precedence", pick)
+        self.assertIn("meeting-specific choice takes immediate precedence", pick)
+        self.assertIn("do not use the default provider for this invitation", pick)
+        self.assertIn("a Zoom link supplied by the guest", pick)
         self.assertIn("do not silently assume Google Meet", pick)
         self.assertIn("`--with-meet`", pick)
         self.assertIn("Read back the event by returned ID", pick)
         self.assertIn("verify its generated Meet URL", pick)
         self.assertIn("persisted HTTPS `zoom_personal_room_url`", pick)
         self.assertIn("**without** `--with-meet`", pick)
-        self.assertIn("`effect: zoom_meeting` then `effect: invitation`", pick)
+        self.assertIn("calendar plan starts with the real invitation (`effect: invitation`)", pick)
+        self.assertIn("not an effect in the monitor calendar plan", pick)
+        self.assertIn("`--suggestion-id`, because monitor-linked product writes are forbidden", pick)
+        self.assertIn("`join_url` in the `effect: invitation` intent", pick)
         self.assertIn("without sending Zoom's own invitations", pick)
         self.assertIn("Latch/browser/API", pick)
         self.assertIn("`join_url`", pick)
         self.assertIn("read back the Zoom meeting by provider ID", pick)
         self.assertIn("Only after the invitation has been fetched and verified may any hold be deleted", pick)
         self.assertIn("Use `--with-meet` only for Google Meet", calendar)
-        self.assertIn("two independently claimed and verified ledger effects", action)
+        self.assertIn("two independently claimed and verified ledger operations", action)
+        self.assertIn("it never contains `effect: zoom_meeting`", action)
 
     def test_scheduling_outgoing_messages_contract(self) -> None:
         documents = {

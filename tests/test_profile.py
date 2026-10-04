@@ -35,7 +35,7 @@ class VideoPreferenceTests(unittest.TestCase):
         self.assertNotIn("video_provider", self.profile("show")["preferences"])
         self.profile("set-video-preference", "--provider", "zoom",
                      "--zoom-link-mode", "personal_room",
-                     "--zoom-personal-room-url", "https://us02web.zoom.us/j/123456789?pwd=abc")
+                     "--zoom-personal-room-url", "https://us02web.zoom.us/j/123456789")
         preferences = self.profile("set-video-preference", "--provider", "google_meet")["preferences"]
         self.assertEqual("google_meet", preferences["video_provider"])
         self.assertNotIn("zoom_link_mode", preferences)
@@ -70,6 +70,14 @@ class VideoPreferenceTests(unittest.TestCase):
              "--zoom-personal-room-url", "https://user:pass@zoom.us/my/founder"),
             ("--provider", "zoom", "--zoom-link-mode", "personal_room",
              "--zoom-personal-room-url", "https://zoom.us/not-a-room"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us/my/founder?pwd=secret"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us/my/founder?token=secret"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us/my/founder?utm_source=mail"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us/my/founder?"),
             ("--provider", "zoom", "--zoom-link-mode", "per_meeting",
              "--zoom-personal-room-url", "https://zoom.us/my/founder"),
             ("--provider", "google_meet", "--zoom-link-mode", "per_meeting"),

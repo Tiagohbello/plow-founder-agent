@@ -91,6 +91,7 @@ def zoom_personal_room_url(value: str | None) -> str:
     host = parsed.hostname or ""
     if (parsed.scheme != "https" or not (host == "zoom.us" or host.endswith(".zoom.us"))
             or parsed.username or parsed.password or parsed.port is not None or parsed.fragment
+            or "?" in url
             or not ((parsed.path.startswith("/my/") and len(parsed.path) > len("/my/"))
                     or (parsed.path.startswith("/j/") and parsed.path[3:].isdigit()))):
         raise ValueError("zoom_personal_room_url must be an https Zoom personal-room link")

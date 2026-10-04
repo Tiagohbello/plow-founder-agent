@@ -36,7 +36,8 @@ enough context exists to produce useful work. Collect, in order:
    Persist `video_provider` through `profile.py set-video-preference`. For Zoom,
    ask whether links use a reusable personal room (`zoom_link_mode=personal_room`)
    or a new meeting each time (`zoom_link_mode=per_meeting`). For a personal
-   room, collect and persist its HTTPS Zoom URL as `zoom_personal_room_url`.
+   room, collect and persist its HTTPS Zoom URL as `zoom_personal_room_url`,
+   without any query string (including passwords or tokens).
    If unknown, leave the preference absent; never infer Google Meet. Reuse
    these saved answers for later scheduling and ask again only when missing or
    the founder changes them. A meeting-specific format approved by the founder
