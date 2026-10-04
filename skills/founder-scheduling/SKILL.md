@@ -30,9 +30,31 @@ draft for a send.
 Every step leaves each contact's page it touches true of
 the calendar by the end of the same turn: `holds` lists exactly the events
 that still exist, `proposed` describes what was actually sent, and `status`
-is one of this skill's own words. A blank `proposed` is never
+is exactly one value from the closed enum below. A blank `proposed` is never
 proof that nothing went out — verify before acting on it. Every step
-records what actually happened, never what was intended.
+records what actually happened, never what was intended. `holds` contains only
+provider events confirmed to exist now; `confirmed` requires an empty `holds`
+after all sibling holds are cleaned up.
+
+## Canonical page status
+
+Use exactly one of these values in the pipeline page's `status` field. No
+sentences, names, dates, second-person text, or evidence references belong there.
+Put narrative, notes, and evidence references in a dated log in the page body.
+
+| Status | Meaning |
+| --- | --- |
+| `new` | Contact is in the pipeline; no scheduling exchange or next action is established yet. |
+| `waiting_on_us` | The next scheduling action belongs to the founder/assistant. |
+| `held` | One or more tentative calendar events currently exist and every live target is recorded in `holds`. |
+| `sent` | An outbound scheduling proposal/request was verified sent; use as the send state when no explicit reply/decision is currently owed by the contact. |
+| `waiting_on_them` | A verified outbound request or proposal leaves a specific reply, choice, or information due from the contact. |
+| `confirmed` | Meeting time and details are agreed, invitation is verified, and all sibling holds are deleted; `holds` is empty. |
+| `passed` | Contact declined or scheduling is closed without a do-not-contact instruction. |
+| `do_not_contact` | Contact explicitly asked not to be contacted; do not initiate further outreach. |
+| `unverified` | A send or calendar effect is ambiguous or cannot be verified; reconcile it and never retry blindly. |
+| `withdrawn` | Founder withdrew the outstanding scheduling offer; retain `proposed` as the record of what was offered. |
+
 
 ## Find times
 
@@ -77,11 +99,16 @@ when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`
 invitation sent`, notifications off. Read the page's existing `holds`, then
 fetch each created hold and append its exact
 `<account>/<calendar>/<event-id>` target immediately after verification, before
-creating the next. Keep `holds` as the complete `; `-joined set of live event
-targets, so a later action cannot delete an unrelated event or lose a partial
-success. Set `status` to `held` only after all three targets are recorded. An
-uncertain hold stops the remaining operations and is reconciled rather than
-retried. Holding is never sending.
+creating the next. Pass the complete live target list as a JSON `holds` array to
+`page-update`, merge only its validated output, then immediately read the page
+back and confirm the target persisted before creating the next hold. If the
+write or read-back fails, stop; reconcile the existing event and page before any
+further calendar operation, and never retry creation blindly. Keep `holds` as
+the complete `; `-joined set of live event targets, so a later action cannot
+delete an unrelated event or lose a partial success. Set `status` to `held` only
+after all three persisted targets have been read back. An uncertain hold stops
+the remaining operations and is reconciled rather than retried. Holding is
+never sending.
 
 For an automatic hold, encode the exact provider parameters as JSON in the
 plan entry's existing `intent`: `account`, `calendar`, `start`, `end`,
@@ -150,8 +177,9 @@ meeting format and stored preference; do not substitute phone for requested vide
 and omit a conferencing link for an explicitly approved phone/in-person meeting.
 Fetch and verify the created invitation before deleting any holds. Then delete
 every matching sibling hold event, including the tentative event at the chosen
-time, clear `holds` (merge it empty), and set `status` to
-`confirmed`. A date agreed without a time is not confirmed — say so and
+time, clear `holds` using an empty JSON array (merge it empty), verify the page
+read-back, and set `status` to `confirmed` only after cleanup is confirmed. A
+date agreed without a time is not confirmed — say so and
 ask for the time. A partial or uncertain operation stops the remaining steps:
 reconcile the existing ledger records, never recreate a verified invitation.
 Write only the fields the page's schema names and leave the rest of the page
