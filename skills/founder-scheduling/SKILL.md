@@ -163,7 +163,9 @@ the founder, never a silent swap.
 ## Pick
 
 When the contact chooses, the persisted plan starts with the real invitation
-(`effect: invitation`) and contains one unique `effect: delete_hold` entry for
+(`effect: invitation`) for Google Meet, Zoom personal room, phone, or in-person;
+Zoom per meeting starts with `effect: zoom_meeting`, followed by the real
+invitation. Every plan contains one unique `effect: delete_hold` entry for
 every semicolon-separated provider event target in the page's `holds` field;
 the deletion-target set must match that field exactly. If a legacy entry contains
 only a human-readable time, resolve it to one verified provider event target and
@@ -171,11 +173,50 @@ replace it before creating the plan; ambiguous or missing matches are blocked,
 never guessed. Create the invite from the account and calendar the founder named,
 or the configured work default when the
 founder did not identify one, with every attendee from the prior thread;
-for a video meeting the conferencing link comes from `plow-gog`'s `--with-meet`
-on that create, through `founder-calendar`'s normal write path. Honor the approved
-meeting format and stored preference; do not substitute phone for requested video,
-and omit a conferencing link for an explicitly approved phone/in-person meeting.
-Fetch and verify the created invitation before deleting any holds. Then delete
+for a video meeting, read Founder Profile `show.preferences` and dispatch by
+`video_provider` and `zoom_link_mode` as below. An explicit meeting-specific
+format approved by the founder takes precedence over the global video
+preference. If the format is unknown, the provider preference is absent, or
+Zoom mode/room URL is missing, ask the founder privately and persist reusable
+provider settings via `founder-context`; do not silently assume Google Meet or
+create an unsupported link. Do not substitute phone for requested video, and
+omit a conferencing link for an explicitly approved phone/in-person meeting.
+
+- **Google Meet (`video_provider=google_meet`):** Prepare and claim the calendar
+  invitation in `external-action`, then use `plow-gog calendar` to create it
+  with `--with-meet`, on the chosen account/calendar with the agreed attendees.
+  Read back the event by returned ID and verify its generated Meet URL and
+  attendee/time details before marking the ledger operation complete. A missing
+  link is an uncertain invitation, not permission to create another.
+- **Zoom personal room (`video_provider=zoom`,
+  `zoom_link_mode=personal_room`):** Use the persisted HTTPS
+  `zoom_personal_room_url` in the Google Calendar event location or description
+  (prefer both where supported), with the agreed attendees. Prepare/claim the
+  calendar invitation, create it with `plow-gog calendar` **without**
+  `--with-meet`, and read it back by ID. Verify the stored Zoom URL, attendees,
+  and time; do not create a separate Zoom meeting or generate a Meet link.
+- **Zoom per meeting (`video_provider=zoom`,
+  `zoom_link_mode=per_meeting`):** The persisted plan has two ordered effects
+  before any hold deletion: `effect: zoom_meeting` then `effect: invitation`.
+  Prepare and claim a separate `external-action` product operation for the Zoom
+  meeting (`--scope product --access-name <configured-Zoom-access>`) and, after
+  its verified `join_url` is known, a calendar operation for the invitation;
+  each has a stable target, exact intent, approval, and independent verification. Use configured Zoom
+  product access through Latch/browser/API to create one meeting with the agreed
+  time and title, **without sending Zoom's own invitations or attendee emails**.
+  Capture its `join_url`, then read back the Zoom meeting by provider ID and
+  verify that URL and meeting details before completing its ledger operation.
+  If Zoom access or no-invite creation is unavailable, stop and report the
+  blocker; never substitute a provider. Put the verified `join_url` in the
+  calendar event location or description (prefer both), prepare/claim the
+  calendar operation, then use `plow-gog calendar` **without** `--with-meet` to
+  create the Google Calendar invitation with attendees. Read the event back by
+  returned ID and verify the Zoom URL, time, and attendees before completing
+  that ledger operation. If either effect is ambiguous, mark it uncertain and
+  reconcile by provider ID/ledger; never create it again blindly.
+
+Only after the invitation has been fetched and verified may any hold be
+deleted. The Zoom meeting alone does not confirm the invitation. Then delete
 every matching sibling hold event, including the tentative event at the chosen
 time, clear `holds` using an empty JSON array (merge it empty), verify the page
 read-back, and set `status` to `confirmed` only after cleanup is confirmed. A

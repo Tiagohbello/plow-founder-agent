@@ -66,6 +66,12 @@ The stable target is `<account>/<calendar>/<event>`
 or `<account>/<calendar>/new` and the intent includes times, recurrence scope,
 attendees, notification choice, and requested change.
 
+For video invitations, follow `founder-scheduling`'s provider dispatch. Use
+`--with-meet` only for Google Meet. For Zoom, write the verified personal-room
+URL or per-meeting `join_url` into the event location/description and omit
+`--with-meet`; a per-meeting Zoom creation is a separate product ledger effect
+that must be verified before the calendar invitation is created.
+
 Run the matching `plow-gog calendar` command only after claiming the ledger
 item. Timed creates are conflict-gated by Latch. Do not add
 `--confirm-conflict` unless an authority-bearing turn explicitly selected the conflicting
