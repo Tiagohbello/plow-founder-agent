@@ -71,7 +71,7 @@ class MonitorTests(unittest.TestCase):
                                   "work@example.com/primary/hold-2"))
         self.contact = self.contacts()["contacts"][0]
 
-    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent", holds=""):
+    def write_contact(self, slug, *, email="", phone="", person=True, status="sent", holds=""):
         """One pipeline entry and, unless suppressed, the person page it points at."""
         entry = self.vault / monitor.PIPELINE_ROOT / f"{slug}.md"
         entry.parent.mkdir(parents=True, exist_ok=True)
@@ -415,6 +415,74 @@ class MonitorTests(unittest.TestCase):
         path.write_text(listed + "\n\n")
         found = self.helper("pipeline-monitor", "monitor.py", "contacts", "--listing", str(path))
         self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
+
+    def test_pipeline_status_is_a_closed_canonical_enum(self):
+        valid = (
+            "new", "waiting_on_us", "held", "sent", "waiting_on_them",
+            "confirmed", "passed", "do_not_contact", "unverified", "withdrawn",
+        )
+        self.assertEqual(monitor.PIPELINE_STATUSES, valid)
+        for status in valid:
+            with self.subTest(status=status):
+                self.assertEqual(monitor.validate_pipeline_status(status), status)
+        for status in ("Times sent", "You replied on Tuesday", "in progress", "sent ", "unknown", None):
+            with self.subTest(status=status), self.assertRaisesRegex(ValueError, "status must be one of"):
+                monitor.validate_page_facts({"status": status})
+
+    def test_holds_are_validated_deduplicated_and_formatted(self):
+        targets = [
+            "work@example.com/primary/hold-1",
+            "work@example.com/primary/hold-2",
+        ]
+        self.assertEqual(monitor.validate_page_facts({"holds": targets}),
+                         {"holds": "; ".join(targets)})
+        self.assertEqual(monitor.validate_page_facts({"holds": ";".join(targets)}),
+                         {"holds": "; ".join(targets)})
+        self.assertEqual(monitor.validate_page_facts({"holds": []}), {"holds": ""})
+        self.assertEqual(monitor.validate_page_facts({"holds": ""}), {"holds": ""})
+        self.assertEqual(monitor.validate_page_facts({"status": "confirmed", "holds": []}),
+                         {"status": "confirmed", "holds": ""})
+        with self.assertRaisesRegex(ValueError, "status held requires"):
+            monitor.validate_page_facts({"status": "held"})
+        with self.assertRaisesRegex(ValueError, "status confirmed requires"):
+            monitor.validate_page_facts({"status": "confirmed"})
+        for invalid in (
+            [targets[0], targets[0]],
+            targets[0] + "; " + targets[0],
+            ["work@example.com/primary"],
+            ["work@example.com/primary/hold-1/extra"],
+            ["work@example.com//hold-1"],
+            ["work@example.com/primary/new"],
+            ["work account/primary/hold-1"],
+            ["work@example.com/primary/hold-1", ""],
+            "not-a-target",
+        ):
+            with self.subTest(holds=invalid), self.assertRaises(ValueError):
+                monitor.validate_page_facts({"holds": invalid})
+
+    def test_page_update_validates_json_facts_for_direct_and_suggested_pages(self):
+        facts_path = self.home / "page-facts.json"
+        facts = {
+            "status": "held",
+            "holds": ["work@example.com/primary/hold-1"],
+            "proposed": "",
+        }
+        facts_path.write_text(json.dumps(facts))
+        direct = self.helper("pipeline-monitor", "monitor.py", "page-update",
+                             "--contact-key", "alex", "--file", str(facts_path))
+        self.assertEqual(direct["path"], f"{monitor.PIPELINE_ROOT}/alex.md")
+        self.assertEqual(direct["changes"], {
+            "status": "held", "holds": "work@example.com/primary/hold-1", "proposed": "",
+        })
+        self.assertNotIn("next_step", direct["changes"])
+
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        suggested = monitor.page_update(self.db, item["id"], facts=facts)
+        self.assertEqual(suggested["changes"]["next_step"], self.observation()["next_step"])
+        self.assertEqual(suggested["changes"]["status"], "held")
+        self.assertEqual(suggested["changes"]["holds"], "work@example.com/primary/hold-1")
+        with self.assertRaisesRegex(ValueError, "only status, holds and proposed"):
+            monitor.page_update(self.db, contact_key="alex", facts={"next_step": "invented"})
 
     def test_a_check_may_write_the_advice_and_nothing_else(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]

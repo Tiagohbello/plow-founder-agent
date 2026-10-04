@@ -10,7 +10,7 @@ import wiki_page
 PAGE = """---
 title: Ada Example
 type: PipelineEntry
-status: Awaiting reply
+status: waiting_on_them
 next_step: ""
 ---
 
@@ -25,7 +25,7 @@ class WikiPageTests(unittest.TestCase):
         out = wiki_page.merge(PAGE, {"next_step": "Reply with two slots Thu/Fri"})
         front, body = wiki_page.read(out)
         self.assertEqual(front["next_step"], "Reply with two slots Thu/Fri")
-        self.assertEqual(front["status"], "Awaiting reply")
+        self.assertEqual(front["status"], "waiting_on_them")
         self.assertEqual(front["title"], "Ada Example")
         self.assertEqual(list(front), ["title", "type", "status", "next_step"])
         self.assertIn("- Met at the conference. ^[inferred]", body)
@@ -33,7 +33,7 @@ class WikiPageTests(unittest.TestCase):
     def test_merge_adds_a_field_the_page_does_not_have_yet(self) -> None:
         front, _ = wiki_page.read(wiki_page.merge(PAGE, {"holds": "Fri 9/18 12:00-13:00 PT"}))
         self.assertEqual(front["holds"], "Fri 9/18 12:00-13:00 PT")
-        self.assertEqual(front["status"], "Awaiting reply")
+        self.assertEqual(front["status"], "waiting_on_them")
 
     def test_generated_prose_round_trips_instead_of_being_refused(self) -> None:
         # next_step is written by a model. Quotes, em dashes, line breaks and
@@ -43,7 +43,7 @@ class WikiPageTests(unittest.TestCase):
             with self.subTest(value=value):
                 out = wiki_page.merge(PAGE, {"next_step": value})
                 self.assertEqual(wiki_page.read(out)[0]["next_step"], value)
-                self.assertEqual(wiki_page.read(out)[0]["status"], "Awaiting reply")
+                self.assertEqual(wiki_page.read(out)[0]["status"], "waiting_on_them")
 
     def test_an_escaped_value_cannot_forge_a_field(self) -> None:
         # The encoded form stays on one line, so nothing it contains starts a
@@ -59,7 +59,7 @@ class WikiPageTests(unittest.TestCase):
                 out = wiki_page.merge(PAGE, {"next_step": hostile})
                 self.assertEqual(len([l for l in out.splitlines() if l.startswith("next_step:")]), 1)
                 self.assertEqual(len([l for l in out.splitlines() if l.startswith("status:")]), 1)
-                self.assertEqual(wiki_page.read(out)[0]["status"], "Awaiting reply")
+                self.assertEqual(wiki_page.read(out)[0]["status"], "waiting_on_them")
                 self.assertEqual(wiki_page.read(out)[0]["next_step"], hostile)
 
     def test_list_fields_stay_lists_through_a_merge(self) -> None:
@@ -70,11 +70,11 @@ class WikiPageTests(unittest.TestCase):
         for page, sources in ((flow, ["sources: [{resource: gmail, id: m1}]"]),
                               (block, ["sources:", "  - resource: gmail", "    id: m1"])):
             front = wiki_page.read(page)[0]
-            for changes in ({"status": "Met"}, {**front, "status": "Met"}, {"id": "m2", "status": "Met"}):
+            for changes in ({"status": "confirmed"}, {**front, "status": "confirmed"}, {"id": "m2", "status": "confirmed"}):
                 with self.subTest(page=sources[0], changes=changes):
                     out = wiki_page.merge(page, changes)
                     self.assertIn("\n".join(sources) + "\n", out)
-                    self.assertEqual(wiki_page.read(out)[0]["status"], "Met")
+                    self.assertEqual(wiki_page.read(out)[0]["status"], "confirmed")
             out = wiki_page.merge(page.replace("  - resource", "\n  - resource"), {"sources": [{"resource": "gmail", "id": "m2\n---"}]})
             self.assertIn('\nsources: [{"resource": "gmail", "id": "m2\\n---"}]\nstatus:', out)
 
