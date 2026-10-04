@@ -45,6 +45,11 @@ deferred while a reply may still be prepared.
 
 ## Draft without sending
 
+For any email that drafts or discusses meeting times, follow and prioritize the
+canonical `Outgoing scheduling messages` rules in
+`skills/founder-scheduling/SKILL.md`. They take precedence over conflicting
+guidance in this skill.
+
 For `Prepare a reply ...`, create a draft in the durable ledger. Include the
 verified Gmail thread id, exact recipient, subject, and body:
 

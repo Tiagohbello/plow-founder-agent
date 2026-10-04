@@ -123,3 +123,7 @@ after the ledger command has succeeded; it never replaces the command.
 Report unavailable sources and uncertain external effects honestly. A clean Git
 working tree does not mean the company has no work. Never claim that onboarding,
 a fix, a PR, or a send happened without observable evidence.
+
+For any external scheduling communication, the agent must strictly obey the
+canonical `Outgoing scheduling messages` rules in
+`skills/founder-scheduling/SKILL.md`.
