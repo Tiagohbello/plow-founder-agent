@@ -456,12 +456,12 @@ class MonitorTests(unittest.TestCase):
             "work@example.com/primary/hold-1",
             "work@example.com/primary/hold-2",
         ]
-        self.assertEqual(monitor.validate_page_facts({"holds": targets}),
+        self.assertEqual(monitor.validate_page_facts({"holds": targets}, {"status": "sent"}),
                          {"holds": "; ".join(targets)})
-        self.assertEqual(monitor.validate_page_facts({"holds": ";".join(targets)}),
+        self.assertEqual(monitor.validate_page_facts({"holds": ";".join(targets)}, {"status": "sent"}),
                          {"holds": "; ".join(targets)})
-        self.assertEqual(monitor.validate_page_facts({"holds": []}), {"holds": ""})
-        self.assertEqual(monitor.validate_page_facts({"holds": ""}), {"holds": ""})
+        self.assertEqual(monitor.validate_page_facts({"holds": []}, {"status": "sent"}), {"holds": ""})
+        self.assertEqual(monitor.validate_page_facts({"holds": ""}, {"status": "sent"}), {"holds": ""})
         self.assertEqual(monitor.validate_page_facts({"status": "confirmed", "holds": []}),
                          {"status": "confirmed", "holds": ""})
         with self.assertRaisesRegex(ValueError, "status held requires"):
@@ -480,7 +480,7 @@ class MonitorTests(unittest.TestCase):
             "not-a-target",
         ):
             with self.subTest(holds=invalid), self.assertRaises(ValueError):
-                monitor.validate_page_facts({"holds": invalid})
+                monitor.validate_page_facts({"holds": invalid}, {"status": "sent"})
 
     def test_page_update_validates_json_facts_for_direct_and_suggested_pages(self):
         facts_path = self.home / "page-facts.json"
@@ -528,6 +528,23 @@ class MonitorTests(unittest.TestCase):
             monitor.page_update(self.db, contact_key="alex", facts={"holds": []},
                                 current_facts={"status": "held", "holds": target})
 
+        with self.assertRaisesRegex(ValueError, "current page status is required"):
+            monitor.page_update(self.db, contact_key="alex", facts={"holds": [target]},
+                                current_facts={})
+        known = monitor.page_update(self.db, contact_key="alex",
+                                    facts={"status": "held", "holds": [target]},
+                                    current_facts={})
+        self.assertEqual(known["changes"], {"status": "held", "holds": target})
+        facts_path = self.home / "holds-only.json"
+        current_path = self.home / "empty-current.json"
+        facts_path.write_text(json.dumps({"holds": [target]}))
+        current_path.write_text("{}")
+        error = self.helper(
+            "pipeline-monitor", "monitor.py", "page-update", "--contact-key", "alex",
+            "--file", str(facts_path), "--current-file", str(current_path), ok=False,
+        )
+        self.assertIn("current page status is required", error)
+
     def test_direct_contact_key_page_update_works_without_contact_row(self):
         # The actual wiki page has been read through Latch, but no contacts sync
         # has copied it into this database's mirror.
@@ -564,6 +581,7 @@ class MonitorTests(unittest.TestCase):
                 ))["suggestion"]
 
                 self.write_contact("alex", status=status,
+                                   email="alex@example.com", phone="+1 415 555 0100",
                                    holds="work@example.com/primary/hold-1; work@example.com/primary/hold-2")
                 # Model a just-read terminal status before the next contacts sweep.
                 saved = json.loads(self.db.execute(
@@ -588,6 +606,44 @@ class MonitorTests(unittest.TestCase):
                 self.assertTrue(any("terminal pipeline status" in entry["reason"]
                                     for entry in result["unlinked"]))
                 self.assertEqual(monitor.suggestion(self.db, observed["id"])["status"], "superseded")
+                draft_error = self.helper(
+                    "external-action", "drafts.py", "prepare", "--channel", "text",
+                    "--thread-id", f"terminal-direct-{status}", "--recipient", "alex@example.com",
+                    "--body", "Do not prepare", ok=False,
+                )
+                self.assertIn("terminal", draft_error)
+                operation_error = self.helper(
+                    "external-action", "operations.py", "prepare", "--scope", "calendar",
+                    "--target", "work@example.com/primary/new", "--operation", "create",
+                    "--intent", f"Schedule with alex@example.com ({status})",
+                    ok=False,
+                )
+                self.assertIn("terminal", operation_error)
+
+    def test_direct_contact_status_is_rechecked_before_draft_send_and_calendar_claim(self):
+        draft = self.helper(
+            "external-action", "drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "direct-alex", "--recipient", "alex@example.com",
+            "--body", "Tuesday works", "--contact-key", "alex",
+        )["draft"]
+        self.helper("external-action", "drafts.py", "approve", "--id", str(draft["id"]),
+                    "--approval-ref", "founder:approve:direct")
+        operation = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", "work@example.com/primary/new", "--operation", "create",
+            "--intent", "Schedule with Alex", "--contact-key", "alex",
+        )["operation"]
+        self.helper("external-action", "operations.py", "approve", "--id", str(operation["id"]))
+
+        self.write_contact("alex", status="withdrawn")
+        result = self.contacts()
+        self.assertFalse(any(entry["contact_key"] == "alex" for entry in result["contacts"]))
+        draft_error = self.helper("external-action", "drafts.py", "claim-send",
+                                  "--id", str(draft["id"]), ok=False)
+        self.assertIn("contact status withdrawn is terminal", draft_error)
+        operation_error = self.helper("external-action", "operations.py", "claim",
+                                      "--id", str(operation["id"]), ok=False)
+        self.assertIn("contact status withdrawn is terminal", operation_error)
 
     def test_a_check_may_write_the_advice_and_nothing_else(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
