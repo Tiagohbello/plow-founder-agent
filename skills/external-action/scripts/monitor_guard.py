@@ -13,6 +13,32 @@ PIPELINE_STATUS_SET = {
     "new", "waiting_on_us", "held", "sent", "waiting_on_them", "confirmed",
     *TERMINAL_PIPELINE_STATUSES, "unverified",
 }
+PHONE_TEXT_RE = re.compile(r"(?<![A-Za-z0-9])\+?[0-9][0-9(). \t-]{5,}[0-9](?![A-Za-z0-9])")
+
+
+def normalize_phone(value):
+    """Return comparable phone digits, accepting common formatting and NANP local form."""
+    if not isinstance(value, str) or not re.fullmatch(r"\+?[0-9().\s-]+", value.strip()):
+        return None
+    digits = re.sub(r"\D", "", value)
+    if len(digits) < 7:
+        return None
+    # Pipeline contacts commonly use a local 10-digit North American number while
+    # direct SMS recipients use E.164 with country code 1.
+    if len(digits) == 10:
+        digits = "1" + digits
+    return digits
+
+
+def phones_in_text(value):
+    """Find formatted phone numbers embedded in a direct-action context string."""
+    for match in PHONE_TEXT_RE.finditer(value):
+        phone = match.group(0)
+        digits = re.sub(r"\D", "", phone)
+        if len(digits) >= 10 or phone.startswith("+"):
+            normalized = normalize_phone(phone)
+            if normalized:
+                yield normalized
 
 
 def contact_fields(connection, contact_key):
@@ -68,6 +94,10 @@ def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), con
                               if isinstance(value, str) and value.strip()}
     normalized_context = [value.casefold() for value in context_text
                           if isinstance(value, str) and value.strip()]
+    normalized_phones = {phone for value in identifiers
+                         if (phone := normalize_phone(value)) is not None}
+    normalized_phones.update(phone for value in context_text
+                             if isinstance(value, str) for phone in phones_in_text(value))
     if normalized_identifiers:
         seen = set()
         for table in ("monitor_contact", "monitor_contact_guard"):
@@ -81,6 +111,8 @@ def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), con
                 data = json.loads(row["data"])
                 handles = {str(value).strip().casefold() for value in data.get("handles", [])
                            if isinstance(value, str) and value.strip()}
+                handle_phones = {phone for value in data.get("handles", [])
+                                 if (phone := normalize_phone(value)) is not None}
                 candidates = handles | {row["contact_key"].casefold()}
                 name = data.get("name")
                 if isinstance(name, str) and name.strip():
@@ -92,7 +124,8 @@ def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), con
                     for candidate in candidates if len(candidate) >= 3
                     for text in normalized_context
                 )
-                if exact_match or mentioned:
+                phone_match = bool(handle_phones & normalized_phones)
+                if exact_match or mentioned or phone_match:
                     matched.add(row["contact_key"])
     if len(matched) > 1:
         raise ValueError("direct action recipient matches multiple pipeline contacts; provide an exact --contact-key")

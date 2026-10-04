@@ -645,6 +645,112 @@ class MonitorTests(unittest.TestCase):
                                       "--id", str(operation["id"]), ok=False)
         self.assertIn("contact status withdrawn is terminal", operation_error)
 
+    def test_formatted_phone_resolves_direct_contacts_at_prepare_approve_and_claim(self):
+        variants = (
+            ("+1 415 555 0100", "+14155550100"),
+            ("(415) 555-0100", "+1.415.555.0100"),
+            ("+14155550100", "(415) 555 0100"),
+        )
+        for index, (contact_phone, recipient) in enumerate(variants):
+            with self.subTest(contact_phone=contact_phone, recipient=recipient):
+                # A terminal contact must be recognized during direct SMS preparation,
+                # including when the person page and recipient use different formats.
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                prepare_error = self.helper(
+                    "external-action", "drafts.py", "prepare", "--channel", "text",
+                    "--thread-id", f"phone-prepare-{index}", "--recipient", recipient,
+                    "--body", "Do not send", ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", prepare_error)
+
+                # Approval gate must resolve the stored recipient again, not trust
+                # only the preparation-time contact status.
+                self.write_contact("alex", status="sent", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                pending = self.helper(
+                    "external-action", "drafts.py", "prepare", "--channel", "text",
+                    "--thread-id", f"phone-approve-{index}", "--recipient", recipient,
+                    "--body", "Tuesday works",
+                )["draft"]
+                self.assertEqual(pending["pipeline_contact_key"], "alex")
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                approval_error = self.helper(
+                    "external-action", "drafts.py", "approve", "--id", str(pending["id"]),
+                    "--approval-ref", f"founder:phone-approve:{index}", ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", approval_error)
+
+                # Claim gate must enforce the same match after a valid approval.
+                self.write_contact("alex", status="sent", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                approved = self.helper(
+                    "external-action", "drafts.py", "prepare", "--channel", "text",
+                    "--thread-id", f"phone-claim-{index}", "--recipient", recipient,
+                    "--body", "Tuesday works",
+                )["draft"]
+                self.helper(
+                    "external-action", "drafts.py", "approve", "--id", str(approved["id"]),
+                    "--approval-ref", f"founder:phone-claim:{index}",
+                )
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                claim_error = self.helper(
+                    "external-action", "drafts.py", "claim-send", "--id", str(approved["id"]),
+                    ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", claim_error)
+
+    def test_formatted_phone_in_operation_intent_resolves_direct_contact_gates(self):
+        variants = (
+            ("+1 415 555 0100", "+14155550100"),
+            ("(415) 555-0100", "+1.415.555.0100"),
+            ("+14155550100", "(415) 555 0100"),
+        )
+        for index, (contact_phone, intent_phone) in enumerate(variants):
+            with self.subTest(contact_phone=contact_phone, intent_phone=intent_phone):
+                self.write_contact("alex", status="sent", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                operation = self.helper(
+                    "external-action", "operations.py", "prepare", "--scope", "calendar",
+                    "--target", "work@example.com/primary/new", "--operation", "create",
+                    "--intent", f"Schedule with {intent_phone}",
+                )["operation"]
+                self.assertEqual(operation["pipeline_contact_key"], "alex")
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                approval_error = self.helper(
+                    "external-action", "operations.py", "approve", "--id", str(operation["id"]),
+                    ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", approval_error)
+
+                self.write_contact("alex", status="sent", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                operation = self.helper(
+                    "external-action", "operations.py", "prepare", "--scope", "calendar",
+                    "--target", "work@example.com/primary/new", "--operation", "create",
+                    "--intent", f"Schedule with {intent_phone} again",
+                )["operation"]
+                self.helper("external-action", "operations.py", "approve", "--id", str(operation["id"]))
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                claim_error = self.helper(
+                    "external-action", "operations.py", "claim", "--id", str(operation["id"]),
+                    ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", claim_error)
+
     def test_a_check_may_write_the_advice_and_nothing_else(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
         update = monitor.page_update(self.db, item["id"])
