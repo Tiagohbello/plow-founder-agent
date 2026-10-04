@@ -928,10 +928,12 @@ class MonitorTests(unittest.TestCase):
             monitor.observe(self.db, self.observation(calendar_plan=plan))
 
     def test_calendar_plan_rejects_unknown_effects(self):
-        plan = self.observation()["calendar_plan"]
-        plan[0] = {**plan[0], "effect": "maybe_invitation"}
-        with self.assertRaisesRegex(ValueError, "unsupported calendar effect"):
-            monitor.observe(self.db, self.observation(calendar_plan=plan))
+        for effect in ("maybe_invitation", "zoom_meeting"):
+            with self.subTest(effect=effect):
+                plan = self.observation()["calendar_plan"]
+                plan[0] = {**plan[0], "effect": effect}
+                with self.assertRaisesRegex(ValueError, "unsupported calendar effect"):
+                    monitor.observe(self.db, self.observation(calendar_plan=plan))
 
     def test_calendar_effects_derive_operations_and_require_exact_hold_deletes(self):
         proposal = self.new_options_observation()

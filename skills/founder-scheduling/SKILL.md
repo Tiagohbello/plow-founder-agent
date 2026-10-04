@@ -162,10 +162,12 @@ the founder, never a silent swap.
 
 ## Pick
 
-When the contact chooses, the persisted plan starts with the real invitation
-(`effect: invitation`) for Google Meet, Zoom personal room, phone, or in-person;
-Zoom per meeting starts with `effect: zoom_meeting`, followed by the real
-invitation. Every plan contains one unique `effect: delete_hold` entry for
+When the contact chooses, the persisted calendar plan starts with the real
+invitation (`effect: invitation`) for every format, including Zoom per meeting.
+Only `effect: delete_hold` entries follow it. Zoom per-meeting link creation is
+a separate, prior product operation in `external-action`, not an effect in the
+monitor calendar plan. Every plan contains one unique `effect: delete_hold`
+entry for
 every semicolon-separated provider event target in the page's `holds` field;
 the deletion-target set must match that field exactly. If a legacy entry contains
 only a human-readable time, resolve it to one verified provider event target and
@@ -173,10 +175,15 @@ replace it before creating the plan; ambiguous or missing matches are blocked,
 never guessed. Create the invite from the account and calendar the founder named,
 or the configured work default when the
 founder did not identify one, with every attendee from the prior thread;
-for a video meeting, read Founder Profile `show.preferences` and dispatch by
-`video_provider` and `zoom_link_mode` as below. An explicit meeting-specific
-format approved by the founder takes precedence over the global video
-preference. If the format is unknown, the provider preference is absent, or
+for a video meeting, first honor the format and provider approved for this
+specific meeting (for example, “Zoom nesta reunião” or a Zoom link supplied by
+the guest). That meeting-specific choice takes immediate precedence over the
+global Founder Profile video preference: do not use the default provider for
+this invitation. Use an agreed guest-supplied link directly; do not create a
+second conference link. Only if no meeting-specific format or link is established,
+read Founder Profile `show.preferences` and dispatch by `video_provider` and
+`zoom_link_mode` as below. If the format is unknown, the provider preference is
+absent, or
 Zoom mode/room URL is missing, ask the founder privately and persist reusable
 provider settings via `founder-context`; do not silently assume Google Meet or
 create an unsupported link. Do not substitute phone for requested video, and
@@ -196,24 +203,31 @@ omit a conferencing link for an explicitly approved phone/in-person meeting.
   `--with-meet`, and read it back by ID. Verify the stored Zoom URL, attendees,
   and time; do not create a separate Zoom meeting or generate a Meet link.
 - **Zoom per meeting (`video_provider=zoom`,
-  `zoom_link_mode=per_meeting`):** The persisted plan has two ordered effects
-  before any hold deletion: `effect: zoom_meeting` then `effect: invitation`.
-  Prepare and claim a separate `external-action` product operation for the Zoom
-  meeting (`--scope product --access-name <configured-Zoom-access>`) and, after
-  its verified `join_url` is known, a calendar operation for the invitation;
-  each has a stable target, exact intent, approval, and independent verification. Use configured Zoom
-  product access through Latch/browser/API to create one meeting with the agreed
+  `zoom_link_mode=per_meeting`):** Obtain the conference link before finalizing
+  the monitor calendar plan. Prepare, approve, and claim a standalone
+  `external-action` product operation for the Zoom meeting (`--scope product
+  --access-name <configured-Zoom-access> --contact-key <page-slug>`); do not
+  pass `--suggestion-id`, because monitor-linked product writes are forbidden.
+  Give it a stable target and exact intent tied to the chosen contact, time,
+  title, and attendees; retain its ledger ID for the contact page's dated log.
+  Use configured Zoom product access through Latch/browser/API to create one meeting with the agreed
   time and title, **without sending Zoom's own invitations or attendee emails**.
   Capture its `join_url`, then read back the Zoom meeting by provider ID and
-  verify that URL and meeting details before completing its ledger operation.
+  verify that URL and meeting details before completing the product ledger
+  operation with the provider ID and verification evidence. If this operation
+  is uncertain, reconcile it by provider ID; never create another meeting.
   If Zoom access or no-invite creation is unavailable, stop and report the
   blocker; never substitute a provider. Put the verified `join_url` in the
-  calendar event location or description (prefer both), prepare/claim the
-  calendar operation, then use `plow-gog calendar` **without** `--with-meet` to
+  `effect: invitation` intent of a fresh persisted monitor calendar plan,
+  followed only by the sibling `effect: delete_hold` entries. Present that exact
+  plan for founder approval, then prepare/claim the linked calendar operation
+  using `--suggestion-id`. Put the URL in the calendar event location or
+  description (prefer both), then use `plow-gog calendar` **without**
+  `--with-meet` to
   create the Google Calendar invitation with attendees. Read the event back by
   returned ID and verify the Zoom URL, time, and attendees before completing
-  that ledger operation. If either effect is ambiguous, mark it uncertain and
-  reconcile by provider ID/ledger; never create it again blindly.
+  that ledger operation. If the calendar effect is ambiguous, mark it uncertain
+  and reconcile by provider event ID/ledger; never create it again blindly.
 
 Only after the invitation has been fetched and verified may any hold be
 deleted. The Zoom meeting alone does not confirm the invitation. Then delete
