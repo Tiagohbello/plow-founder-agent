@@ -29,6 +29,8 @@ DEFAULT_POLICIES = {
     "destructive_operation": "forbidden",
 }
 PREFERENCE_KEYS = ("save_gmail_drafts",)
+VIDEO_PROVIDERS = ("google_meet", "zoom")
+ZOOM_LINK_MODES = ("personal_room", "per_meeting")
 PERMANENTLY_FORBIDDEN = {
     "merge",
     "deploy",
@@ -79,6 +81,49 @@ def web_url(value: str | None) -> str:
     if parsed.username or parsed.password:
         raise ValueError("url must not contain credentials")
     return url
+
+
+def zoom_personal_room_url(value: str | None) -> str:
+    url = text(value, "zoom_personal_room_url")
+    if any(character.isspace() for character in url):
+        raise ValueError("zoom_personal_room_url must not contain whitespace")
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if (parsed.scheme != "https" or not (host == "zoom.us" or host.endswith(".zoom.us"))
+            or parsed.username or parsed.password or parsed.port is not None or parsed.fragment
+            or not ((parsed.path.startswith("/my/") and len(parsed.path) > len("/my/"))
+                    or (parsed.path.startswith("/j/") and parsed.path[3:].isdigit()))):
+        raise ValueError("zoom_personal_room_url must be an https Zoom personal-room link")
+    return url
+
+
+def set_video_preference(connection: sqlite3.Connection, provider: str,
+                         mode: str | None, room_url: str | None, timestamp: str) -> None:
+    """Replace the complete video configuration in one SQLite transaction."""
+    if provider not in VIDEO_PROVIDERS:
+        raise ValueError("video_provider must be google_meet or zoom")
+    values = {"video_provider": provider}
+    if provider == "google_meet":
+        if mode is not None or room_url is not None:
+            raise ValueError("Google Meet does not use Zoom link settings")
+    else:
+        if mode not in ZOOM_LINK_MODES:
+            raise ValueError("zoom_link_mode must be personal_room or per_meeting for Zoom")
+        values["zoom_link_mode"] = mode
+        if mode == "personal_room":
+            values["zoom_personal_room_url"] = zoom_personal_room_url(room_url)
+        elif room_url is not None:
+            raise ValueError("per_meeting must not include a personal-room URL")
+
+    for key, value in values.items():
+        connection.execute(
+            """INSERT INTO founder_preference(key,value,updated_at) VALUES (?,?,?)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
+            (key, json.dumps(value), timestamp),
+        )
+    for key in ("zoom_link_mode", "zoom_personal_room_url"):
+        if key not in values:
+            connection.execute("DELETE FROM founder_preference WHERE key=?", (key,))
 
 
 def migrate_legacy(connection: sqlite3.Connection, path: Path) -> None:
@@ -343,6 +388,9 @@ def run(args: argparse.Namespace) -> dict:
                    ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
                 (key, json.dumps(value == "true"), timestamp),
             )
+        elif args.operation == "set-video-preference":
+            set_video_preference(connection, args.provider, args.zoom_link_mode,
+                                 args.zoom_personal_room_url, timestamp)
         elif args.operation == "set-access":
             existing = connection.execute(
                 "SELECT credential_item_ref FROM product_access WHERE name=?",
@@ -440,6 +488,10 @@ def parser() -> argparse.ArgumentParser:
     preference = commands.add_parser("set-preference")
     preference.add_argument("--key", required=True, choices=PREFERENCE_KEYS)
     preference.add_argument("--value", required=True, choices=("true", "false"))
+    video = commands.add_parser("set-video-preference")
+    video.add_argument("--provider", required=True, choices=VIDEO_PROVIDERS)
+    video.add_argument("--zoom-link-mode", choices=ZOOM_LINK_MODES)
+    video.add_argument("--zoom-personal-room-url")
     access = commands.add_parser("set-access")
     access.add_argument("--name", required=True); access.add_argument("--kind", required=True, choices=ACCESS_KINDS)
     access.add_argument("--url", required=True); access.add_argument("--environment", required=True)

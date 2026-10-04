@@ -30,6 +30,32 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn("PLOW_HOME_CHANNEL", pipeline)
         self.assertNotIn("authority-bearing approval message", pipeline)
 
+    def test_video_provider_scheduling_contract(self) -> None:
+        context = " ".join((ROOT / "skills/founder-context/SKILL.md").read_text().split())
+        scheduling = " ".join((ROOT / "skills/founder-scheduling/SKILL.md").read_text().split())
+        calendar = " ".join((ROOT / "skills/founder-calendar/SKILL.md").read_text().split())
+        action = " ".join((ROOT / "skills/external-action/SKILL.md").read_text().split())
+        pick = scheduling.split("## Pick", 1)[1].split("## Sweep", 1)[0]
+
+        for token in ("video_provider", "zoom_link_mode", "zoom_personal_room_url",
+                      "set-video-preference", "never infer Google Meet"):
+            self.assertIn(token, context)
+        self.assertIn("meeting-specific format approved by the founder takes precedence", pick)
+        self.assertIn("do not silently assume Google Meet", pick)
+        self.assertIn("`--with-meet`", pick)
+        self.assertIn("Read back the event by returned ID", pick)
+        self.assertIn("verify its generated Meet URL", pick)
+        self.assertIn("persisted HTTPS `zoom_personal_room_url`", pick)
+        self.assertIn("**without** `--with-meet`", pick)
+        self.assertIn("`effect: zoom_meeting` then `effect: invitation`", pick)
+        self.assertIn("without sending Zoom's own invitations", pick)
+        self.assertIn("Latch/browser/API", pick)
+        self.assertIn("`join_url`", pick)
+        self.assertIn("read back the Zoom meeting by provider ID", pick)
+        self.assertIn("Only after the invitation has been fetched and verified may any hold be deleted", pick)
+        self.assertIn("Use `--with-meet` only for Google Meet", calendar)
+        self.assertIn("two independently claimed and verified ledger effects", action)
+
     def test_scheduling_outgoing_messages_contract(self) -> None:
         documents = {
             "scheduling": " ".join((ROOT / "skills/founder-scheduling/SKILL.md").read_text().split()),

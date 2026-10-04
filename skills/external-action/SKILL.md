@@ -78,6 +78,15 @@ cleanup protocol; save permission never grants deletion permission. Obtain
 specific approval in an authority-bearing turn and claim the exact unchanged draft before deleting,
 then verify absence. Provider failure never restores the cancelled approval.
 
+For a Zoom per-meeting invitation, keep two independently claimed and verified
+ledger effects in order: a product operation for `zoom_meeting` (provider ID and
+`join_url` read-back, with Zoom's own invitations disabled), then a calendar
+operation for `invitation` containing that URL. The exact plan also lists each
+hold deletion separately. Do not claim either effect complete from a creation
+receipt alone, retry an uncertain effect, or delete holds before the calendar
+invitation's event-ID read-back verifies time, attendees, and link. Provider
+access and calendar permissions still apply independently.
+
 For Gmail, text, or Plow, follow this protocol in the same turn whenever
 possible:
 

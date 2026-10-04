@@ -32,7 +32,16 @@ enough context exists to produce useful work. Collect, in order:
    private founder Plow destination. Show 15, 30 and 45 minutes and require an
    explicit choice; never assume a frequency. Declining or skipping this step
    leaves monitoring disabled;
-8. ask whether every prepared Gmail response should also be saved as a real draft
+8. ask once which video provider the founder uses for meetings: Google Meet or Zoom.
+   Persist `video_provider` through `profile.py set-video-preference`. For Zoom,
+   ask whether links use a reusable personal room (`zoom_link_mode=personal_room`)
+   or a new meeting each time (`zoom_link_mode=per_meeting`). For a personal
+   room, collect and persist its HTTPS Zoom URL as `zoom_personal_room_url`.
+   If unknown, leave the preference absent; never infer Google Meet. Reuse
+   these saved answers for later scheduling and ask again only when missing or
+   the founder changes them. A meeting-specific format approved by the founder
+   overrides this global preference.
+9. ask whether every prepared Gmail response should also be saved as a real draft
    in the founder's inbox for review. Persist the explicit answer as
    `save_gmail_drafts=true|false`. This controls founder-owned drafts only and
    never grants send permission. No product repo is required if scheduling is the
@@ -47,8 +56,16 @@ Use the existing helpers, which share one database:
 
 ```sh
 python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" show
+python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-preference --provider google_meet
+python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-preference --provider zoom --zoom-link-mode personal_room --zoom-personal-room-url 'https://zoom.us/my/example'
+python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-preference --provider zoom --zoom-link-mode per_meeting
 python3 "$HERMES_HOME/skills/founder-context/scripts/memory.py" list
 ```
+
+`show.preferences` returns typed strings for `video_provider`, `zoom_link_mode`,
+and `zoom_personal_room_url` only when configured. Switching to `per_meeting`
+removes the stored room URL; switching to Google Meet removes both Zoom keys.
+The helper validates the complete choice and saves it atomically.
 
 ## Memory
 
