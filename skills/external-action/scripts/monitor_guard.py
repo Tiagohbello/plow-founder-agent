@@ -7,6 +7,29 @@ from zoneinfo import ZoneInfo
 
 HOLD_FIELDS = ("account", "calendar", "start", "end", "timezone", "title",
                "description", "attendees", "send_updates", "transparency")
+TERMINAL_PIPELINE_STATUSES = {"passed", "do_not_contact", "withdrawn"}
+PIPELINE_STATUS_SET = {
+    "new", "waiting_on_us", "held", "sent", "waiting_on_them", "confirmed",
+    *TERMINAL_PIPELINE_STATUSES, "unverified",
+}
+
+
+def contact_fields(connection, contact_key):
+    row = connection.execute(
+        "SELECT data FROM monitor_contact WHERE contact_key=?", (contact_key,)
+    ).fetchone()
+    return json.loads(row["data"]).get("fields", {}) if row else None
+
+
+def require_contact_not_terminal(fields):
+    status = fields.get("status") if fields else None
+    normalized = " ".join(str(status or "").casefold().replace("_", " ").replace("-", " ").split())
+    terminal_labels = {
+        "passed", "declined", "not interested", "do not contact", "do not reach out",
+        "no further contact", "withdrawn", "offer withdrawn",
+    }
+    if status in TERMINAL_PIPELINE_STATUSES or normalized in terminal_labels:
+        raise ValueError(f"contact status {status} is terminal; monitor actions are disabled")
 
 
 def add_monitor_column(connection, table):
@@ -19,9 +42,14 @@ def add_monitor_column(connection, table):
 
 
 def require_current_contact(connection, row):
-    if not row["contact_key"].startswith("source:") and not connection.execute(
-            "SELECT 1 FROM monitor_contact WHERE contact_key=?", (row["contact_key"],)).fetchone():
+    if row["contact_key"].startswith("source:"):
+        return
+    fields = contact_fields(connection, row["contact_key"])
+    if fields is None:
         raise ValueError("contact is not in the latest verified pipeline read; re-read it first")
+    require_contact_not_terminal(fields)
+    if fields.get("status") not in PIPELINE_STATUS_SET:
+        raise ValueError("contact pipeline status is noncanonical; reconcile it before monitor actions")
 
 
 def require_proposal_draft(connection, row):
@@ -110,6 +138,10 @@ def monitor_item(connection, suggestion_id, approved=False):
     row = connection.execute("SELECT * FROM monitor_suggestion WHERE id=?", (suggestion_id,)).fetchone() if exists else None
     if row is None or row["status"] not in ("pending", "approved", "executing"):
         raise ValueError("monitor suggestion is missing, obsolete, or requires reconciliation")
+    if not row["contact_key"].startswith("source:"):
+        fields = contact_fields(connection, row["contact_key"])
+        if fields is not None:
+            require_contact_not_terminal(fields)
     if approved:
         if row["status"] not in ("approved", "executing") or not row["approval_ref"] or not row["validation_ref"]:
             raise ValueError("monitor action requires specific founder approval and fresh source/calendar validation")
@@ -127,6 +159,7 @@ def monitor_operation(connection, suggestion_id, scope, target=None, operation=N
     row = monitor_item(connection, suggestion_id)
     if row is None:
         return
+    require_current_contact(connection, row)
     payload = json.loads(row["payload"])
     plan = payload.get("calendar_plan", [])
     if scope != "calendar" or not isinstance(plan, list):

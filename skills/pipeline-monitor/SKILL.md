@@ -143,11 +143,16 @@ blockers, which is how advice went stale in one and errored in the other.
    not to read a page that does not exist.
 2. Read the page through Latch. A page that will not read is reported, not
    overwritten.
-3. After the read, run `page-update --id N [--file <facts.json>]` for
+3. After the read, run `page-update --id N [--file <facts.json>] [--current-file <current.json>]` for
    monitor-originated work. It answers for the contact, not the suggestion, so
    a later check cannot restore stale advice. For a direct founder request, run
    `page-update --contact-key KEY --file <facts.json>`; it validates facts but
-   deliberately leaves `next_step` untouched. The JSON file is an object with
+   deliberately leaves `next_step` untouched. It does not require a `contacts`
+   row. Whenever facts change `status` or `holds`, pass freshly read page
+   `status` and `holds` in `--current-file <current.json>`; this is required
+   when a direct page is absent from the contacts sync. Validation merges
+   current page facts with requested changes and checks resulting status/holds.
+   The facts JSON is an object with
    only verified fields among `status`, `holds`, and `proposed`. `status` must
    use the canonical enum in `founder-scheduling`; `holds` is an array of live
    `<account>/<calendar>/<event-id>` targets (use `[]` to clear, and never
@@ -167,6 +172,17 @@ blockers, which is how advice went stale in one and errored in the other.
    `plow_run_command(argv=["wiki", "validate", "--writer", "founder-agent"])` for
    pipeline pages, and `["wiki", "validate", "--writer", "shared"]` if you wrote an
    `entities/people/` page. Fix what it names, then validate again.
+
+## Reconcile legacy pipeline statuses
+
+Run `reconcile-pages` after the pipeline mirror is current. It reports exact
+canonical `status` updates for recognized labels and sends ambiguous statuses,
+`held` without verified holds, and `confirmed` with remaining holds to
+`manual_review`. It never changes `holds` or edits the mirror. For each reported
+update, re-read the page through Latch, run direct `page-update --contact-key
+KEY --file <facts.json> --current-file <current.json>`, then merge only the
+returned changes using Writing a contact's page steps. Leave manual-review pages
+unchanged until evidence resolves them.
 
 ## Each check
 
@@ -219,8 +235,12 @@ blockers, which is how advice went stale in one and errored in the other.
    Never transfer pages any other way: no archives, no base64, no `execute_code`,
    which cron blocks. A page is an identity, so there is nothing to disambiguate:
    the slug is the key. What it returns as `unlinked`, a page still not copied
-   included, is skipped rather than retried in a loop — prepare one clarification
-   alert for those, deduplicated by the slug. No wiki write while enumerating; the
+      included, is skipped rather than retried in a loop. Never prepare outreach,
+      drafts, holds, or clarification suggestions for `passed`, `do_not_contact`,
+      or `withdrawn` contacts. Noncanonical status pages stay unlinked until
+      `reconcile-pages` returns a safe canonical status update; unresolved or
+      inconsistent pages require manual review, and reconciliation never invents
+      holds. No wiki write while enumerating; the
    only write a check makes is step 6's.
 4. For each valid contact and configured source, run `window --contact-key KEY
    --source gmail|messages|plow`. Read the returned window, plus threads referenced

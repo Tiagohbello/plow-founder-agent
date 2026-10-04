@@ -429,6 +429,28 @@ class MonitorTests(unittest.TestCase):
             with self.subTest(status=status), self.assertRaisesRegex(ValueError, "status must be one of"):
                 monitor.validate_page_facts({"status": status})
 
+    def test_reconcile_pages_maps_known_prose_and_reports_unsafe_states(self):
+        target = "work@example.com/primary/hold-existing"
+        self.write_contact("prose-sent", status="Times sent")
+        self.write_contact("prose-waiting", status="Awaiting response")
+        self.write_contact("held-without-proof", status="Held")
+        self.write_contact("confirmed-with-hold", status="Meeting confirmed", holds=target)
+        self.write_contact("ambiguous", status="You replied on Tuesday")
+
+        first = monitor.reconcile_pipeline_pages(self.vault)
+        second = monitor.reconcile_pipeline_pages(self.vault)
+        self.assertEqual(first, second)
+        self.assertEqual(self.helper("pipeline-monitor", "monitor.py", "reconcile-pages"), first)
+        self.assertEqual({item["path"]: item["changes"] for item in first["updates"]}, {
+            f"{monitor.PIPELINE_ROOT}/prose-sent.md": {"status": "sent"},
+            f"{monitor.PIPELINE_ROOT}/prose-waiting.md": {"status": "waiting_on_them"},
+        })
+        manual = {item["path"]: item["reason"] for item in first["manual_review"]}
+        self.assertIn("no verified live hold targets", manual[f"{monitor.PIPELINE_ROOT}/held-without-proof.md"])
+        self.assertIn("verify cleanup manually", manual[f"{monitor.PIPELINE_ROOT}/confirmed-with-hold.md"])
+        self.assertIn("not a recognized", manual[f"{monitor.PIPELINE_ROOT}/ambiguous.md"])
+        self.assertTrue(all("holds" not in item["changes"] for item in first["updates"]))
+
     def test_holds_are_validated_deduplicated_and_formatted(self):
         targets = [
             "work@example.com/primary/hold-1",
@@ -483,6 +505,89 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(suggested["changes"]["holds"], "work@example.com/primary/hold-1")
         with self.assertRaisesRegex(ValueError, "only status, holds and proposed"):
             monitor.page_update(self.db, contact_key="alex", facts={"next_step": "invented"})
+
+    def test_page_update_checks_resulting_state_against_current_page(self):
+        target = "work@example.com/primary/live"
+        self.write_contact("alex", status="held", holds=target)
+        self.contacts()
+        with self.assertRaisesRegex(ValueError, "status held requires"):
+            monitor.page_update(self.db, contact_key="alex", facts={"holds": []})
+
+        self.write_contact("alex", status="confirmed", holds="")
+        self.contacts()
+        with self.assertRaisesRegex(ValueError, "status confirmed requires"):
+            monitor.page_update(self.db, contact_key="alex", facts={"holds": [target]})
+        update = monitor.page_update(self.db, contact_key="alex", facts={"status": "confirmed"})
+        self.assertEqual(update["changes"], {"status": "confirmed"})
+
+        # A fresh page read supplied by Latch takes precedence over a stale sync.
+        fresh = monitor.page_update(self.db, contact_key="alex", facts={"holds": [target]},
+                                    current_facts={"status": "held", "holds": target})
+        self.assertEqual(fresh["changes"], {"holds": target})
+        with self.assertRaisesRegex(ValueError, "status held requires"):
+            monitor.page_update(self.db, contact_key="alex", facts={"holds": []},
+                                current_facts={"status": "held", "holds": target})
+
+    def test_direct_contact_key_page_update_works_without_contact_row(self):
+        # The actual wiki page has been read through Latch, but no contacts sync
+        # has copied it into this database's mirror.
+        self.assertFalse((self.vault / monitor.PIPELINE_ROOT / "unsynced.md").exists())
+        self.assertIsNone(self.db.execute(
+            "SELECT 1 FROM monitor_contact WHERE contact_key='unsynced'"
+        ).fetchone())
+        facts_path = self.home / "unsynced-facts.json"
+        current_path = self.home / "unsynced-current.json"
+        facts_path.write_text(json.dumps({
+            "status": "held", "holds": ["work@example.com/primary/new-hold"],
+        }))
+        current_path.write_text(json.dumps({"status": "sent", "holds": ""}))
+        update = self.helper("pipeline-monitor", "monitor.py", "page-update",
+                             "--contact-key", "unsynced", "--file", str(facts_path),
+                             "--current-file", str(current_path))
+        self.assertEqual(update["path"], f"{monitor.PIPELINE_ROOT}/unsynced.md")
+        self.assertEqual(update["changes"], {
+            "status": "held", "holds": "work@example.com/primary/new-hold",
+        })
+        self.assertIsNone(self.db.execute(
+            "SELECT 1 FROM monitor_contact WHERE contact_key='unsynced'"
+        ).fetchone())
+
+    def test_terminal_statuses_block_contacts_observe_and_prepare(self):
+        for status in ("do_not_contact", "passed", "withdrawn"):
+            with self.subTest(status=status):
+                self.write_contact("alex", status="sent",
+                                   email="alex@example.com", phone="+1 415 555 0100",
+                                   holds="work@example.com/primary/hold-1; work@example.com/primary/hold-2")
+                self.contacts()
+                observed = monitor.observe(self.db, self.new_options_observation(
+                    evidence_refs=[f"gmail:{status}"], conversation_ref=f"gmail:{status}"
+                ))["suggestion"]
+
+                self.write_contact("alex", status=status,
+                                   holds="work@example.com/primary/hold-1; work@example.com/primary/hold-2")
+                # Model a just-read terminal status before the next contacts sweep.
+                saved = json.loads(self.db.execute(
+                    "SELECT data FROM monitor_contact WHERE contact_key='alex'"
+                ).fetchone()[0])
+                saved["fields"] = monitor.page(self.vault, monitor.PIPELINE_ROOT, "alex")
+                with self.db:
+                    self.db.execute("UPDATE monitor_contact SET data=? WHERE contact_key='alex'",
+                                    (monitor.canonical(saved),))
+                with self.assertRaisesRegex(ValueError, f"contact status {status} is terminal"):
+                    monitor.observe(self.db, self.new_options_observation(
+                        evidence_refs=[f"gmail:blocked:{status}"],
+                        conversation_ref=f"gmail:blocked:{status}"
+                    ))
+                self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
+                            "--suggestion-id", str(observed["id"]), ok=False)
+                self.helper("external-action", "drafts.py", "prepare", "--channel", "text",
+                            "--thread-id", "terminal-thread", "--recipient", "+14155550100",
+                            "--body", "Do not send", "--suggestion-id", str(observed["id"]), ok=False)
+                result = self.contacts()
+                self.assertNotIn("alex", [entry["contact_key"] for entry in result["contacts"]])
+                self.assertTrue(any("terminal pipeline status" in entry["reason"]
+                                    for entry in result["unlinked"]))
+                self.assertEqual(monitor.suggestion(self.db, observed["id"])["status"], "superseded")
 
     def test_a_check_may_write_the_advice_and_nothing_else(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]
