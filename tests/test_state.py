@@ -332,6 +332,27 @@ class FounderAgentStateTests(unittest.TestCase):
         ).stdout)
         self.assertEqual("approved", approved["operation"]["status"])
 
+    def test_typed_meeting_preferences(self) -> None:
+        preferences = self.video_preference("show")["preferences"]
+        self.assertNotIn("meeting", preferences)
+        preferences = self.video_preference(
+            "set-meeting-preferences", "--duration-minutes", "45", "--format", "in_person",
+            "--location", "Office", "--participant", "founder@example.com",
+            "--timezone", "America/Recife",
+        )["preferences"]
+        self.assertEqual({"duration_minutes": 45, "format": "in_person", "location": "Office",
+                          "participants": ["founder@example.com"], "timezone": "America/Recife"},
+                         preferences["meeting"])
+        invalid = self.video_preference(
+            "set-meeting-preferences", "--duration-minutes", "0", ok=False
+        )
+        self.assertEqual(2, invalid.returncode)
+        invalid_timezone = self.video_preference(
+            "set-meeting-preferences", "--timezone", "Not/A_Zone", ok=False
+        )
+        self.assertEqual(2, invalid_timezone.returncode)
+        self.assertEqual(preferences, self.video_preference("show")["preferences"])
+
     def test_video_preference_is_one_typed_json_value(self) -> None:
         preferences = self.video_preference("show")["preferences"]
         self.assertNotIn("video", preferences)

@@ -25,11 +25,13 @@ as a real draft in the founder's verified Gmail thread and verify that draft.
 A Gmail `new_options` proposal always requires that verified provider draft,
 regardless of the general preference, before any automatic hold can be claimed.
 For a valid persisted `new_options` suggestion, it may also create and verify
-the exact three planned `effect: hold` operations. It never sends a third-party
-message, creates an invitation, deletes a hold, or performs another calendar
-mutation without specific approval. It writes `next_step` as advice, appends
-each hold's exact provider event target to `holds` immediately after that hold
-is verified, and writes `status: held` only after all three are persisted and read back;
+its three exact `effect: hold` meeting segments and, for in-person meetings, both
+`effect: travel_hold` segments (`travel_before` and `travel_after`) per option.
+Every segment is attendee-free, private and busy. It never sends a third-party
+message, creates an invitation, deletes or converts a hold, or performs another
+calendar mutation without specific approval. It writes `next_step` as advice,
+appends each verified provider target to `holds` immediately after verification,
+and writes `status: held` only after every planned segment is persisted and read back;
 `proposed` still changes only after a verified send. Validate every factual page
 change through `page-update` before `wiki_page.merge`; take the returned changes,
 never compose them by hand.
@@ -325,17 +327,28 @@ chat, so write them to the founder -- "you replied", "your calendar", never thei
   "evidence_at": "2026-09-17T14:00:00Z",
   "evidence_summary": "Alex answered your Scheduling email: Thursday at 11:00; include a usable source link when available.",
   "action": "accepted",
+  "selected_option_id": "option-1",
   "summary": "Alex accepted your Tuesday 14:00 PT slot.",
   "next_step": "Create the video invitation. Approve?",
   "calendar_plan": [
     {
       "effect": "invitation",
       "target": "founder@example.com/primary/new",
-      "intent": "Scheduling with Alex; 2026-09-22 14:00–14:30 America/Los_Angeles; guest alex@example.com; video; send invitation"
+      "intent": "{\"account\":\"founder@example.com\",\"calendar\":\"primary\",\"start\":\"2026-09-22T14:00:00-07:00\",\"end\":\"2026-09-22T14:30:00-07:00\",\"timezone\":\"America/Los_Angeles\",\"title\":\"Meeting with Alex\",\"description\":\"Confirmed video meeting\",\"format\":\"video\",\"location\":null,\"attendees\":[\"alex@example.com\"],\"send_updates\":\"all\",\"transparency\":\"opaque\"}"
     },
     {
       "effect": "delete_hold",
       "target": "founder@example.com/primary/hold-1",
+      "intent": "Delete verified sibling hold after invitation verification"
+    },
+    {
+      "effect": "delete_hold",
+      "target": "founder@example.com/primary/hold-2",
+      "intent": "Delete verified sibling hold after invitation verification"
+    },
+    {
+      "effect": "delete_hold",
+      "target": "founder@example.com/primary/hold-3",
       "intent": "Delete verified sibling hold after invitation verification"
     }
   ],
@@ -353,24 +366,46 @@ chat, so write them to the founder -- "you replied", "your calendar", never thei
 not a separate email. `action` is one of `accepted`, `new_options`, `modality`,
 `cancellation`, `conflict`, `clarification`, `blocked`. `conversation_context`
 identifies the channel, contact and conversation in readable form.
-`calendar_plan` is an ordered list of exact `{effect, target, intent}`
-entries, where `effect` is `hold`, `invitation`, or `delete_hold`;
-omit it (or use `[]`) only when proposing no calendar operation. The helper renders
-each entry in the notice. Include account/calendar and exact event identity in
-`target`; put title, dates, timezone, guests, modality, invitation behavior and
-all intended changes in `intent`. The helper derives the provider operation
-from `effect`; observations never supply a second discriminator. The three
-automatic hold
-entries share the available configured default calendar's `/new` target and
-differ by intent. Each hold intent is JSON containing exactly `account`,
-`calendar`, `start`, `end`, `timezone`, `title`, empty `attendees`,
-`description: "Tentative — no invitation sent"`, `send_updates: "none"`, and
-`transparency: "opaque"`; hold-deletion targets are
-unique event identities.
-`new_options` requires exactly three `hold` entries and a draft. `accepted`
-requires `invitation` first, followed by `delete_hold` entries whose target set
-exactly matches the provider event targets recorded on the contact page. Use
-only provider-supported concrete operations; do not hide extra actions in prose.
+`meeting_details` is required for `new_options` and contains exact
+`duration_minutes`, `format` (`video`, `phone`, `in_person`), `location` (null
+only for non-in-person meetings), `participants` (nonempty verified identities), `timezone`, and nonempty
+`evidence_refs`; `city` may be included when known. Meeting-detail refs must
+also occur in the observation's `evidence_refs`; each participant identity
+must be verified against those conversation/profile/history sources. Resolve
+facts by canonical precedence in
+`founder-scheduling`; do not emit an offer while ambiguous or missing required
+facts.
+
+`calendar_plan` is an ordered list of `{effect, target, intent}` entries. Hold
+segments also require `option_id` and `segment`; the helper adds derived
+`operation` from `effect`. Effects are `hold`, `travel_hold`, `invitation`,
+`convert_travel`, and `delete_hold`; omit a plan only when proposing no calendar
+operation. Include account/calendar and exact event identity in `target`; put
+title, dates, timezone, guests, modality, invitation behavior and all intended
+changes in `intent`. The three `new_options` meeting holds each use `segment:
+meeting` and a distinct `option_id`. In-person plans add one `travel_before` and
+one `travel_after` `travel_hold` per option. Travel intervals directly bound the
+meeting; availability checks cover travel + meeting + return travel, and all
+nine busy intervals must be mutually non-overlapping before persistence. All
+hold intents are JSON containing exactly `account`, `calendar`, `start`, `end`,
+`timezone`, `title`, `description: "Tentative — no invitation sent"`, empty
+`attendees`, `send_updates: "none"`, `transparency: "opaque"`, and `visibility: "private"`. Travel hold
+titles start `TRAVEL HOLD — `; they remain attendee-free and private.
+
+`new_options` requires exactly three meeting holds, both travel segments per
+in-person option, `meeting_details`, and a prepared draft. Every segment uses
+the configured default calendar's `/new` target. `accepted` requires
+`invitation` first; for every persisted offered Pick, include its exact
+`selected_option_id` and structured invitation intent carrying the selected
+meeting hold's account/calendar/start/end/timezone, verified format, location,
+verified attendees, `send_updates: all`, and `transparency: opaque`. If the
+accepted offer has travel segments, convert only that option's two travel
+targets via `convert_travel` (using exact conversion title `TRAVEL — <Contact> / <Firm>` or `TRAVEL — <Contact>`), then delete every other live target (including the winning meeting hold); otherwise delete all live sibling holds. A conversion keeps the same
+account, calendar, interval, busy visibility and no attendees. The complete
+conversion/deletion target sets are validated against the completed persisted
+offer and the contact's live `holds`. Use only provider-supported concrete
+operations; do not hide extra actions in prose.
+
 Deduplication uses source evidence, not generated wording. Keep `conversation_ref`
 stable across replies so new evidence supersedes earlier advice. Use the newest
 message timestamp and include every relevant message ref in `evidence_refs`.
@@ -384,14 +419,15 @@ if it recurs later, include the new incident's source evidence reference.
 ## Execution boundaries
 
 During the scheduled check, a valid `new_options` suggestion may prepare, claim,
-execute, fetch, and finish only its three exact `hold` entries. Execute them in
-plan order through `external-action`; for Gmail, save and verify the provider
-draft first. Uncertainty stops the remaining holds. After each hold is verified,
+execute, fetch, and finish only its exact meeting and planned travel hold entries.
+Execute them in plan order through `external-action`; for Gmail, save and verify
+the provider draft first. Uncertainty stops the remaining segments. After each
+hold is verified,
 append its fetched `<account>/<calendar>/<event-id>` target to `holds` through
 § Writing a contact's page. Then repeat Each check step 3's listing, copy, and
 `contacts --listing` refresh so the verified page replaces the local contact
-mirror before preparing the next hold. Set `status: held` only after all three
-are recorded. The linked communication draft remains unsent and unapproved.
+mirror before preparing the next segment. Set `status: held` only after all
+planned meeting/travel targets are recorded. The linked communication draft remains unsent and unapproved.
 No other pending suggestion permits a calendar claim.
 
 Everything below is foreground only.
@@ -422,16 +458,18 @@ never reuse their approval. Then follow existing `external-action`:
 - Every calendar operation originating here must pass `--suggestion-id N` to
   `operations.py prepare` without `target`, `operation`, or `intent`; the ledger
   selects the next incomplete entry from the persisted ordered plan. Then
-  approve/claim normally. Apart from the exact
-  three automatic `hold` entries above, this overrides a broad autonomous
+  approve/claim normally. Apart from the three automatic meeting holds and
+  required in-person travel holds, this overrides a broad autonomous
   calendar policy with approval, never a forbidden policy.
   Use the returned entry's exact parameters for the provider call. The helper
   rechecks that entry at approval and claim; any change requires
   a new observation/notice and approval. Execute only those exact parameters via
   the published calendar capability. No linked product operation is allowed.
-- For an accepted slot, create and fetch the real invitation first, then delete
-  its verified sibling holds. Keep per-operation ledger records so partial
-  completion cannot duplicate an invitation. On uncertainty, stop remaining
+- For an accepted slot, create and fetch the real invitation first. If the
+  persisted option includes travel, convert its verified before/after blocks,
+  then delete all remaining sibling holds; otherwise delete all sibling holds.
+  Keep per-operation ledger records so partial completion cannot duplicate an
+  invitation. On uncertainty, stop remaining
   actions, reconcile the existing operation and report what actually happened.
 - Update the page's factual fields — `status`, `holds`, `proposed` — only after
   verified execution, through the same read/merge/write/read-back path. If the

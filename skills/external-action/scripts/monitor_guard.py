@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 
 HOLD_FIELDS = ("account", "calendar", "start", "end", "timezone", "title",
-               "description", "attendees", "send_updates", "transparency")
+               "description", "attendees", "send_updates", "transparency", "visibility")
 TERMINAL_PIPELINE_STATUSES = {"passed", "do_not_contact", "withdrawn"}
 PIPELINE_STATUS_SET = {
     "new", "waiting_on_us", "held", "sent", "waiting_on_them", "confirmed",
@@ -198,36 +198,64 @@ def require_proposal_draft(connection, row):
         raise ValueError("automatic holds require a verified saved Gmail draft")
 
 
-def parse_hold_intent(intent, target):
+def _parse_private_calendar_block(intent, *, attendees_error, title_check):
     try:
-        hold = json.loads(intent)
+        data = json.loads(intent)
     except (TypeError, json.JSONDecodeError) as error:
-        raise ValueError("automatic hold intent must be structured JSON") from error
-    if not isinstance(hold, dict) or set(hold) != set(HOLD_FIELDS):
-        raise ValueError("automatic hold requires exact structured calendar parameters")
-    if hold["attendees"] != [] or hold["send_updates"] != "none" or hold["transparency"] != "opaque":
-        raise ValueError("automatic holds must be busy, attendee-free, with notifications off")
-    if hold["description"] != "Tentative — no invitation sent":
-        raise ValueError("automatic hold description must be Tentative — no invitation sent")
-    if any(not isinstance(hold[key], str) or not hold[key].strip()
+        raise ValueError("calendar block intent must be structured JSON") from error
+    if not isinstance(data, dict) or set(data) != set(HOLD_FIELDS):
+        raise ValueError("calendar block requires exact structured calendar parameters")
+    if (data["attendees"] != [] or data["send_updates"] != "none"
+            or data["transparency"] != "opaque" or data["visibility"] != "private"):
+        raise ValueError(attendees_error)
+    if any(not isinstance(data[key], str) or not data[key].strip()
            for key in HOLD_FIELDS if key != "attendees"):
-        raise ValueError("automatic hold fields must be nonblank strings")
+        raise ValueError("calendar block fields must be nonblank strings")
     try:
-        zone = ZoneInfo(hold["timezone"])
-        start = datetime.fromisoformat(hold["start"].replace("Z", "+00:00"))
-        end = datetime.fromisoformat(hold["end"].replace("Z", "+00:00"))
+        zone = ZoneInfo(data["timezone"])
+        start = datetime.fromisoformat(data["start"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(data["end"].replace("Z", "+00:00"))
     except (KeyError, ValueError) as error:
-        raise ValueError("automatic hold times must use valid ISO timestamps and timezone") from error
+        raise ValueError("calendar block times must use valid ISO timestamps and timezone") from error
     if start.tzinfo is None or end.tzinfo is None:
-        raise ValueError("automatic hold times must include a timezone")
+        raise ValueError("calendar block times must include a timezone")
     if start >= end or any(moment.utcoffset() != moment.astimezone(zone).utcoffset()
                            for moment in (start, end)):
-        raise ValueError("automatic hold times must be ordered and match their timezone")
-    if not hold["title"].startswith("HOLD — "):
-        raise ValueError("automatic hold title must identify a HOLD")
+        raise ValueError("calendar block times must be ordered and match their timezone")
+    title_check(data["title"])
+    return {key: data[key] for key in HOLD_FIELDS}
+
+
+def parse_hold_intent(intent, target, *, title_prefix="HOLD — "):
+    def check_title(title):
+        if not title.startswith(title_prefix):
+            raise ValueError("automatic hold title must identify the correct hold segment")
+
+    hold = _parse_private_calendar_block(
+        intent,
+        attendees_error="automatic holds must be private, busy, attendee-free, with notifications off",
+        title_check=check_title,
+    )
+    if hold["description"] != "Tentative — no invitation sent":
+        raise ValueError("automatic hold description must be Tentative — no invitation sent")
     if target != f"{hold['account']}/{hold['calendar']}/new":
         raise ValueError("automatic hold target must match its account and calendar")
-    return {key: hold[key] for key in HOLD_FIELDS}
+    return hold
+
+
+def parse_travel_conversion(intent, target):
+    def check_title(title):
+        if not title.startswith("TRAVEL — "):
+            raise ValueError("converted travel event title must identify travel")
+
+    event = _parse_private_calendar_block(
+        intent,
+        attendees_error="travel blocks must remain private, busy and attendee-free",
+        title_check=check_title,
+    )
+    if target.rsplit("/", 1)[-1] in {"", "new"}:
+        raise ValueError("travel conversion target must identify an existing provider event")
+    return event
 
 
 def require_default_calendar(connection, target):
@@ -252,7 +280,7 @@ def next_plan_entry(connection, row, plan):
         ).fetchone()
         if completed is None:
             return entry
-        if entry["effect"] != "hold":
+        if entry["effect"] not in ("hold", "travel_hold"):
             continue
         contact = connection.execute(
             "SELECT data FROM monitor_contact WHERE contact_key=?", (row["contact_key"],)
@@ -302,7 +330,7 @@ def monitor_operation(connection, suggestion_id, scope, target=None, operation=N
     if scope != "calendar" or not isinstance(plan, list):
         raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")
     if any(not isinstance(entry, dict)
-           or entry.get("effect") not in ("hold", "invitation", "delete_hold")
+           or entry.get("effect") not in ("hold", "travel_hold", "invitation", "delete_hold", "convert_travel")
            for entry in plan):
         raise ValueError("monitor calendar plan entries require a canonical effect")
     entry = next_plan_entry(connection, row, plan)
@@ -310,12 +338,16 @@ def monitor_operation(connection, suggestion_id, scope, target=None, operation=N
     if target is not None and any(entry[key] != value for key, value in exact.items()):
         raise ValueError("operation differs from the displayed monitor calendar plan; request fresh approval")
     config = connection.execute("SELECT enabled FROM monitor_config WHERE id=1").fetchone()
-    automatic_hold = (payload.get("action") == "new_options" and entry["effect"] == "hold"
+    automatic_hold = (payload.get("action") == "new_options"
+                      and entry["effect"] in ("hold", "travel_hold")
                       and config is not None and config["enabled"] == 1)
     if automatic_hold:
-        parse_hold_intent(entry["intent"], entry["target"])
+        parse_hold_intent(entry["intent"], entry["target"],
+                          title_prefix="TRAVEL HOLD — " if entry["effect"] == "travel_hold" else "HOLD — ")
         require_proposal_draft(connection, row)
         require_default_calendar(connection, entry["target"])
+    if entry["effect"] == "convert_travel":
+        parse_travel_conversion(entry["intent"], entry["target"])
     if approved:
         if automatic_hold:
             require_current_contact(connection, row)

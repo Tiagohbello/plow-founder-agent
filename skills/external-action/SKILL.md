@@ -22,7 +22,7 @@ operations are always forbidden.
 Calendar operations without a validated pipeline-monitor link are
 approval-required even when Founder Profile carries a broader autonomous
 calendar policy. The only automatic calendar authorization is an exact validated
-`new_options` hold; `forbidden` is rechecked immediately before every claim.
+`new_options` meeting or travel hold; `forbidden` is rechecked immediately before every claim.
 For direct drafts or calendar operations whose recipient, target, or context is a
 pipeline contact, pass `--contact-key <page-slug>`. Direct drafts also resolve an
 exact recipient handle; direct operations resolve a page slug or verified
@@ -59,10 +59,11 @@ draft id; calendar
 the persisted, displayed plan. Approval and claim recheck that exact entry.
 Use the plan's exact parameters for the provider call. Changed parameters need
 a new suggestion and founder approval. Linked product writes are not permitted.
-While a suggestion is pending, only an exact `effect: hold` operation on a
-`new_options` plan may be claimed; the guard still rejects changed parameters,
+While a suggestion is pending, only an exact `effect: hold` or
+`effect: travel_hold` operation on a `new_options` plan may be claimed; the guard
+still rejects changed parameters,
 non-default calendar destinations, obsolete work, unlinked contacts at claim,
-guests, notifications, non-busy visibility, malformed times, and forbidden
+guests, notifications, non-private/non-busy visibility, malformed times, and forbidden
 calendar policy. Every other
 linked operation requires the suggestion's specific foreground approval, even
 with autonomous calendar policy. During a scheduled check, the only permitted
@@ -84,8 +85,7 @@ link must be created under
 `video.provider=zoom` and `video.link_mode=per_meeting` — never when a valid,
 agreed guest-supplied Zoom link already exists — keep two independently claimed
 and verified ledger operations in order: a standalone product operation for
-`zoom_meeting`
-with `--contact-key` and no `--suggestion-id` (provider ID and `join_url`
+`zoom_meeting` with `--contact-key` and no `--suggestion-id` (provider ID and `join_url`
 read-back, with Zoom's own invitations disabled), then a monitor-linked calendar
 operation for `invitation` containing that verified URL. The persisted monitor
 calendar plan starts with `effect: invitation` and lists each `effect: delete_hold`
@@ -95,6 +95,12 @@ approval after product verification. Do not claim either operation complete
 from a creation receipt alone, retry an uncertain effect, or delete holds before the calendar
 invitation's event-ID read-back verifies time, attendees, and link. Provider
 access and calendar permissions still apply independently.
+
+For a picked in-person scheduling option, the calendar plan claims the real
+invitation first, then exact `convert_travel` updates for the winning option's
+before/after targets, then `delete_hold` operations for all remaining live
+holds. Each ledger entry preserves the associated `option_id` and segment in the
+persisted suggestion. Reconcile partial/uncertain work before continuing.
 
 For Gmail, text, or Plow, follow this protocol in the same turn whenever
 possible:

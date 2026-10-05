@@ -47,6 +47,9 @@ enough context exists to produce useful work. Collect, in order:
    `save_gmail_drafts=true|false`. This controls founder-owned drafts only and
    never grants send permission. No product repo is required if scheduling is the
    founder's first useful task.
+10. Save explicit reusable meeting defaults only when Tiago supplies them:
+duration, format, location, participants, timezone and city. Unknown fields stay
+absent; never populate participants or location by guessing.
 
 Never scan arbitrary Mac directories or request secrets in chat. Test configured
 access through Latch and record `available`, `blocked`, or `unconfigured` with
@@ -60,15 +63,19 @@ python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" show
 python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-preference --provider google_meet
 python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-preference --provider zoom --zoom-link-mode personal_room --zoom-personal-room-url 'https://zoom.us/my/example'
 python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-preference --provider zoom --zoom-link-mode per_meeting
+python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-meeting-preferences --duration-minutes 30 --format video --timezone America/Recife --city Recife
 python3 "$HERMES_HOME/skills/founder-context/scripts/memory.py" list
 ```
+
+`show.preferences.meeting` contains only the typed defaults the founder
+explicitly saved; update fields with `set-meeting-preferences` and leave unknowns
+absent.
 
 `show.preferences.video` returns one JSON object: `{"provider":"google_meet"}`
 or `{"provider":"zoom","link_mode":"personal_room","personal_room_url":"https://zoom.us/my/example"}`
 or `{"provider":"zoom","link_mode":"per_meeting"}`. Each update replaces
 the complete object, so switching modes cannot retain stale Zoom fields. The
 helper validates the complete choice and saves it atomically.
-
 ## Memory
 
 Store durable customers, features, decisions, goals, commitments, risks, and

@@ -127,18 +127,25 @@ class MonitorTests(unittest.TestCase):
             action="new_options",
             summary="You owe Alex times.",
             next_step="Three held options are drafted. Review and send?",
+            meeting_details={"duration_minutes": 30, "format": "video", "location": None,
+                             "participants": ["alex@example.com"],
+                             "timezone": "America/Los_Angeles", "evidence_refs": ["gmail:message-1"]},
             calendar_plan=[
-                {"effect": "hold", "target": "work@example.com/primary/new",
-                 "intent": json.dumps(self.hold())},
-                {"effect": "hold", "target": "work@example.com/primary/new",
+                {"effect": "hold", "option_id": "option-1", "segment": "meeting",
+                 "target": "work@example.com/primary/new", "intent": json.dumps(self.hold())},
+                {"effect": "hold", "option_id": "option-2", "segment": "meeting",
+                 "target": "work@example.com/primary/new",
                  "intent": json.dumps(self.hold(start="2026-09-23T12:00:00-07:00",
                                                  end="2026-09-23T12:30:00-07:00"))},
-                {"effect": "hold", "target": "work@example.com/primary/new",
+                {"effect": "hold", "option_id": "option-3", "segment": "meeting",
+                 "target": "work@example.com/primary/new",
                  "intent": json.dumps(self.hold(start="2026-09-24T12:00:00-07:00",
                                                  end="2026-09-24T12:30:00-07:00"))},
             ],
         )
         value.update(changes)
+        if "evidence_refs" in changes and "meeting_details" not in changes:
+            value["meeting_details"]["evidence_refs"] = list(changes["evidence_refs"])
         return value
 
     def hold(self, **changes):
@@ -147,8 +154,33 @@ class MonitorTests(unittest.TestCase):
             "start": "2026-09-22T12:00:00-07:00", "end": "2026-09-22T12:30:00-07:00",
             "timezone": "America/Los_Angeles", "title": "HOLD — Alex / Example",
             "description": "Tentative — no invitation sent",
-            "attendees": [], "send_updates": "none", "transparency": "opaque",
+            "attendees": [], "send_updates": "none", "transparency": "opaque", "visibility": "private",
         }
+        value.update(changes)
+        return value
+
+    def in_person_options_observation(self, **changes):
+        days = ("2026-09-22", "2026-09-23", "2026-09-24")
+        plan = []
+        for index, day in enumerate(days, start=1):
+            option_id = f"option-{index}"
+            intervals = (
+                ("travel_before", f"{day}T11:30:00-07:00", f"{day}T12:00:00-07:00"),
+                ("meeting", f"{day}T12:00:00-07:00", f"{day}T12:30:00-07:00"),
+                ("travel_after", f"{day}T12:30:00-07:00", f"{day}T13:00:00-07:00"),
+            )
+            for segment, start, end in intervals:
+                effect = "hold" if segment == "meeting" else "travel_hold"
+                title = "HOLD — Alex / Example" if segment == "meeting" else "TRAVEL HOLD — Alex / Example"
+                intent = self.hold(start=start, end=end, title=title)
+                plan.append({"effect": effect, "option_id": option_id, "segment": segment,
+                             "target": "work@example.com/primary/new", "intent": json.dumps(intent)})
+        value = self.new_options_observation(
+            meeting_details={"duration_minutes": 30, "format": "in_person", "location": "Office",
+                             "participants": ["alex@example.com"],
+                             "timezone": "America/Los_Angeles", "evidence_refs": ["gmail:message-1"]},
+            calendar_plan=plan,
+        )
         value.update(changes)
         return value
 
@@ -167,6 +199,25 @@ class MonitorTests(unittest.TestCase):
         return monitor.decide(self.db, item["id"], {"evidence_refs": item["payload"]["evidence_refs"],
             "notice_id": notice["notice_id"],
             "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"})
+
+    def materialize_calendar_plan(self, item, event_prefix):
+        plan = item["payload"]["calendar_plan"]
+        live_targets = []
+        for index, entry in enumerate(plan, start=1):
+            operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
+                                    "--suggestion-id", str(item["id"]))["operation"]
+            self.assertEqual(operation["target"], entry["target"])
+            self.helper("external-action", "operations.py", "claim", "--id", str(operation["id"]))
+            event_id = f"{event_prefix}-{index}"
+            self.helper("external-action", "operations.py", "finish", "--id", str(operation["id"]),
+                        "--outcome", "completed", "--external-ref", event_id,
+                        "--evidence", f"calendar:verified:{event_id}")
+            target = f"work@example.com/primary/{event_id}"
+            live_targets.append(target)
+            self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
+                               status="held", holds="; ".join(live_targets))
+            self.contacts()
+        return live_targets
 
     def test_opt_in_reconfigure_pause_restart_and_recover_creation(self):
         self.assertFalse(monitor.show(self.db)["enabled"])
@@ -898,6 +949,156 @@ class MonitorTests(unittest.TestCase):
         monitor.supersede(self.db, item["id"])
         self.assertEqual(monitor.page_update(self.db, item["id"])["changes"], {"next_step": ""})
 
+    def test_in_person_options_reserve_full_travel_intervals_and_pick_preserves_only_winner(self):
+        self.enable_monitor()
+        proposal = self.in_person_options_observation(draft={
+            "channel": "plow", "thread_id": "plow-thread-1", "recipient": "alex@example.com",
+            "body": "Could you meet at one of these times?",
+        })
+        item = monitor.observe(self.db, proposal)["suggestion"]
+        plan = item["payload"]["calendar_plan"]
+        self.assertEqual([entry["effect"] for entry in plan],
+                         ["travel_hold", "hold", "travel_hold"] * 3)
+        self.assertEqual([entry["segment"] for entry in plan[:3]],
+                         ["travel_before", "meeting", "travel_after"])
+
+        live_targets = self.materialize_calendar_plan(item, "travel-option-event")
+
+        winner = "option-2"
+        winning = {entry["segment"]: entry for entry in plan if entry.get("option_id") == winner}
+        conversion = []
+        for segment in ("travel_before", "travel_after"):
+            source = winning[segment]
+            event_index = plan.index(source) + 1
+            intent = json.loads(source["intent"])
+            intent.update(title="TRAVEL — Alex / Example", description="Confirmed travel time for Alex meeting")
+            conversion.append({"effect": "convert_travel", "option_id": winner, "segment": segment,
+                               "target": f"work@example.com/primary/travel-option-event-{event_index}",
+                               "intent": json.dumps(intent)})
+        preserved = {entry["target"] for entry in conversion}
+        deletes = [{"effect": "delete_hold", "target": target,
+                    "intent": "Delete non-winning or meeting hold after verified invitation"}
+                   for target in live_targets if target not in preserved]
+        meeting = json.loads(winning["meeting"]["intent"])
+        invitation = {key: meeting[key] for key in ("account", "calendar", "start", "end", "timezone")}
+        invitation.update(title="Meeting with Alex", description="Confirmed in-person meeting",
+                          format="in_person", location="Office", attendees=["alex@example.com"],
+                          send_updates="all", transparency="opaque")
+        accepted_plan = [
+            {"effect": "invitation", "target": "work@example.com/primary/new",
+             "intent": json.dumps(invitation)},
+            *conversion, *deletes,
+        ]
+        accepted = self.observation(action="accepted", selected_option_id=winner,
+                                    evidence_refs=["gmail:pick-option-2"],
+                                    evidence_at="2026-09-20T14:00:00Z",
+                                    summary="Alex picked option 2.",
+                                    calendar_plan=accepted_plan)
+        picked = monitor.observe(self.db, accepted)["suggestion"]["payload"]["calendar_plan"]
+        self.assertEqual({entry["target"] for entry in picked if entry["effect"] == "convert_travel"}, preserved)
+        self.assertEqual({entry["target"] for entry in picked if entry["effect"] == "delete_hold"},
+                         set(live_targets) - preserved)
+
+        with self.assertRaisesRegex(ValueError, "convert exactly the winning option travel holds"):
+            monitor.normalize_calendar_plan(
+                "accepted", [accepted_plan[0], conversion[0], *deletes], None,
+                json.loads(self.db.execute("SELECT data FROM monitor_contact WHERE contact_key='alex'").fetchone()[0]),
+                selected_option_id=winner, db=self.db, contact_key="alex",
+                conversation_ref="gmail:thread-1",
+            )
+        wrong_time = json.loads(json.dumps(accepted))
+        wrong_plan = wrong_time["calendar_plan"]
+        changed_invitation = json.loads(wrong_plan[0]["intent"])
+        changed_invitation["start"] = "2026-09-23T13:00:00-07:00"
+        changed_invitation["end"] = "2026-09-23T13:30:00-07:00"
+        wrong_plan[0]["intent"] = json.dumps(changed_invitation)
+        wrong_time.update(evidence_refs=["gmail:pick-mismatched-slot"],
+                          evidence_at="2026-09-20T15:00:00Z")
+        with self.assertRaisesRegex(ValueError, "invitation interval must match"):
+            monitor.observe(self.db, wrong_time)
+
+    def test_video_pick_requires_selected_option_id_and_matching_invitation_interval(self):
+        self.enable_monitor()
+        proposal = self.new_options_observation(draft={
+            "channel": "plow", "thread_id": "plow-thread-1", "recipient": "alex@example.com",
+            "body": "Could you meet at one of these times?",
+        })
+        item = monitor.observe(self.db, proposal)["suggestion"]
+        plan = item["payload"]["calendar_plan"]
+        live_targets = self.materialize_calendar_plan(item, "video-option-event")
+
+        winner = "option-2"
+        winning = [entry for entry in plan if entry.get("option_id") == winner][0]
+        meeting = json.loads(winning["intent"])
+        invitation = {key: meeting[key] for key in ("account", "calendar", "start", "end", "timezone")}
+        invitation.update(title="Meeting with Alex", description="Confirmed video meeting",
+                          format="video", location=None, attendees=["alex@example.com"],
+                          send_updates="all", transparency="opaque")
+        deletes = [{"effect": "delete_hold", "target": target,
+                    "intent": "Delete tentative hold after verified invitation"}
+                   for target in live_targets]
+        accepted_plan = [
+            {"effect": "invitation", "target": "work@example.com/primary/new",
+             "intent": json.dumps(invitation)},
+            *deletes,
+        ]
+        missing_id = self.observation(action="accepted",
+                                      evidence_refs=["gmail:pick-option-2"],
+                                      evidence_at="2026-09-20T14:00:00Z",
+                                      summary="Alex picked option 2.",
+                                      calendar_plan=accepted_plan)
+        with self.assertRaisesRegex(ValueError, "selected_option_id"):
+            monitor.observe(self.db, missing_id)
+
+        wrong_time = json.loads(json.dumps(accepted_plan))
+        bad_invite = json.loads(wrong_time[0]["intent"])
+        bad_invite["start"] = "2026-09-23T13:00:00-07:00"
+        bad_invite["end"] = "2026-09-23T13:30:00-07:00"
+        wrong_time[0]["intent"] = json.dumps(bad_invite)
+        mismatched_interval = self.observation(action="accepted", selected_option_id=winner,
+                                               evidence_refs=["gmail:pick-option-2-bad"],
+                                               evidence_at="2026-09-20T14:05:00Z",
+                                               summary="Alex picked mismatched time.",
+                                               calendar_plan=wrong_time)
+        with self.assertRaisesRegex(ValueError, "invitation interval must match the selected option_id"):
+            monitor.observe(self.db, mismatched_interval)
+
+        valid_accepted = self.observation(action="accepted", selected_option_id=winner,
+                                          evidence_refs=["gmail:pick-option-2"],
+                                          evidence_at="2026-09-20T14:00:00Z",
+                                          summary="Alex picked option 2.",
+                                          calendar_plan=accepted_plan)
+        picked = monitor.observe(self.db, valid_accepted)["suggestion"]["payload"]["calendar_plan"]
+        self.assertEqual({entry["target"] for entry in picked if entry["effect"] == "delete_hold"},
+                         set(live_targets))
+
+    def test_new_options_require_valid_timezone_and_evidence_backed_details(self):
+        invalid_timezone = self.new_options_observation()
+        invalid_timezone["meeting_details"]["timezone"] = "Not/A_Zone"
+        with self.assertRaisesRegex(ValueError, "IANA timezone"):
+            monitor.observe(self.db, invalid_timezone)
+        missing_evidence = self.new_options_observation()
+        missing_evidence["meeting_details"]["evidence_refs"] = ["wiki:unlisted-source"]
+        with self.assertRaisesRegex(ValueError, "included in observation evidence_refs"):
+            monitor.observe(self.db, missing_evidence)
+
+    def test_in_person_plan_rejects_missing_or_overlapping_travel_segments(self):
+        proposal = self.in_person_options_observation()
+        missing = {**proposal, "calendar_plan": proposal["calendar_plan"][:-1]}
+        with self.assertRaisesRegex(ValueError, "both travel holds"):
+            monitor.observe(self.db, missing)
+        overlapping = json.loads(json.dumps(proposal))
+        for index, start, end in (
+            (3, "2026-09-22T12:15:00-07:00", "2026-09-22T12:45:00-07:00"),
+            (4, "2026-09-22T12:45:00-07:00", "2026-09-22T13:15:00-07:00"),
+            (5, "2026-09-22T13:15:00-07:00", "2026-09-22T13:45:00-07:00"),
+        ):
+            overlap_intent = json.loads(overlapping["calendar_plan"][index]["intent"])
+            overlap_intent.update(start=start, end=end)
+            overlapping["calendar_plan"][index]["intent"] = json.dumps(overlap_intent)
+        with self.assertRaisesRegex(ValueError, "may not overlap across offered options"):
+            monitor.observe(self.db, overlapping)
+
     def test_new_options_requires_three_holds_and_a_draft(self):
         valid = self.new_options_observation()
         self.assertEqual(len(monitor.observe(self.db, valid)["suggestion"]["payload"]["calendar_plan"]), 3)
@@ -959,7 +1160,8 @@ class MonitorTests(unittest.TestCase):
         for changed_hold, message in (
             (self.hold(attendees=["alex@example.com"]), "attendee-free"),
             (self.hold(send_updates="all"), "notifications off"),
-            (self.hold(transparency="transparent"), "busy"),
+            (self.hold(transparency="transparent"), "private, busy"),
+            (self.hold(visibility="public"), "private, busy"),
             (self.hold(description="Tentative"), "Tentative — no invitation sent"),
             (self.hold(account="other@example.com"), "target must match"),
             (self.hold(timezone="Not/A_Zone"), "valid ISO timestamps and timezone"),

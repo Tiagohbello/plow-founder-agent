@@ -12,6 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+SCHEDULING_SCRIPTS = Path(__file__).resolve().parents[2] / "founder-scheduling" / "scripts"
+if str(SCHEDULING_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCHEDULING_SCRIPTS))
+from meeting import MEETING_FORMATS, normalize_meeting_preferences
+
 
 SOURCE_KINDS = ("gmail", "github", "sentry")
 SOURCE_STATUSES = ("available", "blocked", "unconfigured")
@@ -71,6 +76,10 @@ def preference_value(value: str) -> str:
     if value not in ("true", "false"):
         raise ValueError("preference value must be true or false")
     return value
+
+
+def meeting_preferences(values: dict) -> dict:
+    return normalize_meeting_preferences(values)
 
 
 def web_url(value: str | None) -> str:
@@ -386,6 +395,27 @@ def run(args: argparse.Namespace) -> dict:
         elif args.operation == "set-video-preference":
             set_video_preference(connection, args.provider, args.zoom_link_mode,
                                  args.zoom_personal_room_url, timestamp)
+        elif args.operation == "set-meeting-preferences":
+            current = connection.execute(
+                "SELECT value FROM founder_preference WHERE key='meeting'"
+            ).fetchone()
+            values = json.loads(current["value"]) if current else {}
+            supplied = {
+                "duration_minutes": args.duration_minutes,
+                "format": args.format,
+                "location": args.location,
+                "timezone": args.timezone,
+                "city": args.city,
+            }
+            values.update({key: value for key, value in supplied.items() if value is not None})
+            if args.participant is not None:
+                values["participants"] = args.participant
+            validated = meeting_preferences(values)
+            connection.execute(
+                """INSERT INTO founder_preference(key,value,updated_at) VALUES ('meeting',?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
+                (json.dumps(validated, ensure_ascii=False, sort_keys=True), timestamp),
+            )
         elif args.operation == "set-access":
             existing = connection.execute(
                 "SELECT credential_item_ref FROM product_access WHERE name=?",
@@ -487,6 +517,13 @@ def parser() -> argparse.ArgumentParser:
     video.add_argument("--provider", required=True, choices=VIDEO_PROVIDERS)
     video.add_argument("--zoom-link-mode", choices=ZOOM_LINK_MODES)
     video.add_argument("--zoom-personal-room-url")
+    meeting = commands.add_parser("set-meeting-preferences")
+    meeting.add_argument("--duration-minutes", type=int)
+    meeting.add_argument("--format", choices=MEETING_FORMATS)
+    meeting.add_argument("--location")
+    meeting.add_argument("--participant", action="append")
+    meeting.add_argument("--timezone")
+    meeting.add_argument("--city")
     access = commands.add_parser("set-access")
     access.add_argument("--name", required=True); access.add_argument("--kind", required=True, choices=ACCESS_KINDS)
     access.add_argument("--url", required=True); access.add_argument("--environment", required=True)

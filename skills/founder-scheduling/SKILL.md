@@ -22,8 +22,9 @@ contact's page in the pipeline root, through `pipeline-monitor`'s write-back
 protocol — one destination, so an approved action cannot leave the page stale.
 It never sends anything on its own. Only `pipeline-monitor` may configure the
 explicitly opted-in background check. That check may prepare drafts and create
-the exact three attendee-free tentative holds in a persisted `new_options`
-plan; it may not send, create an invitation, or delete a hold without specific
+the three attendee-free meeting holds and, for in-person options, linked
+travel-before/travel-after holds in a persisted `new_options` plan; it may not
+send, create an invitation, convert travel holds or delete a hold without specific
 founder approval. Every monitor-originated calendar operation uses
 `external-action` with `--suggestion-id`. Use the suggestion's existing linked
 draft for a send.
@@ -58,15 +59,34 @@ Put narrative, notes, and evidence references in a dated log in the page body.
 
 ## Find times
 
+Before proposing times, resolve `duration_minutes`, meeting `format`,
+`location`, `participants`, `timezone`, and relevant city/travel context. Read the
+current message/thread, identity-verified prior meeting history for this same
+contact, their `entities/people` page, pipeline page, and Founder Profile. Apply
+precedence per fact: explicit current request → persisted profile preference →
+consistent history for the verified identity → evidence-backed inference. Use
+`skills/founder-scheduling/scripts/meeting.py` to resolve structured facts; pass
+source refs for the request, profile, verified history and every inference, and
+carry the result's refs into the persisted plan. Each selected history fact and
+inference must carry its own source `evidence_refs`; unrelated context refs do
+not establish provenance. Conflicting history, missing required
+details, or unverified identity is unresolved: ask the founder privately in
+`PLOW_HOME_CHANNEL` before suggesting times. Never invent participants,
+locations, or times. In-person options require a verified location and travel
+intervals before and after the meeting; infer travel durations from verified
+city/distance/context, otherwise ask privately.
+
 Call `plow_list_skills` and read `google-workspace`, then read availability
-across every calendar the founder shows, not just the configured ones.
-Classify each conflict: hard (anything in Founder Profile `preferences`,
-travel, medical, school logistics, or otherwise marked do-not-overbook) or
-soft (internal standups, household services, optional blocks). Apply the
-request's own rules — blackout days, deadlines, duration — and offer exactly
-three options, each a specific time slot in the counterparty's timezone, none overlapping another contact's
-live holds in the pipeline root. Read the contact's page for them. Explain any overlap
-(hard or soft) to the founder privately; never expose the reason in outgoing text.
+across every calendar the founder shows, not just the configured ones. Check the
+entire in-person interval (travel before + meeting + travel after) across all
+shown calendars. Classify each conflict: hard (anything in Founder Profile
+`preferences`, travel, medical, school logistics, or otherwise marked
+do-not-overbook) or soft (internal standups, household services, optional
+blocks). Apply the request's rules — blackout days, deadlines, and inferred
+duration — and offer exactly three options, each a specific slot in the
+counterparty's timezone, none overlapping another contact's live holds. Read
+the contact's pipeline page. Explain hard or soft overlaps privately; never
+expose the reason in outgoing text.
 
 ## Outgoing scheduling messages
 
@@ -86,35 +106,43 @@ live holds in the pipeline root. Read the contact's page for them. Explain any o
 
 ## Hold
 
-When it is on the founder to propose times, hold all three options. This is
-authorized either by the founder's direct request or by an enabled
-`pipeline-monitor` suggestion whose persisted `new_options` plan contains
-exactly three distinct `effect: hold` entries targeting
-the available configured default calendar's `/new` destination, plus a prepared
-draft. Through `founder-calendar`/`external-action`, create one busy,
-attendee-free event per option on the account and calendar the founder named,
+When it is on the founder to propose times, hold all three options. Each
+option has a stable `option_id` and a `meeting` segment. For in-person options,
+create both `travel_before` and `travel_after` busy blocks with `effect:
+travel_hold`, tied to that same `option_id`; check and reserve the combined
+interval before creating any segment. All meeting and travel blocks are private,
+attendee-free holds. This is authorized either by the founder's direct request
+or by an enabled `pipeline-monitor` suggestion whose persisted `new_options`
+plan has exactly three distinct meeting holds and, for in-person meetings, both
+travel segments per option, all on the available configured default calendar's
+`/new` destination, plus a prepared draft. Through `founder-calendar`/`external-action`, create private-visibility, busy,
+attendee-free calendar blocks for every option segment on the account and calendar the founder named,
 or the configured work default
-when the founder did not identify one, titled `HOLD — <Investor> / <Firm>`
-(drop ` / <Firm>` when `Firm` is blank), description `Tentative — no
-invitation sent`, notifications off. Read the page's existing `holds`, then
-fetch each created hold and append its exact
-`<account>/<calendar>/<event-id>` target immediately after verification, before
-creating the next. Pass the complete live target list as a JSON `holds` array to
+when the founder did not identify one. Use `HOLD — <Investor> / <Firm>` for the
+meeting segment and `TRAVEL HOLD — <Investor> / <Firm>` for travel segments (drop
+` / <Firm>` when `Firm` is blank), with description `Tentative — no invitation
+sent` and notifications off. Read the page's existing `holds`, then
+fetch each created meeting/travel hold and append its exact
+`<account>/<calendar>/<event-id>` target with its persisted option/segment
+association immediately after verification, before creating the next. Pass the complete live target list as a JSON `holds` array to
 `page-update`, merge only its validated output, then immediately read the page
 back and confirm the target persisted before creating the next hold. If the
 write or read-back fails, stop; reconcile the existing event and page before any
 further calendar operation, and never retry creation blindly. Keep `holds` as
 the complete `; `-joined set of live event targets, so a later action cannot
 delete an unrelated event or lose a partial success. Set `status` to `held` only
-after all three persisted targets have been read back. An uncertain hold stops
+after every planned meeting and travel target has been read back with its
+`option_id` and segment association. An uncertain hold stops
 the remaining operations and is reconciled rather than retried. Holding is
 never sending.
 
-For an automatic hold, encode the exact provider parameters as JSON in the
-plan entry's existing `intent`: `account`, `calendar`, `start`, `end`,
-`timezone`, `title`, `description: "Tentative — no invitation sent"`, empty `attendees`, `send_updates: "none"`, and
-`transparency: "opaque"`. The validator rejects any other shape before the
-suggestion is persisted and rechecks it before claim.
+For each automatic meeting or travel hold, encode exact provider parameters as
+JSON in `intent`: `account`, `calendar`, `start`, `end`, `timezone`, `title`,
+`description: "Tentative — no invitation sent"`, empty `attendees`,
+`send_updates: "none"`, `transparency: "opaque"`, and `visibility: "private"`. Label travel titles
+`TRAVEL HOLD — …`; use exact `option_id` and `segment` fields. The validator
+checks each travel interval bounds its meeting slot and rejects overlapping
+full intervals before persisting; it rechecks parameters before claim.
 
 Prepare the proposal in its existing conversation. For Gmail, prepare the
 ledger draft, then always save and verify the real Gmail draft before claiming
@@ -122,7 +150,7 @@ any automatic hold; this scheduling invariant is narrower than the general
 `save_gmail_drafts` preference. For an existing SMS/iMessage or Plow
 conversation, prepare the exact text/Plow draft and ask permission to send;
 never use the founder's Mac Messages identity or substitute email. The proposal
-is not ready when either its draft or any of its three holds is missing.
+is not ready when either its draft or any required meeting or travel hold is missing.
 
 ## Send
 
@@ -164,12 +192,23 @@ the founder, never a silent swap.
 
 When the contact chooses, the persisted calendar plan starts with the real
 invitation (`effect: invitation`) for every format, including Zoom per meeting.
-Only `effect: delete_hold` entries follow it. Zoom per-meeting link creation is
-a separate, prior product operation in `external-action`, not an effect in the
-monitor calendar plan. Every plan contains one unique `effect: delete_hold`
-entry for
-every semicolon-separated provider event target in the page's `holds` field;
-the deletion-target set must match that field exactly. If a legacy entry contains
+For every persisted offer Pick, include `selected_option_id` and structured
+invitation intent matching the selected option's parameters and verified meeting
+details (`account`, `calendar`, `start`, `end`, `timezone`, `title`,
+`description`, `format`, `location`, `attendees`, `send_updates: all`,
+`transparency: opaque`). When the persisted offer has travel holds, convert the
+winning option's `travel_before` and `travel_after` entries with `effect:
+convert_travel` (using exact conversion title `TRAVEL — <Contact> / <Firm>` or
+`TRAVEL — <Contact>`), then `delete_hold` every other live hold, including the
+winning meeting hold; for offers without travel holds, `delete_hold` every live
+sibling hold. Conversion targets must exactly match the persisted option
+association, and the invitation's interval, location, attendees and format must
+match that selected `meeting` segment. Zoom
+per-meeting link creation is a separate, prior product operation in
+`external-action`, not an effect in the monitor calendar plan. Every plan contains
+one unique `effect: delete_hold` entry for each tentative hold target that is not
+preserved as winning travel time; the set must match live pipeline hold state.
+If a legacy entry contains
 only a human-readable time, resolve it to one verified provider event target and
 replace it before creating the plan; ambiguous or missing matches are blocked,
 never guessed. Create the invite from the account and calendar the founder named,
@@ -236,11 +275,14 @@ omit a conferencing link for an explicitly approved phone/in-person meeting.
   that ledger operation. If the calendar effect is ambiguous, mark it uncertain
   and reconcile by provider event ID/ledger; never create it again blindly.
 
-Only after the invitation has been fetched and verified may any hold be
-deleted. The Zoom meeting alone does not confirm the invitation. Then delete
-every matching sibling hold event, including the tentative event at the chosen
-time, clear `holds` using an empty JSON array (merge it empty), verify the page
-read-back, and set `status` to `confirmed` only after cleanup is confirmed. A
+Only after the invitation has been fetched and verified may a hold be changed
+or deleted. For an in-person pick, convert the winner's verified travel blocks
+using `effect: convert_travel` with exact title `TRAVEL — <Contact> / <Firm>`
+(or `TRAVEL — <Contact>` when `Firm` is blank) and delete every other tentative hold, including the winning meeting hold; for
+other formats, delete every sibling hold. Confirm every ledger result, write
+surviving converted travel targets to the dated log, clear the tentative
+`holds` field using an empty JSON array, verify page read-back, and set `status`
+to `confirmed` only after cleanup is confirmed. A
 date agreed without a time is not confirmed — say so and
 ask for the time. A partial or uncertain operation stops the remaining steps:
 reconcile the existing ledger records, never recreate a verified invitation.
