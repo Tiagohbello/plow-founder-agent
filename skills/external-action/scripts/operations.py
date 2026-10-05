@@ -241,6 +241,8 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
         key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"
     existing = connection.execute("SELECT * FROM external_operation WHERE idempotency_key=?", (key,)).fetchone()
     if existing:
+        if args.scope == "product" and existing["access_name"] != access_name:
+            raise ValueError("product operation already exists with a different access name; reconcile or use a fresh idempotency key")
         existing = bind_pipeline_contact(connection, "external_operation", existing, contact_key)
         connection.commit()
         return {"created": False, "duplicate": True, "operation": as_dict(existing)}
@@ -267,6 +269,13 @@ def approve(connection: sqlite3.Connection, operation_id: int) -> dict:
         require_direct_contact(connection, row["pipeline_contact_key"],
                                (row["target"],), (row["intent"],))
     if row["status"] == "approved":
+        if row["scope"] == "product" and row["policy"] == "autonomous":
+            connection.execute(
+                "UPDATE external_operation SET policy='approval',updated_at=? WHERE id=?",
+                (now(), operation_id),
+            )
+            connection.commit()
+            return {"approved": True, "already_approved": False, "operation": as_dict(resolve(connection, operation_id))}
         return {"approved": True, "already_approved": True, "operation": as_dict(row)}
     if row["status"] != "pending":
         raise ValueError(f"operation cannot be approved from status {row['status']}")

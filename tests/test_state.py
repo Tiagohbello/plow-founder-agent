@@ -156,6 +156,24 @@ class FounderAgentStateTests(unittest.TestCase):
         self.assertEqual("CRM", operation["access_name"])
         self.assertEqual("autonomous", operation["policy"])
 
+        self.run_helper(
+            "skills/founder-context/scripts/profile.py", "set-access",
+            "--name", "Billing", "--kind", "app", "--url", "https://billing.example.test",
+            "--environment", "production", "--status", "available",
+        )
+        self.run_helper(
+            "skills/founder-context/scripts/profile.py", "set-access-policy",
+            "--name", "Billing", "--access-operation", "update_record",
+            "--policy", "autonomous",
+        )
+        duplicate_refused = self.run_helper(
+            "skills/external-action/scripts/operations.py", "prepare",
+            "--scope", "product", "--target", "contact:1", "--operation", "update_record",
+            "--intent", "update-contact", "--access-name", "Billing", ok=False,
+        )
+        self.assertEqual(2, duplicate_refused.returncode)
+        self.assertIn("error:", duplicate_refused.stderr)
+
         claimed = json.loads(self.run_helper(
             "skills/external-action/scripts/operations.py", "claim", "--id", "1"
         ).stdout)
@@ -208,6 +226,18 @@ class FounderAgentStateTests(unittest.TestCase):
                 )
                 self.assertEqual(2, refused.returncode)
                 self.assertIn("error:", refused.stderr)
+                if change == "approval":
+                    approved = json.loads(self.run_helper(
+                        "skills/external-action/scripts/operations.py", "approve",
+                        "--id", str(index),
+                    ).stdout)
+                    self.assertEqual("approval", approved["operation"]["policy"])
+                    self.assertEqual("approved", approved["operation"]["status"])
+                    claimed = json.loads(self.run_helper(
+                        "skills/external-action/scripts/operations.py", "claim",
+                        "--id", str(index),
+                    ).stdout)
+                    self.assertTrue(claimed["claimed"])
 
     def test_product_operations_require_a_configured_access_name(self) -> None:
         refused = self.run_helper(
