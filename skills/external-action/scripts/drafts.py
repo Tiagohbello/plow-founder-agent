@@ -220,7 +220,8 @@ def prepare_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> d
         contact_key = None
     else:
         contact_key = resolve_direct_contact_key(
-            connection, supplied_contact_key, (recipient,), (recipient,)
+            connection, supplied_contact_key, (recipient,), (recipient,),
+            require_handle_match=supplied_contact_key is not None,
         )
     key = args.idempotency_key or derive_idempotency_key(channel, thread_id, recipient, subject, body)
     if monitor_id is not None:
@@ -259,6 +260,7 @@ def revise_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> di
             supplied_contact_key,
             (args.recipient if args.recipient is not None else old["recipient"],),
             (args.recipient if args.recipient is not None else old["recipient"],),
+            require_handle_match=supplied_contact_key is not None,
         )
         if old["channel"] not in ACTIVE_CHANNELS:
             raise ValueError(f"channel {old['channel']} is read-only")
@@ -340,7 +342,8 @@ def require_active_channel(row: sqlite3.Row) -> None:
 def require_draft_contact(connection: sqlite3.Connection, row: sqlite3.Row) -> None:
     if row["monitor_suggestion_id"] is None:
         require_direct_contact(connection, row["pipeline_contact_key"],
-                               (row["recipient"],), (row["recipient"],))
+                               (row["recipient"],), (row["recipient"],),
+                               require_handle_match=row["pipeline_contact_key"] is not None)
 
 
 def approve_draft(connection: sqlite3.Connection, draft_id: int, approval_ref: str) -> dict[str, object]:

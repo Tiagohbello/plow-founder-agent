@@ -438,18 +438,19 @@ def contacts(db, vault, pages):
         mapped_status = map_pipeline_status(status)
         if mapped_status in TERMINAL_PIPELINE_STATUSES:
             terminal.add(slug)
-            person = page(vault, PEOPLE_ROOT, slug)
-            handles = []
-            name = slug
-            if isinstance(person, dict):
-                handles = sorted({handle for handle in (person.get("email", ""), person.get("phone", ""))
-                                  if isinstance(handle, str) and handle.strip()})
-                name = person.get("title") or slug
-            guard_fields = dict(fields)
-            guard_fields["status"] = mapped_status
-            guard_contacts.append({"contact_key": slug,
-                                   "name": name,
-                                   "handles": handles, "fields": guard_fields})
+        person = page(vault, PEOPLE_ROOT, slug)
+        handles = []
+        if isinstance(person, dict):
+            handles = sorted({handle for handle in (person.get("email", ""), person.get("phone", ""))
+                              if isinstance(handle, str) and handle.strip()})
+            if handles:
+                guard_fields = dict(fields)
+                if mapped_status is not None:
+                    guard_fields["status"] = mapped_status
+                guard_contacts.append({"contact_key": slug,
+                                       "name": person.get("title") or slug,
+                                       "handles": handles, "fields": guard_fields})
+        if mapped_status in TERMINAL_PIPELINE_STATUSES:
             unlinked.append({"contact_key": slug,
                              "reason": f"terminal pipeline status {mapped_status}; no monitor actions allowed"})
             continue
@@ -457,21 +458,18 @@ def contacts(db, vault, pages):
             unlinked.append({"contact_key": slug,
                              "reason": "pipeline status is noncanonical or missing; reconcile before monitoring"})
             continue
-        person = page(vault, PEOPLE_ROOT, slug)
         if person is None:
             unlinked.append({"contact_key": slug, "reason": f"no {PEOPLE_ROOT} page"})
             continue
         if isinstance(person, str):
             unlinked.append({"contact_key": slug, "reason": person})
             continue
-        handles = sorted({h for h in (person.get("email", ""), person.get("phone", "")) if h.strip()})
         if not handles:
             unlinked.append({"contact_key": slug, "reason": "the person page carries no email or phone"})
             continue
         contact = {"contact_key": slug, "name": person.get("title") or slug,
                    "handles": handles, "fields": fields}
         valid.append(contact)
-        guard_contacts.append(contact)
     with db:
         # Superseding is one-way -- `observe` returns the existing row for identical
         # evidence whatever its status -- so only an entry that has actually left the

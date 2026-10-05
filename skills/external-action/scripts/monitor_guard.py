@@ -17,32 +17,24 @@ PHONE_TEXT_RE = re.compile(r"(?<![A-Za-z0-9])\+?[0-9][0-9(). \t-]{5,}[0-9](?![A-
 
 
 def normalize_phone(value):
-    """Return comparable phone digits, accepting common formatting and NANP local form."""
+    """Return the phone's digits for format-independent, country-code-preserving matches."""
     if not isinstance(value, str) or not re.fullmatch(r"\+?[0-9().\s-]+", value.strip()):
         return None
     digits = re.sub(r"\D", "", value)
-    if len(digits) < 7:
-        return None
-    # Pipeline contacts commonly use a local 10-digit North American number while
-    # direct SMS recipients use E.164 with country code 1.
-    if len(digits) == 10:
-        digits = "1" + digits
-    return digits
+    return digits if len(digits) >= 7 else None
 
 
 def phones_in_text(value):
     """Find formatted phone numbers embedded in a direct-action context string."""
     for match in PHONE_TEXT_RE.finditer(value):
-        phone = match.group(0)
-        digits = re.sub(r"\D", "", phone)
-        if len(digits) >= 10 or phone.startswith("+"):
-            normalized = normalize_phone(phone)
-            if normalized:
-                yield normalized
+        normalized = normalize_phone(match.group(0))
+        if normalized:
+            yield normalized
 
 
 def contact_fields(connection, contact_key):
-    for table in ("monitor_contact", "monitor_contact_guard"):
+    # Guard table is the complete latest wiki snapshot, including ineligible rows.
+    for table in ("monitor_contact_guard", "monitor_contact"):
         exists = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
         ).fetchone()
@@ -81,15 +73,17 @@ def require_current_contact(connection, row):
         return
     fields = contact_fields(connection, row["contact_key"])
     if fields is None:
-        raise ValueError("contact is not in the latest verified pipeline read; re-read it first")
+        raise ValueError("contact is not in the latest verified pipeline read/snapshot; refresh it first")
     require_contact_not_terminal(fields)
     if fields.get("status") not in PIPELINE_STATUS_SET:
         raise ValueError("contact pipeline status is noncanonical; reconcile it before monitor actions")
 
 
-def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), context_text=()):
+def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), context_text=(),
+                               require_handle_match=False):
     """Resolve explicit or handle-linked direct context and enforce current status."""
     matched = set()
+    handle_matched = set()
     normalized_identifiers = {str(value).strip().casefold() for value in identifiers
                               if isinstance(value, str) and value.strip()}
     normalized_context = [value.casefold() for value in context_text
@@ -100,7 +94,7 @@ def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), con
                              if isinstance(value, str) for phone in phones_in_text(value))
     if normalized_identifiers:
         seen = set()
-        for table in ("monitor_contact", "monitor_contact_guard"):
+        for table in ("monitor_contact_guard", "monitor_contact"):
             if not connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
                 continue
@@ -113,6 +107,8 @@ def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), con
                            if isinstance(value, str) and value.strip()}
                 handle_phones = {phone for value in data.get("handles", [])
                                  if (phone := normalize_phone(value)) is not None}
+                if handles & normalized_identifiers or handle_phones & normalized_phones:
+                    handle_matched.add(row["contact_key"])
                 candidates = handles | {row["contact_key"].casefold()}
                 name = data.get("name")
                 if isinstance(name, str) and name.strip():
@@ -134,18 +130,25 @@ def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), con
                 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", contact_key)
                 or contact_key in {"index", ".", ".."}):
             raise ValueError("contact_key must be one pipeline page slug")
+        require_current_contact(connection, {"contact_key": contact_key})
+        if require_handle_match and contact_key not in handle_matched:
+            if matched and contact_key not in matched:
+                raise ValueError("--contact-key differs from the pipeline contact matched by recipient")
+            raise ValueError("--contact-key requires a recipient matching a known handle for that contact")
         if matched and contact_key not in matched:
             raise ValueError("--contact-key differs from the pipeline contact matched by recipient")
         resolved = contact_key
     else:
         resolved = next(iter(matched), None)
-    if resolved is not None:
+    if resolved is not None and contact_key is None:
         require_current_contact(connection, {"contact_key": resolved})
     return resolved
 
 
-def require_direct_contact(connection, contact_key, identifiers=(), context_text=()):
-    return resolve_direct_contact_key(connection, contact_key, identifiers, context_text)
+def require_direct_contact(connection, contact_key, identifiers=(), context_text=(),
+                           require_handle_match=False):
+    return resolve_direct_contact_key(connection, contact_key, identifiers, context_text,
+                                      require_handle_match=require_handle_match)
 
 
 def add_pipeline_contact_key_column(connection, table):

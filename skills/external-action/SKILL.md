@@ -30,6 +30,16 @@ contact identity mentioned in their target/intent. The ledger stores that contac
 context and rechecks its current status before approval and claim; terminal,
 noncanonical, or unlinked contacts are blocked.
 
+For any direct draft or operation tied to a pipeline contact, refresh the
+pipeline immediately before `prepare` and again immediately before each
+`approve` or `claim`: repeat the pipeline listing/copy/`sync_contacts` flow, or
+verify the current Markdown page and its person handles directly through the
+wiki. If a direct page check finds a changed, terminal, noncanonical, or unclear
+state, stop and refresh the synchronized snapshot before retrying; terminal
+contacts stay blocked. Never treat an older cached row as proof of current
+eligibility. The ledger's contact guard operates on the latest refreshed
+pipeline snapshot as a defense-in-depth check.
+
 All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
 In this skill and every caller, “founder approval”, “founder request”, and
