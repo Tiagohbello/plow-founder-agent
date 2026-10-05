@@ -95,6 +95,15 @@ entry (default `Foco` or `Hold`), owner and organizer are the founder, attendees
 are empty, the event is non-recurring, and duration is unchanged at prepare,
 approval and claim. Reject external/third-party, recurring or nonmatching events;
 never use a generic update to bypass this guard.
+Immediately before claim, read the current provider event and pass its exact
+snapshot using `operations.py claim --current-event-json '<snapshot-json>'`.
+Include `owner_account`, `calendar`, `event_id`, `title`, `organizer`,
+`attendees`, `recurring`, `start`, `end`, `timezone`, and an ISO `checked_at`
+timestamp. The snapshot must match the prepared owner, title, empty attendee
+list, non-recurring state, and current interval exactly; it expires after 30
+seconds. Missing, stale, changed, or unsafe event state blocks claim. Apply the
+move immediately after claim; if provider state changes, stop and prepare a new
+approved action.
 
 For a picked in-person scheduling option, the calendar plan claims the real
 invitation first, then exact `convert_travel` updates for the winning option's

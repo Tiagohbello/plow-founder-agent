@@ -156,8 +156,10 @@ Tell the agent:
 > Monitor replies from the contacts in my wiki pipeline. Show me the frequency options
 > (15, 30, or 45 minutes) so I can choose during onboarding. Then monitor them
 > during my working hours. Prepare next steps and notify me in Plow. When I owe
-> times, prepare exactly three options and hold all three. Ask for approval
-> before sending messages, creating invitations, or removing holds.
+> times, prepare exactly three options and create a meeting hold for each. For
+> in-person options, also create the linked private travel holds immediately
+> before and after each meeting. Ask for approval before sending messages,
+> creating invitations, or removing holds.
 
 The contacts come from `projects/founder-agent/pipeline` in your wiki, one page
 per contact, each linking to the `entities/people` page for that person. There is
@@ -188,8 +190,9 @@ ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox; it is
 never sent automatically. A Gmail proposal with new times is always saved and
 verified even when that general preference is false. When the founder owes times, the check creates and
-verifies exactly three attendee-free tentative holds through the durable action
-ledger. There is no automatic invitation or hold deletion. A check writes the
+verifies up to three attendee-free meeting holds plus linked travel-before and
+travel-after holds for in-person options through the durable action ledger.
+There is no automatic invitation or hold deletion. A check writes the
 verified holds plus the recommended next step to the contact's page and reports
 it in the notice. Each notice carries the most urgent one or two suggestions rather than every
 outstanding one. When
@@ -223,7 +226,8 @@ inference change detector. No second daemon or inbox mirror is installed.
 Acceptance check, using test contacts you control:
 
 1. Arrange for a test contact to need times. At the next working-hours check,
-   verify that exactly three attendee-free tentative holds and the matching
+   verify that up to three attendee-free meeting holds, any linked
+   travel-before and travel-after holds for in-person options, and the matching
    unsent draft exist. Reply accepting one; expect a proposal to create the
    invitation and release every sibling hold. Verify those latter operations do
    not happen until you approve.

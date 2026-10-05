@@ -10,9 +10,51 @@ SPEC = importlib.util.spec_from_file_location(
 )
 meeting = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(meeting)
+PROFILE_SPEC = importlib.util.spec_from_file_location(
+    "founder_profile", ROOT / "skills/founder-context/scripts/profile.py"
+)
+profile = importlib.util.module_from_spec(PROFILE_SPEC)
+PROFILE_SPEC.loader.exec_module(profile)
+MONITOR_SPEC = importlib.util.spec_from_file_location(
+    "pipeline_monitor", ROOT / "skills/pipeline-monitor/scripts/monitor.py"
+)
+monitor = importlib.util.module_from_spec(MONITOR_SPEC)
+MONITOR_SPEC.loader.exec_module(monitor)
 
 
 class MeetingInferenceTests(unittest.TestCase):
+    def test_profile_and_monitor_reuse_the_shared_meeting_schema(self):
+        preferences = {
+            "duration_minutes": 45,
+            "format": "in_person",
+            "location": " Office ",
+            "participants": [" founder@example.com "],
+            "timezone": " America/Recife ",
+        }
+        normalized_preferences = {
+            "duration_minutes": 45,
+            "format": "in_person",
+            "location": "Office",
+            "participants": ["founder@example.com"],
+            "timezone": "America/Recife",
+        }
+        self.assertEqual(normalized_preferences, meeting.normalize_meeting_preferences(preferences))
+        self.assertEqual(normalized_preferences, profile.meeting_preferences(preferences))
+
+        details = {**preferences, "evidence_refs": [" thread:1 ", "thread:1"]}
+        normalized_details = {
+            **normalized_preferences,
+            "evidence_refs": ["thread:1"],
+        }
+        self.assertEqual(normalized_details, meeting.normalize_meeting_details(details))
+        self.assertEqual(normalized_details, monitor.normalize_meeting_details(details))
+
+        invalid_format = {**preferences, "format": "conference"}
+        with self.assertRaisesRegex(ValueError, "format must be"):
+            profile.meeting_preferences(invalid_format)
+        with self.assertRaisesRegex(ValueError, "format must be"):
+            monitor.normalize_meeting_details({**details, "format": "conference"})
+
     def test_resolves_details_in_approved_precedence_order(self):
         result = meeting.resolve_meeting_details(
             request={"duration_minutes": 45},

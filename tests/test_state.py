@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -408,6 +409,68 @@ class FounderAgentStateTests(unittest.TestCase):
             "skills/external-action/scripts/operations.py", "approve", "--id", str(operation["id"]), ok=False,
         )
         self.assertIn("authorized movable_block_pattern", rejected.stderr)
+
+    def test_move_block_claim_requires_fresh_matching_provider_state(self) -> None:
+        self.video_preference(
+            "set-calendar", "--account", "founder@example.com", "--calendar-id", "primary",
+            "--default-calendar", "primary", "--timezone", "America/Recife", "--status", "available",
+            "--evidence", "calendar:verified", "--is-default",
+        )
+        event = {
+            "owner_account": "founder@example.com", "calendar": "primary", "event_id": "event-1",
+            "title": "Foco: arquitetura", "organizer": "founder@example.com", "attendees": [],
+            "recurring": False, "start": "2026-10-06T09:00:00-03:00",
+            "end": "2026-10-06T10:00:00-03:00", "new_start": "2026-10-06T10:00:00-03:00",
+            "new_end": "2026-10-06T11:00:00-03:00", "timezone": "America/Recife",
+        }
+        prepared = json.loads(self.run_helper(
+            "skills/external-action/scripts/operations.py", "prepare", "--scope", "calendar",
+            "--target", "founder@example.com/primary/event-1", "--operation", "move_block",
+            "--intent", json.dumps(event),
+        ).stdout)["operation"]
+        self.run_helper(
+            "skills/external-action/scripts/operations.py", "approve", "--id", str(prepared["id"]),
+        )
+        claim = [
+            "skills/external-action/scripts/operations.py", "claim", "--id", str(prepared["id"]),
+        ]
+        missing = self.run_helper(*claim, ok=False)
+        self.assertIn("requires a current provider snapshot", missing.stderr)
+
+        state_fields = (
+            "owner_account", "calendar", "event_id", "title", "organizer", "attendees",
+            "recurring", "start", "end", "timezone",
+        )
+        snapshot = {key: event[key] for key in state_fields}
+        for changes, message in (
+            ({"attendees": ["guest@example.com"]}, "external participants"),
+            ({"owner_account": "third-party@example.com"}, "third parties"),
+            ({"organizer": "third-party@example.com"}, "third parties"),
+            ({"recurring": True}, "recurring"),
+            ({"title": "Hold: arquitetura"}, "no longer matches prepared state"),
+            ({"start": "2026-10-06T09:01:00-03:00"}, "no longer matches prepared state"),
+            ({"end": "2026-10-06T10:01:00-03:00"}, "no longer matches prepared state"),
+        ):
+            result = self.run_helper(
+                *claim, "--current-event-json",
+                json.dumps({**snapshot, **changes,
+                            "checked_at": datetime.now(timezone.utc).isoformat()}),
+                ok=False,
+            )
+            self.assertIn(message, result.stderr)
+
+        stale = self.run_helper(
+            *claim, "--current-event-json",
+            json.dumps({**snapshot, "checked_at":
+                        (datetime.now(timezone.utc) - timedelta(seconds=31)).isoformat()}),
+            ok=False,
+        )
+        self.assertIn("no more than 30 seconds old", stale.stderr)
+        fresh = self.run_helper(
+            *claim, "--current-event-json",
+            json.dumps({**snapshot, "checked_at": datetime.now(timezone.utc).isoformat()}),
+        )
+        self.assertTrue(json.loads(fresh.stdout)["claimed"])
 
     def test_video_preference_is_one_typed_json_value(self) -> None:
         preferences = self.video_preference("show")["preferences"]

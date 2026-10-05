@@ -11,7 +11,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+SCHEDULING_SCRIPTS = Path(__file__).resolve().parents[2] / "founder-scheduling" / "scripts"
+if str(SCHEDULING_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCHEDULING_SCRIPTS))
+from meeting import MEETING_FORMATS, normalize_meeting_preferences
 
 
 SOURCE_KINDS = ("gmail", "github", "sentry")
@@ -31,7 +35,6 @@ DEFAULT_POLICIES = {
 }
 PREFERENCE_KEYS = ("save_gmail_drafts",)
 DEFAULT_MOVABLE_BLOCK_PATTERNS = ("Foco", "Hold")
-MEETING_FORMATS = ("video", "phone", "in_person")
 VIDEO_PROVIDERS = ("google_meet", "zoom")
 ZOOM_LINK_MODES = ("personal_room", "per_meeting")
 PERMANENTLY_FORBIDDEN = {
@@ -93,43 +96,7 @@ def movable_block_patterns(values) -> list[str]:
 
 
 def meeting_preferences(values: dict) -> dict:
-    if not isinstance(values, dict):
-        raise ValueError("meeting preferences must be a JSON object")
-    allowed = {"duration_minutes", "format", "location", "participants", "timezone", "city"}
-    if set(values) - allowed:
-        raise ValueError("unsupported meeting preference")
-    result = {}
-    if "duration_minutes" in values:
-        duration = values["duration_minutes"]
-        if type(duration) is not int or not 1 <= duration <= 1440:
-            raise ValueError("duration_minutes must be an integer from 1 to 1440")
-        result["duration_minutes"] = duration
-    if "format" in values:
-        if values["format"] not in MEETING_FORMATS:
-            raise ValueError("format must be video, phone or in_person")
-        result["format"] = values["format"]
-    if "location" in values:
-        result["location"] = text(values["location"], "location")
-    if "participants" in values:
-        participants = values["participants"]
-        if not isinstance(participants, list) or not participants:
-            raise ValueError("participants must be a nonempty list")
-        normalized = [text(item, "participant") for item in participants]
-        if len({item.casefold() for item in normalized}) != len(normalized):
-            raise ValueError("participants must be unique")
-        result["participants"] = normalized
-    if "city" in values:
-        result["city"] = text(values["city"], "city")
-    if "timezone" in values:
-        timezone = text(values["timezone"], "timezone")
-        try:
-            ZoneInfo(timezone)
-        except ZoneInfoNotFoundError as error:
-            raise ValueError("timezone must be an IANA timezone") from error
-        result["timezone"] = timezone
-    if not result:
-        raise ValueError("provide at least one meeting preference")
-    return result
+    return normalize_meeting_preferences(values)
 
 
 def web_url(value: str | None) -> str:

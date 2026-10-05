@@ -286,14 +286,17 @@ def approve(connection: sqlite3.Connection, operation_id: int) -> dict:
     return {"approved": True, "already_approved": False, "operation": as_dict(resolve(connection, operation_id))}
 
 
-def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
+def claim(connection: sqlite3.Connection, operation_id: int, current_event_json: str | None = None) -> dict:
     connection.execute("BEGIN IMMEDIATE")
     try:
         row = resolve(connection, operation_id)
         if row["status"] == "completed":
             connection.rollback()
             return {"claimed": False, "already_completed": True, "operation": as_dict(row)}
-        validate_movable_block(connection, row["scope"], row["target"], row["operation"], row["intent"])
+        validate_movable_block(
+            connection, row["scope"], row["target"], row["operation"], row["intent"],
+            current_event=current_event_json, require_current=row["status"] == "approved",
+        )
         monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
                           row["operation"], row["intent"], approved=True)
         if row["monitor_suggestion_id"] is None:
@@ -378,6 +381,10 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--contact-key", help="Pipeline contact context for direct operations")
     approval = commands.add_parser("approve"); approval.add_argument("--id", required=True, type=int)
     execution = commands.add_parser("claim"); execution.add_argument("--id", required=True, type=int)
+    execution.add_argument(
+        "--current-event-json",
+        help="fresh move_block provider snapshot JSON, including checked_at, captured within 30 seconds",
+    )
     done = commands.add_parser("finish"); done.add_argument("--id", required=True, type=int)
     done.add_argument("--outcome", required=True, choices=("completed", "uncertain")); done.add_argument("--external-ref"); done.add_argument("--evidence", required=True)
     repaired = commands.add_parser("reconcile"); repaired.add_argument("--id", required=True, type=int)
@@ -391,7 +398,7 @@ def run(args: argparse.Namespace) -> dict:
     try:
         if args.command == "prepare": return prepare(connection, args)
         if args.command == "approve": return approve(connection, args.id)
-        if args.command == "claim": return claim(connection, args.id)
+        if args.command == "claim": return claim(connection, args.id, args.current_event_json)
         if args.command == "finish": return finish(connection, args)
         if args.command == "reconcile": return reconcile(connection, args)
         if args.command == "list": return listing(connection, args)
