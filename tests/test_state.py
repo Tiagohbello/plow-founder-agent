@@ -35,6 +35,24 @@ class FounderAgentStateTests(unittest.TestCase):
             self.fail(f"{relative} failed: {result.stderr}")
         return result
 
+    def video_preference(self, *arguments: str, ok: bool = True):
+        result = self.run_helper(
+            "skills/founder-context/scripts/profile.py", *arguments, ok=ok
+        )
+        return json.loads(result.stdout) if ok else result
+
+    def configure_product_access(self) -> None:
+        self.run_helper(
+            "skills/founder-context/scripts/profile.py", "set-access",
+            "--name", "CRM", "--kind", "app", "--url", "https://crm.example.test",
+            "--environment", "staging", "--status", "available",
+        )
+        self.run_helper(
+            "skills/founder-context/scripts/profile.py", "set-access-policy",
+            "--name", "CRM", "--access-operation", "update_record",
+            "--policy", "autonomous",
+        )
+
     def create_v1_draft_database(self, database: Path) -> list[tuple]:
         database.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(database)
@@ -125,6 +143,199 @@ class FounderAgentStateTests(unittest.TestCase):
         operation = json.loads(result.stdout)["operation"]
         self.assertEqual("approval", operation["policy"])
         self.assertEqual("pending", operation["status"])
+
+    def test_product_operation_persists_and_claims_the_selected_access(self) -> None:
+        self.configure_product_access()
+        prepared = json.loads(self.run_helper(
+            "skills/external-action/scripts/operations.py", "prepare",
+            "--scope", "product", "--target", "contact:1", "--operation", "update_record",
+            "--intent", "update-contact", "--access-name", "CRM",
+        ).stdout)
+        operation = prepared["operation"]
+        self.assertEqual("CRM", operation["access_name"])
+        self.assertEqual("autonomous", operation["policy"])
+
+        claimed = json.loads(self.run_helper(
+            "skills/external-action/scripts/operations.py", "claim", "--id", "1"
+        ).stdout)
+        self.assertTrue(claimed["claimed"])
+
+    def test_product_claim_rejects_access_that_became_unusable(self) -> None:
+        self.configure_product_access()
+        changes = ("inactive", "blocked", "forbidden", "approval")
+        for index, change in enumerate(changes, start=1):
+            with self.subTest(change=change):
+                self.run_helper(
+                    "skills/founder-context/scripts/profile.py", "set-access",
+                    "--name", "CRM", "--kind", "app", "--url", "https://crm.example.test",
+                    "--environment", "staging", "--status", "available",
+                )
+                self.run_helper(
+                    "skills/founder-context/scripts/profile.py", "set-access-policy",
+                    "--name", "CRM", "--access-operation", "update_record",
+                    "--policy", "autonomous",
+                )
+                self.run_helper(
+                    "skills/external-action/scripts/operations.py", "prepare",
+                    "--scope", "product", "--target", f"contact:{index}",
+                    "--operation", "update_record", "--intent", f"change-{index}",
+                    "--access-name", "CRM",
+                )
+
+                if change == "inactive":
+                    self.run_helper(
+                        "skills/founder-context/scripts/profile.py", "deactivate-access",
+                        "--name", "CRM",
+                    )
+                elif change == "blocked":
+                    self.run_helper(
+                        "skills/founder-context/scripts/profile.py", "set-access",
+                        "--name", "CRM", "--kind", "app", "--url", "https://crm.example.test",
+                        "--environment", "staging", "--status", "blocked",
+                    )
+                else:
+                    policy = "forbidden" if change == "forbidden" else "approval"
+                    self.run_helper(
+                        "skills/founder-context/scripts/profile.py", "set-access-policy",
+                        "--name", "CRM", "--access-operation", "update_record",
+                        "--policy", policy,
+                    )
+
+                refused = self.run_helper(
+                    "skills/external-action/scripts/operations.py", "claim",
+                    "--id", str(index), ok=False,
+                )
+                self.assertEqual(2, refused.returncode)
+                self.assertIn("error:", refused.stderr)
+
+    def test_product_operations_require_a_configured_access_name(self) -> None:
+        refused = self.run_helper(
+            "skills/external-action/scripts/operations.py", "prepare",
+            "--scope", "product", "--target", "contact:1", "--operation", "update_record",
+            "--intent", "update-contact", ok=False,
+        )
+        self.assertEqual(2, refused.returncode)
+
+    def test_operations_schema_adds_access_name_without_losing_existing_rows(self) -> None:
+        database = self.home / "founder-agent" / "founder-agent.db"
+        database.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(database)
+        connection.executescript(
+            """
+            CREATE TABLE external_operation (
+                id INTEGER PRIMARY KEY,
+                scope TEXT NOT NULL,
+                target TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                intent TEXT NOT NULL,
+                policy TEXT NOT NULL,
+                status TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                external_ref TEXT NOT NULL DEFAULT '',
+                evidence TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE founder_agent_migration (
+                component TEXT PRIMARY KEY,
+                migrated_at TEXT NOT NULL
+            );
+            INSERT INTO founder_agent_migration VALUES ('operations', '2026-09-01T00:00:00+00:00');
+            INSERT INTO external_operation VALUES (
+                1, 'product', 'contact:legacy', 'update_record', 'legacy-update',
+                'approval', 'pending', 'legacy-key', '', '', '2026-09-01', '2026-09-01'
+            );
+            PRAGMA user_version = 1;
+            """
+        )
+        connection.commit()
+        connection.close()
+
+        result = json.loads(self.run_helper(
+            "skills/external-action/scripts/operations.py", "list"
+        ).stdout)
+        self.assertEqual(1, result["count"])
+        self.assertIsNone(result["operations"][0]["access_name"])
+        connection = sqlite3.connect(database)
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(external_operation)")}
+        marker = connection.execute(
+            "SELECT 1 FROM founder_agent_migration WHERE component=?",
+            ("operations-access-name-v2",),
+        ).fetchone()
+        connection.close()
+        self.assertIn("access_name", columns)
+        self.assertIsNotNone(marker)
+
+    def test_video_preference_is_one_typed_json_value(self) -> None:
+        preferences = self.video_preference("show")["preferences"]
+        self.assertNotIn("video", preferences)
+
+        self.video_preference(
+            "set-video-preference", "--provider", "zoom", "--zoom-link-mode", "personal_room",
+            "--zoom-personal-room-url", "https://us02web.zoom.us/j/123456789",
+        )
+        preferences = self.video_preference(
+            "set-video-preference", "--provider", "google_meet"
+        )["preferences"]
+        self.assertEqual({"video": {"provider": "google_meet"}}, preferences)
+        self.assertEqual(preferences, self.video_preference("show")["preferences"])
+
+    def test_video_preference_zoom_modes_replace_complete_json_value(self) -> None:
+        room = "https://zoom.us/my/founder"
+        preferences = self.video_preference(
+            "set-video-preference", "--provider", "zoom", "--zoom-link-mode", "personal_room",
+            "--zoom-personal-room-url", room,
+        )["preferences"]
+        self.assertEqual(
+            {"video": {"provider": "zoom", "link_mode": "personal_room",
+                        "personal_room_url": room}},
+            preferences,
+        )
+        preferences = self.video_preference(
+            "set-video-preference", "--provider", "zoom", "--zoom-link-mode", "per_meeting"
+        )["preferences"]
+        self.assertEqual(
+            {"video": {"provider": "zoom", "link_mode": "per_meeting"}}, preferences
+        )
+        self.assertEqual(preferences, self.video_preference("show")["preferences"])
+
+    def test_invalid_video_settings_preserve_prior_configuration(self) -> None:
+        self.video_preference(
+            "set-video-preference", "--provider", "zoom", "--zoom-link-mode", "personal_room",
+            "--zoom-personal-room-url", "https://zoom.us/my/founder",
+        )
+        original = self.video_preference("show")["preferences"]
+        invalid = [
+            ("--provider", "unknown"),
+            ("--provider", "zoom"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "http://zoom.us/my/founder"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us.evil.test/my/founder"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://user:***@zoom.us/my/founder"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us/not-a-room"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us/my/founder?pwd=secret"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us/my/founder?token=***"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us/my/founder?utm_source=mail"),
+            ("--provider", "zoom", "--zoom-link-mode", "personal_room",
+             "--zoom-personal-room-url", "https://zoom.us/my/founder?"),
+            ("--provider", "zoom", "--zoom-link-mode", "per_meeting",
+             "--zoom-personal-room-url", "https://zoom.us/my/founder"),
+            ("--provider", "google_meet", "--zoom-link-mode", "per_meeting"),
+        ]
+        for arguments in invalid:
+            with self.subTest(arguments=arguments):
+                result = self.video_preference(
+                    "set-video-preference", *arguments, ok=False
+                )
+                self.assertEqual(2, result.returncode)
+                self.assertEqual(original, self.video_preference("show")["preferences"])
 
     def test_permanent_prohibitions_cannot_be_overridden(self) -> None:
         result = self.run_helper(

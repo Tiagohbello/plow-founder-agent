@@ -181,29 +181,29 @@ the guest). That meeting-specific choice takes immediate precedence over the
 global Founder Profile video preference: do not use the default provider for
 this invitation. Use an agreed guest-supplied link directly; do not create a
 second conference link. Only if no meeting-specific format or link is established,
-read Founder Profile `show.preferences` and dispatch by `video_provider` and
-`zoom_link_mode` as below. If the format is unknown, the provider preference is
+read Founder Profile `show.preferences.video` and dispatch by its `provider` and
+`link_mode` fields as below. If the format is unknown, the provider preference is
 absent, or
 Zoom mode/room URL is missing, ask the founder privately and persist reusable
 provider settings via `founder-context`; do not silently assume Google Meet or
 create an unsupported link. Do not substitute phone for requested video, and
 omit a conferencing link for an explicitly approved phone/in-person meeting.
 
-- **Google Meet (`video_provider=google_meet`):** Prepare and claim the calendar
+- **Google Meet (`video.provider=google_meet`):** Prepare and claim the calendar
   invitation in `external-action`, then use `plow-gog calendar` to create it
   with `--with-meet`, on the chosen account/calendar with the agreed attendees.
   Read back the event by returned ID and verify its generated Meet URL and
   attendee/time details before marking the ledger operation complete. A missing
   link is an uncertain invitation, not permission to create another.
-- **Zoom personal room (`video_provider=zoom`,
-  `zoom_link_mode=personal_room`):** Use the persisted HTTPS
-  `zoom_personal_room_url` in the Google Calendar event location or description
+- **Zoom personal room (`video.provider=zoom`,
+  `video.link_mode=personal_room`):** Use `video.personal_room_url`, the persisted
+  HTTPS Zoom room, in the Google Calendar event location or description
   (prefer both where supported), with the agreed attendees. Prepare/claim the
   calendar invitation, create it with `plow-gog calendar` **without**
   `--with-meet`, and read it back by ID. Verify the stored Zoom URL, attendees,
   and time; do not create a separate Zoom meeting or generate a Meet link.
-- **Zoom per meeting (`video_provider=zoom`,
-  `zoom_link_mode=per_meeting`):** Obtain the conference link before finalizing
+- **Zoom per meeting (`video.provider=zoom`,
+  `video.link_mode=per_meeting`):** Obtain the conference link before finalizing
   the monitor calendar plan. Prepare, approve, and claim a standalone
   `external-action` product operation for the Zoom meeting (`--scope product
   --access-name <configured-Zoom-access> --contact-key <page-slug>`); do not

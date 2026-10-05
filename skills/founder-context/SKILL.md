@@ -33,11 +33,11 @@ enough context exists to produce useful work. Collect, in order:
    explicit choice; never assume a frequency. Declining or skipping this step
    leaves monitoring disabled;
 8. ask once which video provider the founder uses for meetings: Google Meet or Zoom.
-   Persist `video_provider` through `profile.py set-video-preference`. For Zoom,
-   ask whether links use a reusable personal room (`zoom_link_mode=personal_room`)
-   or a new meeting each time (`zoom_link_mode=per_meeting`). For a personal
-   room, collect and persist its HTTPS Zoom URL as `zoom_personal_room_url`,
-   without any query string (including passwords or tokens).
+   Persist a single `video` preference through `profile.py set-video-preference`.
+   For Zoom, ask whether links use a reusable personal room
+   (`link_mode=personal_room`) or a new meeting each time (`link_mode=per_meeting`).
+   For a personal room, collect and persist its HTTPS Zoom URL as
+   `personal_room_url`, without any query string (including passwords or tokens).
    If unknown, leave the preference absent; never infer Google Meet. Reuse
    these saved answers for later scheduling and ask again only when missing or
    the founder changes them. A meeting-specific format approved by the founder
@@ -63,10 +63,11 @@ python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-prefe
 python3 "$HERMES_HOME/skills/founder-context/scripts/memory.py" list
 ```
 
-`show.preferences` returns typed strings for `video_provider`, `zoom_link_mode`,
-and `zoom_personal_room_url` only when configured. Switching to `per_meeting`
-removes the stored room URL; switching to Google Meet removes both Zoom keys.
-The helper validates the complete choice and saves it atomically.
+`show.preferences.video` returns one JSON object: `{"provider":"google_meet"}`
+or `{"provider":"zoom","link_mode":"personal_room","personal_room_url":"https://zoom.us/my/example"}`
+or `{"provider":"zoom","link_mode":"per_meeting"}`. Each update replaces
+the complete object, so switching modes cannot retain stale Zoom fields. The
+helper validates the complete choice and saves it atomically.
 
 ## Memory
 
