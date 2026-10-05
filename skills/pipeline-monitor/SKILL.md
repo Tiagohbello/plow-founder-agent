@@ -152,6 +152,9 @@ blockers, which is how advice went stale in one and errored in the other.
    `status` and `holds` in `--current-file <current.json>`; this is required
    when a direct page is absent from the contacts sync. Validation merges
    current page facts with requested changes and checks resulting status/holds.
+   If the resulting status is `withdrawn`, also include the freshly read,
+   nonblank `proposed` offer text in `--current-file`; the update must preserve
+   that exact text and cannot clear or replace it.
    The facts JSON is an object with
    only verified fields among `status`, `holds`, and `proposed`. `status` must
    use the canonical enum in `founder-scheduling`; `holds` is an array of live

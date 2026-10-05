@@ -413,6 +413,63 @@ class FounderAgentStateTests(unittest.TestCase):
         self.assertEqual(1, json.loads(draft_result.stdout)["count"])
         self.assertEqual(1, json.loads(operation_result.stdout)["count"])
 
+    def test_clean_legacy_idempotency_keys_deduplicate_after_contact_refresh(self) -> None:
+        legacy_drafts = self.home / "communication" / "drafts.db"
+        legacy_operations = self.home / "external-operations" / "operations.db"
+        draft_args = (
+            "prepare", "--channel", "gmail", "--thread-id", "legacy-pipeline-thread",
+            "--recipient", "alex@example.test", "--body", "Legacy pipeline draft",
+        )
+        operation_args = (
+            "prepare", "--scope", "calendar", "--target", "primary/new",
+            "--operation", "create_event", "--intent", "Legacy pipeline event",
+        )
+        legacy_draft = json.loads(self.run_helper(
+            "skills/external-action/scripts/drafts.py", "--db", str(legacy_drafts), *draft_args
+        ).stdout)["draft"]
+        legacy_operation = json.loads(self.run_helper(
+            "skills/external-action/scripts/operations.py", "--db", str(legacy_operations), *operation_args
+        ).stdout)["operation"]
+        self.assertFalse(legacy_draft["idempotency_key"].startswith("pipeline:"))
+        self.assertFalse(legacy_operation["idempotency_key"].startswith("pipeline:"))
+
+        database = self.home / "founder-agent" / "founder-agent.db"
+        database.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(database)
+        connection.execute(
+            "CREATE TABLE monitor_contact_guard (contact_key TEXT PRIMARY KEY, data TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO monitor_contact_guard VALUES (?,?)",
+            ("alex", json.dumps({
+                "contact_key": "alex", "name": "Alex", "handles": ["alex@example.test"],
+                "fields": {"status": "sent", "holds": "", "proposed": ""},
+                "mapped_status": "sent",
+            })),
+        )
+        connection.commit()
+        connection.close()
+
+        migrated_draft = json.loads(self.run_helper(
+            "skills/external-action/scripts/drafts.py", *draft_args, "--contact-key", "alex"
+        ).stdout)
+        migrated_operation = json.loads(self.run_helper(
+            "skills/external-action/scripts/operations.py", *operation_args, "--contact-key", "alex"
+        ).stdout)
+        self.assertTrue(migrated_draft["duplicate"])
+        self.assertEqual(migrated_draft["draft"]["id"], legacy_draft["id"])
+        self.assertEqual(migrated_draft["draft"]["idempotency_key"], legacy_draft["idempotency_key"])
+        self.assertEqual(migrated_draft["draft"]["pipeline_contact_key"], "alex")
+        self.assertTrue(migrated_operation["duplicate"])
+        self.assertEqual(migrated_operation["operation"]["id"], legacy_operation["id"])
+        self.assertEqual(migrated_operation["operation"]["idempotency_key"], legacy_operation["idempotency_key"])
+        self.assertEqual(migrated_operation["operation"]["pipeline_contact_key"], "alex")
+
+        connection = sqlite3.connect(database)
+        self.assertEqual(1, connection.execute("SELECT COUNT(*) FROM draft").fetchone()[0])
+        self.assertEqual(1, connection.execute("SELECT COUNT(*) FROM external_operation").fetchone()[0])
+        connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()

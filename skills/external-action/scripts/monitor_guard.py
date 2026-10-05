@@ -32,7 +32,7 @@ def phones_in_text(value):
             yield normalized
 
 
-def contact_fields(connection, contact_key):
+def contact_snapshot(connection, contact_key):
     # Guard table is the complete latest wiki snapshot, including ineligible rows.
     for table in ("monitor_contact_guard", "monitor_contact"):
         exists = connection.execute(
@@ -44,18 +44,26 @@ def contact_fields(connection, contact_key):
             f"SELECT data FROM {table} WHERE contact_key=?", (contact_key,)
         ).fetchone()
         if row:
-            return json.loads(row["data"]).get("fields", {})
+            return json.loads(row["data"])
     return None
 
 
-def require_contact_not_terminal(fields):
-    status = fields.get("status") if fields else None
-    normalized = " ".join(str(status or "").casefold().replace("_", " ").replace("-", " ").split())
-    terminal_labels = {
-        "passed", "declined", "not interested", "do not contact", "do not reach out",
-        "no further contact", "withdrawn", "offer withdrawn",
-    }
-    if status in TERMINAL_PIPELINE_STATUSES or normalized in terminal_labels:
+def contact_fields(connection, contact_key):
+    snapshot = contact_snapshot(connection, contact_key)
+    return snapshot.get("fields", {}) if snapshot else None
+
+
+def snapshot_mapped_status(snapshot):
+    if "mapped_status" in snapshot:
+        return snapshot["mapped_status"]
+    # Older and eligible-contact rows store only the canonical page status.
+    status = snapshot.get("fields", {}).get("status")
+    return status if status in PIPELINE_STATUS_SET else None
+
+
+def require_contact_not_terminal(fields, mapped_status):
+    if mapped_status in TERMINAL_PIPELINE_STATUSES:
+        status = fields.get("status") if fields else None
         raise ValueError(f"contact status {status} is terminal; monitor actions are disabled")
 
 
@@ -71,12 +79,31 @@ def add_monitor_column(connection, table):
 def require_current_contact(connection, row):
     if row["contact_key"].startswith("source:"):
         return
-    fields = contact_fields(connection, row["contact_key"])
-    if fields is None:
+    snapshot = contact_snapshot(connection, row["contact_key"])
+    if snapshot is None:
         raise ValueError("contact is not in the latest verified pipeline read/snapshot; refresh it first")
-    require_contact_not_terminal(fields)
+    fields = snapshot.get("fields", {})
+    require_contact_not_terminal(fields, snapshot_mapped_status(snapshot))
     if fields.get("status") not in PIPELINE_STATUS_SET:
         raise ValueError("contact pipeline status is noncanonical; reconcile it before monitor actions")
+
+
+def bind_pipeline_contact(connection, table, row, contact_key):
+    """Attach guard metadata to a stable idempotency match from an older image."""
+    if contact_key is None:
+        return row
+    if table not in {"draft", "external_operation"}:
+        raise ValueError("unsupported pipeline contact ledger")
+    existing_key = row["pipeline_contact_key"]
+    if existing_key not in (None, "", contact_key):
+        raise ValueError("idempotent record is already linked to a different pipeline contact")
+    if existing_key in (None, ""):
+        connection.execute(
+            f"UPDATE {table} SET pipeline_contact_key=? WHERE id=?",
+            (contact_key, row["id"]),
+        )
+        return connection.execute(f"SELECT * FROM {table} WHERE id=?", (row["id"],)).fetchone()
+    return row
 
 
 def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), context_text=(),
@@ -247,9 +274,9 @@ def monitor_item(connection, suggestion_id, approved=False):
     if row is None or row["status"] not in ("pending", "approved", "executing"):
         raise ValueError("monitor suggestion is missing, obsolete, or requires reconciliation")
     if not row["contact_key"].startswith("source:"):
-        fields = contact_fields(connection, row["contact_key"])
-        if fields is not None:
-            require_contact_not_terminal(fields)
+        snapshot = contact_snapshot(connection, row["contact_key"])
+        if snapshot is not None:
+            require_contact_not_terminal(snapshot.get("fields", {}), snapshot_mapped_status(snapshot))
     if approved:
         if row["status"] not in ("approved", "executing") or not row["approval_ref"] or not row["validation_ref"]:
             raise ValueError("monitor action requires specific founder approval and fresh source/calendar validation")

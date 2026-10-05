@@ -506,6 +506,41 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "only status, holds and proposed"):
             monitor.page_update(self.db, contact_key="alex", facts={"next_step": "invented"})
 
+    def test_withdrawn_status_preserves_current_proposed_offer(self):
+        current = {
+            "status": "sent",
+            "holds": "",
+            "proposed": "Offer: Tuesday at 11:30",
+        }
+        self.assertEqual(
+            monitor.validate_page_facts({"status": "withdrawn"}, current),
+            {"status": "withdrawn"},
+        )
+        self.assertEqual(
+            monitor.validate_page_facts(
+                {"status": "withdrawn", "proposed": current["proposed"]}, current
+            ),
+            {"status": "withdrawn", "proposed": current["proposed"]},
+        )
+        with self.assertRaisesRegex(ValueError, "current proposed offer text"):
+            monitor.validate_page_facts(
+                {"status": "withdrawn", "proposed": "New offer"},
+                {"status": "sent", "holds": ""},
+            )
+        with self.assertRaisesRegex(ValueError, "nonblank proposed offer"):
+            monitor.validate_page_facts(
+                {"status": "withdrawn", "proposed": ""}, current
+            )
+        with self.assertRaisesRegex(ValueError, "preserve current proposed"):
+            monitor.validate_page_facts(
+                {"status": "withdrawn", "proposed": "Different offer"}, current
+            )
+        with self.assertRaisesRegex(ValueError, "nonblank proposed offer"):
+            monitor.validate_page_facts(
+                {"proposed": ""},
+                {"status": "withdrawn", "holds": "", "proposed": current["proposed"]},
+            )
+
     def test_page_update_checks_resulting_state_against_current_page(self):
         target = "work@example.com/primary/live"
         self.write_contact("alex", status="held", holds=target)
@@ -649,7 +684,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("contact status withdrawn is terminal", operation_error)
 
     def test_noncanonical_pipeline_identity_is_kept_in_guard_before_eligibility_filter(self):
-        self.write_contact("unverified", status="still figuring it out",
+        self.write_contact("unverified", status="Awaiting reply",
                            email="unverified@example.com")
         result = self.contacts()
         self.assertNotIn("unverified", [entry["contact_key"] for entry in result["contacts"]])
@@ -657,13 +692,74 @@ class MonitorTests(unittest.TestCase):
             "SELECT data FROM monitor_contact_guard WHERE contact_key='unverified'"
         ).fetchone()
         self.assertIsNotNone(row)
-        self.assertEqual(json.loads(row["data"])["handles"], ["unverified@example.com"])
+        snapshot = json.loads(row["data"])
+        self.assertEqual(snapshot["handles"], ["unverified@example.com"])
+        self.assertEqual(snapshot["fields"]["status"], "Awaiting reply")
+        self.assertEqual(snapshot["mapped_status"], "waiting_on_them")
         error = self.helper(
             "external-action", "drafts.py", "prepare", "--channel", "text",
             "--thread-id", "unverified-contact", "--recipient", "unverified@example.com",
             "--body", "Do not prepare", ok=False,
         )
         self.assertIn("noncanonical", error)
+
+    def test_terminal_alias_stays_raw_but_guard_uses_mapped_status(self):
+        self.write_contact("declined", status="Declined", email="declined@example.com")
+        self.contacts()
+        row = self.db.execute(
+            "SELECT data FROM monitor_contact_guard WHERE contact_key='declined'"
+        ).fetchone()
+        snapshot = json.loads(row["data"])
+        self.assertEqual(snapshot["fields"]["status"], "Declined")
+        self.assertEqual(snapshot["mapped_status"], "passed")
+        error = self.helper(
+            "external-action", "drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "declined-contact", "--recipient", "declined@example.com",
+            "--body", "Do not prepare", ok=False,
+        )
+        self.assertIn("is terminal", error)
+
+    def test_pipeline_contact_metadata_does_not_change_draft_or_operation_keys(self):
+        draft_args = (
+            "prepare", "--channel", "text", "--thread-id", "pipeline-idem",
+            "--recipient", "alex@example.com", "--body", "Draft once",
+            "--contact-key", "alex",
+        )
+        draft = self.helper("external-action", "drafts.py", *draft_args)["draft"]
+        expected_draft_key = hashlib.sha256(
+            "\x1f".join(("text", "pipeline-idem", "alex@example.com", "", "Draft once")).encode()
+        ).hexdigest()
+        self.assertEqual(draft["idempotency_key"], expected_draft_key)
+        self.assertEqual(draft["pipeline_contact_key"], "alex")
+        duplicate = self.helper("external-action", "drafts.py", *draft_args)
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(duplicate["draft"]["id"], draft["id"])
+
+        revised = self.helper(
+            "external-action", "drafts.py", "revise", "--id", str(draft["id"]),
+            "--body", "Draft revised",
+        )["draft"]
+        expected_revised_key = hashlib.sha256(
+            "\x1f".join(("text", "pipeline-idem", "alex@example.com", "", "Draft revised")).encode()
+        ).hexdigest()
+        self.assertEqual(revised["idempotency_key"], expected_revised_key)
+        self.assertEqual(revised["pipeline_contact_key"], "alex")
+
+        operation_args = (
+            "prepare", "--scope", "calendar", "--target", "work@example.com/primary/new",
+            "--operation", "create", "--intent", "Schedule with Alex Tuesday",
+            "--contact-key", "alex",
+        )
+        operation = self.helper("external-action", "operations.py", *operation_args)["operation"]
+        expected_operation_key = hashlib.sha256(
+            "\x1f".join(("calendar", "work@example.com/primary/new", "create",
+                         "Schedule with Alex Tuesday")).encode()
+        ).hexdigest()
+        self.assertEqual(operation["idempotency_key"], expected_operation_key)
+        self.assertEqual(operation["pipeline_contact_key"], "alex")
+        duplicate_operation = self.helper("external-action", "operations.py", *operation_args)
+        self.assertTrue(duplicate_operation["duplicate"])
+        self.assertEqual(duplicate_operation["operation"]["id"], operation["id"])
 
     def test_explicit_draft_contact_key_requires_recipient_known_handle(self):
         error = self.helper(

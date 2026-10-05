@@ -17,7 +17,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from monitor_guard import (
-    add_monitor_column, add_pipeline_contact_key_column, monitor_item,
+    add_monitor_column, add_pipeline_contact_key_column, bind_pipeline_contact, monitor_item,
     require_direct_contact, resolve_direct_contact_key,
 )
 
@@ -226,10 +226,10 @@ def prepare_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> d
     key = args.idempotency_key or derive_idempotency_key(channel, thread_id, recipient, subject, body)
     if monitor_id is not None:
         key = f"monitor:{monitor_id}:{key}"
-    elif contact_key is not None:
-        key = f"pipeline:{contact_key}:{key}"
     existing = connection.execute("SELECT * FROM draft WHERE idempotency_key = ?", (key,)).fetchone()
     if existing is not None:
+        existing = bind_pipeline_contact(connection, "draft", existing, contact_key)
+        connection.commit()
         return {"created": False, "duplicate": True, "draft": as_dict(existing)}
     timestamp = now()
     cursor = connection.execute(
@@ -286,8 +286,6 @@ def revise_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> di
         base_key = args.idempotency_key or derive_idempotency_key(
             old["channel"], thread_id, recipient, subject, body
         )
-        if contact_key is not None:
-            base_key = f"pipeline:{contact_key}:{base_key}"
         key = base_key
         existing = connection.execute(
             "SELECT * FROM draft WHERE idempotency_key=?", (key,)
@@ -297,6 +295,8 @@ def revise_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> di
                 f"{base_key}\x1f{secrets.token_urlsafe(12)}".encode()
             ).hexdigest()
             existing = None
+        elif existing is not None:
+            existing = bind_pipeline_contact(connection, "draft", existing, contact_key)
         timestamp = now()
         if existing is None:
             cursor = connection.execute(

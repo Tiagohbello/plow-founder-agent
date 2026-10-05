@@ -445,11 +445,10 @@ def contacts(db, vault, pages):
                               if isinstance(handle, str) and handle.strip()})
             if handles:
                 guard_fields = dict(fields)
-                if mapped_status is not None:
-                    guard_fields["status"] = mapped_status
                 guard_contacts.append({"contact_key": slug,
                                        "name": person.get("title") or slug,
-                                       "handles": handles, "fields": guard_fields})
+                                       "handles": handles, "fields": guard_fields,
+                                       "mapped_status": mapped_status})
         if mapped_status in TERMINAL_PIPELINE_STATUSES:
             unlinked.append({"contact_key": slug,
                              "reason": f"terminal pipeline status {mapped_status}; no monitor actions allowed"})
@@ -697,8 +696,8 @@ def validate_page_facts(data, current=None):
     if current is not None and not isinstance(current, dict):
         raise ValueError("current page facts must be an object")
     current = current or {}
+    final_status = result.get("status", current.get("status"))
     if set(data) & {"status", "holds"}:
-        final_status = result.get("status", current.get("status"))
         if final_status is None:
             raise ValueError("current page status is required to determine the resulting status before changing status or holds")
         if final_status is not None:
@@ -713,6 +712,15 @@ def validate_page_facts(data, current=None):
             raise ValueError("status held requires at least one verified live hold target")
         if final_status == "confirmed" and final_holds != "":
             raise ValueError("status confirmed requires holds to be explicitly empty after cleanup")
+    if final_status == "withdrawn":
+        current_proposed = current.get("proposed")
+        if not isinstance(current_proposed, str) or not current_proposed.strip():
+            raise ValueError("current proposed offer text is required when status is withdrawn")
+        final_proposed = result.get("proposed", current_proposed)
+        if not isinstance(final_proposed, str) or not final_proposed.strip():
+            raise ValueError("withdrawn status requires nonblank proposed offer text")
+        if final_proposed != current_proposed:
+            raise ValueError("withdrawn status must preserve current proposed offer text")
     return result
 
 

@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from monitor_guard import (
-    add_monitor_column, add_pipeline_contact_key_column, monitor_operation,
+    add_monitor_column, add_pipeline_contact_key_column, bind_pipeline_contact, monitor_operation,
     require_direct_contact, resolve_direct_contact_key,
 )
 
@@ -193,10 +193,10 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     key = args.idempotency_key or derive_key(args.scope, target, operation, intent)
     if monitor_id is not None:
         key = f"monitor:{monitor_id}:{derive_key(args.scope, target, operation, intent)}"
-    elif contact_key is not None:
-        key = f"pipeline:{contact_key}:{key}"
     existing = connection.execute("SELECT * FROM external_operation WHERE idempotency_key=?", (key,)).fetchone()
     if existing:
+        existing = bind_pipeline_contact(connection, "external_operation", existing, contact_key)
+        connection.commit()
         return {"created": False, "duplicate": True, "operation": as_dict(existing)}
     status = "approved" if policy == "autonomous" else "pending"
     timestamp = now()
