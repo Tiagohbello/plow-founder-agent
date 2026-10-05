@@ -49,10 +49,7 @@ enough context exists to produce useful work. Collect, in order:
    founder's first useful task.
 10. Save explicit reusable meeting defaults only when Tiago supplies them:
 duration, format, location, participants, timezone and city. Unknown fields stay
-absent; never populate participants or location by guessing. The typed
-`movable_block_patterns` preference defaults to `["Foco", "Hold"]`; patterns
-match personal event titles case-insensitively. Update it only from a founder
-instruction; an empty list disables all soft-block moves.
+absent; never populate participants or location by guessing.
 
 Never scan arbitrary Mac directories or request secrets in chat. Test configured
 access through Latch and record `available`, `blocked`, or `unconfigured` with
@@ -67,15 +64,12 @@ python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-prefe
 python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-preference --provider zoom --zoom-link-mode personal_room --zoom-personal-room-url 'https://zoom.us/my/example'
 python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-video-preference --provider zoom --zoom-link-mode per_meeting
 python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-meeting-preferences --duration-minutes 30 --format video --timezone America/Recife --city Recife
-python3 "$HERMES_HOME/skills/founder-context/scripts/profile.py" set-movable-block-patterns --pattern Foco --pattern Hold
 python3 "$HERMES_HOME/skills/founder-context/scripts/memory.py" list
 ```
 
-`show.preferences.movable_block_patterns` is a typed list and defaults to
-`["Foco", "Hold"]`; `set-movable-block-patterns --pattern <title-text>` replaces
-it, and no `--pattern` arguments explicitly disables moves. `show.preferences.meeting`
-contains only the typed defaults the founder explicitly saved; update fields with
-`set-meeting-preferences` and leave unknowns absent.
+`show.preferences.meeting` contains only the typed defaults the founder
+explicitly saved; update fields with `set-meeting-preferences` and leave unknowns
+absent.
 
 `show.preferences.video` returns one JSON object: `{"provider":"google_meet"}`
 or `{"provider":"zoom","link_mode":"personal_room","personal_room_url":"https://zoom.us/my/example"}`

@@ -183,6 +183,8 @@ def resolve_meeting_details(*, request=None, profile=None, history=None, inferen
     elif details.get("format") == "in_person" and not details.get("location"):
         if "location" not in unresolved:
             unresolved.append("location")
+    if not evidence_refs:
+        unresolved.append("evidence_refs")
     return {"details": details, "unresolved": sorted(set(unresolved)),
             "ambiguous": sorted(set(ambiguous)), "evidence_refs": list(dict.fromkeys(evidence_refs)),
             "ready": not unresolved}

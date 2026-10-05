@@ -58,15 +58,6 @@ calendar, linked to that option; create and verify them through the same `extern
 convert only the winner's travel blocks after the invitation verifies, then
 remove losing-option blocks through their exact ledger entries.
 
-A soft block is movable only if its title contains a configured
-`movable_block_patterns` entry (case-insensitive), it is a founder-owned,
-non-recurring personal event, and it has no attendees. Never move a third-party
-organized event, a recurring protected event, or an event with participants.
-Prepare every allowed move as `operation: move_block` in `external-action` with
-verified event identity, organizer, attendee/recurrence state, old interval and
-new interval. The ledger revalidates those facts and profile patterns at prepare,
-approval and claim; no move bypasses the ledger.
-
 For a recurring event, establish whether the request targets one occurrence,
 this and following occurrences, or the complete series. If the request does
 not determine the scope, ask one short question before preparing the operation.

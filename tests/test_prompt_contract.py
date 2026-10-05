@@ -62,11 +62,10 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn("two independently claimed and verified ledger operations", action)
         self.assertIn("it never contains `effect: zoom_meeting`", action)
 
-    def test_scheduling_inference_travel_and_movable_block_contract(self) -> None:
+    def test_scheduling_inference_and_travel_contract(self) -> None:
         scheduling = " ".join((ROOT / "skills/founder-scheduling/SKILL.md").read_text().split())
         calendar = " ".join((ROOT / "skills/founder-calendar/SKILL.md").read_text().split())
         pipeline = " ".join((ROOT / "skills/pipeline-monitor/SKILL.md").read_text().split())
-        context = " ".join((ROOT / "skills/founder-context/SKILL.md").read_text().split())
         action = " ".join((ROOT / "skills/external-action/SKILL.md").read_text().split())
         for fragment in (
             "explicit current request → persisted profile preference → consistent history for the verified identity → evidence-backed inference",
@@ -75,7 +74,6 @@ class PromptContractTests(unittest.TestCase):
             "ask the founder privately in `PLOW_HOME_CHANNEL`",
             "Never invent participants, locations, or times",
             "travel_before", "travel_after", "selected_option_id", "convert_travel",
-            "movable_block_patterns", "`move_block` ledger",
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, scheduling)
@@ -85,13 +83,8 @@ class PromptContractTests(unittest.TestCase):
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, pipeline)
-        self.assertIn("patterns match personal event titles case-insensitively", context)
-        for fragment in ("non-recurring", "third-party", "move_block"):
-            with self.subTest(fragment=fragment):
-                self.assertIn(fragment, calendar)
-                self.assertIn(fragment, action)
         self.assertIn("attendee-free", calendar)
-        self.assertIn("attendees are empty", action)
+        self.assertIn("convert_travel", action)
 
     def test_scheduling_outgoing_messages_contract(self) -> None:
         documents = {

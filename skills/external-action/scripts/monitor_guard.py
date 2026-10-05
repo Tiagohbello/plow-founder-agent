@@ -1,6 +1,6 @@
 """Narrow approval guard shared by both external-action ledgers."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 import re
 from zoneinfo import ZoneInfo
@@ -256,118 +256,6 @@ def parse_travel_conversion(intent, target):
     if target.rsplit("/", 1)[-1] in {"", "new"}:
         raise ValueError("travel conversion target must identify an existing provider event")
     return event
-
-
-def validate_movable_block(connection, scope, target, operation, intent, *,
-                           current_event=None, require_current=False):
-    normalized = operation.strip().casefold().replace("-", "_").replace(" ", "_")
-    if scope != "calendar":
-        return
-    if normalized != "move_block":
-        creates_new_event = normalized == "create" and target.rsplit("/", 1)[-1] == "new"
-        if creates_new_event:
-            return
-        try:
-            candidate = json.loads(intent)
-        except (TypeError, json.JSONDecodeError):
-            return
-
-        def contains_interval_fields(value):
-            if isinstance(value, dict):
-                return bool({"start", "end", "new_start", "new_end"} & set(value)) or any(
-                    contains_interval_fields(item) for item in value.values()
-                )
-            if isinstance(value, list):
-                return any(contains_interval_fields(item) for item in value)
-            return False
-
-        if contains_interval_fields(candidate):
-            raise ValueError("calendar time moves must use the guarded move_block operation")
-        return
-    try:
-        event = json.loads(intent)
-    except (TypeError, json.JSONDecodeError) as error:
-        raise ValueError("move_block intent must be structured JSON") from error
-    fields = {"owner_account", "calendar", "event_id", "title", "organizer", "attendees",
-              "recurring", "start", "end", "new_start", "new_end", "timezone"}
-    if not isinstance(event, dict) or set(event) != fields:
-        raise ValueError("move_block requires exact event identity, conflict and destination fields")
-    for key in ("owner_account", "calendar", "event_id", "title", "organizer", "timezone"):
-        if not isinstance(event[key], str) or not event[key].strip():
-            raise ValueError(f"move_block {key} must be nonblank text")
-    accounts = {row["account"] for row in connection.execute(
-        "SELECT account FROM calendar_account WHERE active=1 AND status='available'")}
-    if event["owner_account"] not in accounts or event["organizer"].casefold() != event["owner_account"].casefold():
-        raise ValueError("cannot move events owned or organized by third parties")
-    if target != f"{event['owner_account']}/{event['calendar']}/{event['event_id']}":
-        raise ValueError("move_block target must match verified event identity")
-    if event["attendees"] != []:
-        raise ValueError("cannot move a block with external participants")
-    if event["recurring"] is not False:
-        raise ValueError("cannot move protected recurring events")
-    if not isinstance(event["title"], str) or not event["title"].strip():
-        raise ValueError("move_block title must be nonblank")
-    preference = connection.execute(
-        "SELECT value FROM founder_preference WHERE key='movable_block_patterns'").fetchone()
-    patterns = json.loads(preference["value"]) if preference else ["Foco", "Hold"]
-    if not isinstance(patterns, list) or not any(
-            isinstance(pattern, str) and pattern.strip() and pattern.casefold() in event["title"].casefold()
-            for pattern in patterns):
-        raise ValueError("event title does not match an authorized movable_block_pattern")
-    try:
-        zone = ZoneInfo(event["timezone"])
-        times = [datetime.fromisoformat(event[key].replace("Z", "+00:00"))
-                 for key in ("start", "end", "new_start", "new_end")]
-    except (ValueError, TypeError, KeyError) as error:
-        raise ValueError("move_block times must use valid ISO timestamps and timezone") from error
-    start, end, new_start, new_end = times
-    if any(value.tzinfo is None for value in times):
-        raise ValueError("move_block times must include a timezone")
-    if start >= end or new_start >= new_end:
-        raise ValueError("move_block intervals must be ordered")
-    if end - start != new_end - new_start:
-        raise ValueError("move_block must preserve event duration")
-    if any(value.astimezone(zone).utcoffset() != value.utcoffset() for value in times):
-        raise ValueError("move_block times must match their timezone")
-
-    if require_current:
-        if isinstance(current_event, str):
-            try:
-                current_event = json.loads(current_event)
-            except json.JSONDecodeError as error:
-                raise ValueError("move_block claim requires a valid current event snapshot") from error
-        state_fields = {
-            "owner_account", "calendar", "event_id", "title", "organizer", "attendees",
-            "recurring", "start", "end", "timezone",
-        }
-        if not isinstance(current_event, dict) or set(current_event) != state_fields | {"checked_at"}:
-            raise ValueError(
-                "move_block claim requires a current provider snapshot of owner, organizer, "
-                "title, attendees, recurrence, interval and timezone"
-            )
-        for key in ("owner_account", "calendar", "event_id", "title", "organizer", "start", "end", "timezone"):
-            if not isinstance(current_event[key], str) or not current_event[key].strip():
-                raise ValueError(f"move_block current event {key} must be nonblank text")
-        checked_at = current_event["checked_at"]
-        try:
-            observed_at = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
-        except (AttributeError, TypeError, ValueError) as error:
-            raise ValueError("move_block snapshot checked_at must be an ISO timestamp") from error
-        if observed_at.tzinfo is None:
-            raise ValueError("move_block snapshot checked_at must include a timezone")
-        age = datetime.now(timezone.utc) - observed_at.astimezone(timezone.utc)
-        if age.total_seconds() < 0 or age.total_seconds() > 30:
-            raise ValueError("move_block provider snapshot must be no more than 30 seconds old")
-        if current_event["attendees"] != []:
-            raise ValueError("cannot move a block with external participants")
-        if current_event["recurring"] is not False:
-            raise ValueError("cannot move protected recurring events")
-        if (current_event["owner_account"] not in accounts
-                or current_event["organizer"].casefold() != current_event["owner_account"].casefold()):
-            raise ValueError("cannot move events owned or organized by third parties")
-        for key in state_fields:
-            if current_event[key] != event[key]:
-                raise ValueError(f"current move_block event {key} no longer matches prepared state")
 
 
 def require_default_calendar(connection, target):

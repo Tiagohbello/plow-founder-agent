@@ -34,7 +34,6 @@ DEFAULT_POLICIES = {
     "destructive_operation": "forbidden",
 }
 PREFERENCE_KEYS = ("save_gmail_drafts",)
-DEFAULT_MOVABLE_BLOCK_PATTERNS = ("Foco", "Hold")
 VIDEO_PROVIDERS = ("google_meet", "zoom")
 ZOOM_LINK_MODES = ("personal_room", "per_meeting")
 PERMANENTLY_FORBIDDEN = {
@@ -77,22 +76,6 @@ def preference_value(value: str) -> str:
     if value not in ("true", "false"):
         raise ValueError("preference value must be true or false")
     return value
-
-
-def movable_block_patterns(values) -> list[str]:
-    if not isinstance(values, (list, tuple)):
-        raise ValueError("movable_block_patterns must be a list of title patterns")
-    normalized = []
-    seen = set()
-    for value in values:
-        pattern = text(value, "movable block pattern")
-        if len(pattern) > 100:
-            raise ValueError("movable block patterns must be at most 100 characters")
-        key = pattern.casefold()
-        if key not in seen:
-            normalized.append(pattern)
-            seen.add(key)
-    return normalized
 
 
 def meeting_preferences(values: dict) -> dict:
@@ -339,7 +322,6 @@ def show(connection: sqlite3.Connection) -> dict:
         row["key"]: json.loads(row["value"])
         for row in connection.execute("SELECT key,value FROM founder_preference ORDER BY key")
     }
-    preferences.setdefault("movable_block_patterns", list(DEFAULT_MOVABLE_BLOCK_PATTERNS))
     return {
         "configured": company is not None,
         "company": row_dict(company),
@@ -413,13 +395,6 @@ def run(args: argparse.Namespace) -> dict:
         elif args.operation == "set-video-preference":
             set_video_preference(connection, args.provider, args.zoom_link_mode,
                                  args.zoom_personal_room_url, timestamp)
-        elif args.operation == "set-movable-block-patterns":
-            patterns = movable_block_patterns(args.pattern or [])
-            connection.execute(
-                """INSERT INTO founder_preference(key,value,updated_at) VALUES ('movable_block_patterns',?,?)
-                   ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
-                (json.dumps(patterns, ensure_ascii=False), timestamp),
-            )
         elif args.operation == "set-meeting-preferences":
             current = connection.execute(
                 "SELECT value FROM founder_preference WHERE key='meeting'"
@@ -542,8 +517,6 @@ def parser() -> argparse.ArgumentParser:
     video.add_argument("--provider", required=True, choices=VIDEO_PROVIDERS)
     video.add_argument("--zoom-link-mode", choices=ZOOM_LINK_MODES)
     video.add_argument("--zoom-personal-room-url")
-    movable = commands.add_parser("set-movable-block-patterns")
-    movable.add_argument("--pattern", action="append", default=[])
     meeting = commands.add_parser("set-meeting-preferences")
     meeting.add_argument("--duration-minutes", type=int)
     meeting.add_argument("--format", choices=MEETING_FORMATS)

@@ -232,7 +232,7 @@ Acceptance check, using test contacts you control:
    invitation and release every sibling hold. Verify those latter operations do
    not happen until you approve.
 2. Reply proposing a phone call while your preference is video. Expect suitable
-   video options and a prepared response in Plow, not a sent message.
+   phone options and a prepared response in Plow, not a sent message.
 3. Run another check without changes: no duplicate alert or draft. Send a newer
    reply: the older suggestion must no longer be executable.
 4. Pause, restart Docker, and confirm it stays paused; resume and verify there

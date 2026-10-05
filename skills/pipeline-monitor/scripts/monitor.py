@@ -949,57 +949,66 @@ def normalize_calendar_plan(action, plan, draft, contact, *, meeting_details=Non
             raise ValueError("selected_option_id requires its complete persisted offered option")
         travel_entries = [item for item in normalized if item["effect"] == "convert_travel"]
         delete_entries = [item for item in normalized if item["effect"] == "delete_hold"]
-        if offered and any(
-                entry.get("effect") == "travel_hold"
-                for option in offered["entries"].values() for entry in option.values()):
+        if offered:
             option_id = required(selected_option_id, "selected_option_id")
             if option_id not in offered["targets"]:
                 raise ValueError("selected_option_id must match a fully held offered option")
-            expected_travel = {segment: target for segment, target in offered["targets"][option_id].items()
-                               if segment in ("travel_before", "travel_after")}
             details = offered.get("meeting_details") or {}
-            if details.get("format") == "in_person" and set(expected_travel) != {"travel_before", "travel_after"}:
-                raise ValueError("selected in-person option is missing a verified travel hold")
-            if details.get("format") == "in_person":
-                try:
-                    invite = json.loads(normalized[0]["intent"])
-                except (TypeError, json.JSONDecodeError) as error:
-                    raise ValueError("in-person Pick invitation intent must be structured JSON") from error
-                invite_fields = {"account", "calendar", "start", "end", "timezone", "title",
-                                 "description", "format", "location", "attendees", "send_updates",
-                                 "transparency"}
-                if not isinstance(invite, dict) or set(invite) != invite_fields:
-                    raise ValueError("in-person Pick invitation requires exact verified option parameters")
-                meeting = json.loads(offered["entries"][option_id]["meeting"]["intent"])
-                if normalized[0]["target"] != f"{meeting['account']}/{meeting['calendar']}/new":
-                    raise ValueError("invitation target must match the selected option calendar")
-                if any(invite[key] != meeting[key] for key in ("account", "calendar", "start", "end", "timezone")):
-                    raise ValueError("invitation interval must match the selected option_id")
-                if (invite["format"] != "in_person" or invite["location"] != details.get("location")
-                        or invite["attendees"] != details["participants"]
-                        or not isinstance(invite["title"], str) or not invite["title"].strip()
-                        or not isinstance(invite["description"], str) or not invite["description"].strip()
-                        or invite["send_updates"] != "all" or invite["transparency"] != "opaque"):
-                    raise ValueError("invitation details must match verified in-person meeting details")
-            actual_conversions = {(item["option_id"], item["segment"]): item for item in travel_entries}
-            if len(actual_conversions) != len(travel_entries):
-                raise ValueError("Pick cannot repeat a travel conversion segment")
-            if set(actual_conversions) != {(option_id, segment) for segment in expected_travel}:
-                raise ValueError("Pick must preserve and convert exactly the winning option travel holds")
-            for segment, target in expected_travel.items():
-                item = actual_conversions[(option_id, segment)]
-                if item["target"] != target:
-                    raise ValueError("travel conversion target must match selected option state")
-                prior = offered["entries"][option_id][segment]
-                old_intent, new_intent = json.loads(prior["intent"]), json.loads(item["intent"])
-                if any(old_intent[key] != new_intent[key] for key in ("start", "end", "timezone", "account", "calendar")):
-                    raise ValueError("converted travel block must preserve verified interval and calendar")
-            preserved = set(expected_travel.values())
-            expected_deletes = live_targets - preserved
-            if {item["target"] for item in delete_entries} != expected_deletes:
-                raise ValueError("Pick must remove every losing option and the winning meeting hold")
-            if [item["effect"] for item in normalized] != ["invitation"] + ["convert_travel"] * len(travel_entries) + ["delete_hold"] * len(delete_entries):
-                raise ValueError("Pick must verify invitation, convert winning travel holds, then clean sibling holds")
+            try:
+                invite = json.loads(normalized[0]["intent"])
+            except (TypeError, json.JSONDecodeError) as error:
+                raise ValueError("Pick invitation intent must be structured JSON") from error
+            invite_fields = {"account", "calendar", "start", "end", "timezone", "title",
+                             "description", "format", "location", "attendees", "send_updates",
+                             "transparency"}
+            if not isinstance(invite, dict) or set(invite) != invite_fields:
+                raise ValueError("Pick invitation requires exact verified option parameters")
+            meeting = json.loads(offered["entries"][option_id]["meeting"]["intent"])
+            if normalized[0]["target"] != f"{meeting['account']}/{meeting['calendar']}/new":
+                raise ValueError("invitation target must match the selected option calendar")
+            if any(invite[key] != meeting[key] for key in ("account", "calendar", "start", "end", "timezone")):
+                raise ValueError("invitation interval must match the selected option_id")
+            if (invite["format"] != details.get("format")
+                    or invite["location"] != details.get("location")
+                    or invite["attendees"] != details["participants"]
+                    or not isinstance(invite["title"], str) or not invite["title"].strip()
+                    or not isinstance(invite["description"], str) or not invite["description"].strip()
+                    or invite["send_updates"] != "all" or invite["transparency"] != "opaque"):
+                raise ValueError("invitation details must match verified meeting details")
+
+            has_travel = any(
+                entry.get("effect") == "travel_hold"
+                for option in offered["entries"].values() for entry in option.values()
+            )
+            if has_travel:
+                expected_travel = {segment: target for segment, target in offered["targets"][option_id].items()
+                                   if segment in ("travel_before", "travel_after")}
+                if details.get("format") == "in_person" and set(expected_travel) != {"travel_before", "travel_after"}:
+                    raise ValueError("selected in-person option is missing a verified travel hold")
+                actual_conversions = {(item["option_id"], item["segment"]): item for item in travel_entries}
+                if len(actual_conversions) != len(travel_entries):
+                    raise ValueError("Pick cannot repeat a travel conversion segment")
+                if set(actual_conversions) != {(option_id, segment) for segment in expected_travel}:
+                    raise ValueError("Pick must preserve and convert exactly the winning option travel holds")
+                for segment, target in expected_travel.items():
+                    item = actual_conversions[(option_id, segment)]
+                    if item["target"] != target:
+                        raise ValueError("travel conversion target must match selected option state")
+                    prior = offered["entries"][option_id][segment]
+                    old_intent, new_intent = json.loads(prior["intent"]), json.loads(item["intent"])
+                    if any(old_intent[key] != new_intent[key] for key in ("start", "end", "timezone", "account", "calendar")):
+                        raise ValueError("converted travel block must preserve verified interval and calendar")
+                preserved = set(expected_travel.values())
+                expected_deletes = live_targets - preserved
+                if {item["target"] for item in delete_entries} != expected_deletes:
+                    raise ValueError("Pick must remove every losing option and the winning meeting hold")
+                if [item["effect"] for item in normalized] != ["invitation"] + ["convert_travel"] * len(travel_entries) + ["delete_hold"] * len(delete_entries):
+                    raise ValueError("Pick must verify invitation, convert winning travel holds, then clean sibling holds")
+            else:
+                if any(item["effect"] != "delete_hold" for item in normalized[1:]):
+                    raise ValueError("accepted requires invitation first, followed only by sibling hold deletions")
+                if {item["target"] for item in delete_entries} != live_targets:
+                    raise ValueError("accepted deletions must match every live sibling hold")
         else:
             if any(item["effect"] != "delete_hold" for item in normalized[1:]):
                 raise ValueError("accepted requires invitation first, followed only by sibling hold deletions")

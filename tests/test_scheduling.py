@@ -145,6 +145,15 @@ class MeetingInferenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "participants"):
             meeting.resolve_meeting_details(request={"participants": []})
 
+    def test_empty_evidence_refs_marks_readiness_unresolved(self):
+        result = meeting.resolve_meeting_details(
+            request={"duration_minutes": 30, "format": "video",
+                     "participants": ["alex@example.com"], "timezone": "America/Recife"},
+        )
+        self.assertFalse(result["ready"])
+        self.assertIn("evidence_refs", result["unresolved"])
+        self.assertEqual([], result["evidence_refs"])
+
 
 if __name__ == "__main__":
     unittest.main()

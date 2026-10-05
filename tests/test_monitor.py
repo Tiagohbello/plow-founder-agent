@@ -1012,6 +1012,74 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invitation interval must match"):
             monitor.observe(self.db, wrong_time)
 
+    def test_video_pick_requires_selected_option_id_and_matching_invitation_interval(self):
+        self.enable_monitor()
+        proposal = self.new_options_observation(draft={
+            "channel": "plow", "thread_id": "plow-thread-1", "recipient": "alex@example.com",
+            "body": "Could you meet at one of these times?",
+        })
+        item = monitor.observe(self.db, proposal)["suggestion"]
+        plan = item["payload"]["calendar_plan"]
+        live_targets = []
+        for index, entry in enumerate(plan, start=1):
+            operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
+                                    "--suggestion-id", str(item["id"]))["operation"]
+            self.helper("external-action", "operations.py", "claim", "--id", str(operation["id"]))
+            event_id = f"video-option-event-{index}"
+            self.helper("external-action", "operations.py", "finish", "--id", str(operation["id"]),
+                        "--outcome", "completed", "--external-ref", event_id,
+                        "--evidence", f"calendar:verified:{event_id}")
+            target = f"work@example.com/primary/{event_id}"
+            live_targets.append(target)
+            self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
+                               status="held", holds="; ".join(live_targets))
+            self.contacts()
+
+        winner = "option-2"
+        winning = [entry for entry in plan if entry.get("option_id") == winner][0]
+        meeting = json.loads(winning["intent"])
+        invitation = {key: meeting[key] for key in ("account", "calendar", "start", "end", "timezone")}
+        invitation.update(title="Meeting with Alex", description="Confirmed video meeting",
+                          format="video", location=None, attendees=["alex@example.com"],
+                          send_updates="all", transparency="opaque")
+        deletes = [{"effect": "delete_hold", "target": target,
+                    "intent": "Delete tentative hold after verified invitation"}
+                   for target in live_targets]
+        accepted_plan = [
+            {"effect": "invitation", "target": "work@example.com/primary/new",
+             "intent": json.dumps(invitation)},
+            *deletes,
+        ]
+        missing_id = self.observation(action="accepted",
+                                      evidence_refs=["gmail:pick-option-2"],
+                                      evidence_at="2026-09-20T14:00:00Z",
+                                      summary="Alex picked option 2.",
+                                      calendar_plan=accepted_plan)
+        with self.assertRaisesRegex(ValueError, "selected_option_id"):
+            monitor.observe(self.db, missing_id)
+
+        wrong_time = json.loads(json.dumps(accepted_plan))
+        bad_invite = json.loads(wrong_time[0]["intent"])
+        bad_invite["start"] = "2026-09-23T13:00:00-07:00"
+        bad_invite["end"] = "2026-09-23T13:30:00-07:00"
+        wrong_time[0]["intent"] = json.dumps(bad_invite)
+        mismatched_interval = self.observation(action="accepted", selected_option_id=winner,
+                                               evidence_refs=["gmail:pick-option-2-bad"],
+                                               evidence_at="2026-09-20T14:05:00Z",
+                                               summary="Alex picked mismatched time.",
+                                               calendar_plan=wrong_time)
+        with self.assertRaisesRegex(ValueError, "invitation interval must match the selected option_id"):
+            monitor.observe(self.db, mismatched_interval)
+
+        valid_accepted = self.observation(action="accepted", selected_option_id=winner,
+                                          evidence_refs=["gmail:pick-option-2"],
+                                          evidence_at="2026-09-20T14:00:00Z",
+                                          summary="Alex picked option 2.",
+                                          calendar_plan=accepted_plan)
+        picked = monitor.observe(self.db, valid_accepted)["suggestion"]["payload"]["calendar_plan"]
+        self.assertEqual({entry["target"] for entry in picked if entry["effect"] == "delete_hold"},
+                         set(live_targets))
+
     def test_new_options_require_valid_timezone_and_evidence_backed_details(self):
         invalid_timezone = self.new_options_observation()
         invalid_timezone["meeting_details"]["timezone"] = "Not/A_Zone"
@@ -1640,7 +1708,7 @@ class MonitorTests(unittest.TestCase):
         profile = self.helper("founder-context", "profile.py", "show")
         self.assertEqual(profile["pipeline_monitor"]["config"]["wiki_verified_ref"], self.config["wiki_verified_ref"])
         self.assertFalse(profile["pipeline_monitor"]["enabled"])
-        self.assertEqual(profile["preferences"], {"movable_block_patterns": ["Foco", "Hold"]})
+        self.assertEqual(profile["preferences"], {})
         updated = self.helper("founder-context", "profile.py", "set-preference",
                               "--key", "save_gmail_drafts", "--value", "true")
         self.assertTrue(updated["preferences"]["save_gmail_drafts"])

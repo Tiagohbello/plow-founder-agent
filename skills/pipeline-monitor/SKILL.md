@@ -384,14 +384,12 @@ titles start `TRAVEL HOLD — `; they remain attendee-free and private.
 `new_options` requires exactly three meeting holds, both travel segments per
 in-person option, `meeting_details`, and a prepared draft. Every segment uses
 the configured default calendar's `/new` target. `accepted` requires
-`invitation` first; for an in-person travel offer, its structured invitation
-intent exactly carries the selected meeting hold's account/calendar/start/end/timezone,
-location, verified attendees, `format: in_person`, `send_updates: all`, and
-`transparency: opaque`. It then deletes every live hold target except the two
-converted travel segments. If the accepted offer has
-travel segments, include its exact `selected_option_id`, convert only that
-option's two travel targets via `convert_travel` (using exact conversion title `TRAVEL — <Contact> / <Firm>` or `TRAVEL — <Contact>`), then delete every other live
-target (including the winning meeting hold); a conversion keeps the same
+`invitation` first; for every persisted offered Pick, include its exact
+`selected_option_id` and structured invitation intent carrying the selected
+meeting hold's account/calendar/start/end/timezone, verified format, location,
+verified attendees, `send_updates: all`, and `transparency: opaque`. If the
+accepted offer has travel segments, convert only that option's two travel
+targets via `convert_travel` (using exact conversion title `TRAVEL — <Contact> / <Firm>` or `TRAVEL — <Contact>`), then delete every other live target (including the winning meeting hold); otherwise delete all live sibling holds. A conversion keeps the same
 account, calendar, interval, busy visibility and no attendees. The complete
 conversion/deletion target sets are validated against the completed persisted
 offer and the contact's live `holds`. Use only provider-supported concrete
@@ -449,8 +447,8 @@ never reuse their approval. Then follow existing `external-action`:
 - Every calendar operation originating here must pass `--suggestion-id N` to
   `operations.py prepare` without `target`, `operation`, or `intent`; the ledger
   selects the next incomplete entry from the persisted ordered plan. Then
-  approve/claim normally. Apart from the exact
-  three automatic `hold` entries above, this overrides a broad autonomous
+  approve/claim normally. Apart from the three automatic meeting holds and
+  required in-person travel holds, this overrides a broad autonomous
   calendar policy with approval, never a forbidden policy.
   Use the returned entry's exact parameters for the provider call. The helper
   rechecks that entry at approval and claim; any change requires

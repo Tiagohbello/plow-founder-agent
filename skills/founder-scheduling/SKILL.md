@@ -85,11 +85,8 @@ do-not-overbook) or soft (internal standups, household services, optional
 blocks). Apply the request's rules — blackout days, deadlines, and inferred
 duration — and offer exactly three options, each a specific slot in the
 counterparty's timezone, none overlapping another contact's live holds. Read
-the contact's pipeline page. A soft block may be moved only when its title
-matches Founder Profile `movable_block_patterns` and it is a personal,
-non-recurring event with no external participants; prepare movement through
-`external-action`'s `move_block` ledger and obtain approval. Explain hard or
-soft overlaps privately; never expose the reason in outgoing text.
+the contact's pipeline page. Explain hard or soft overlaps privately; never
+expose the reason in outgoing text.
 
 ## Outgoing scheduling messages
 
@@ -195,13 +192,18 @@ the founder, never a silent swap.
 
 When the contact chooses, the persisted calendar plan starts with the real
 invitation (`effect: invitation`) for every format, including Zoom per meeting.
-For ordinary options, `effect: delete_hold` entries follow. When the persisted
-offer has travel holds, include `selected_option_id`, convert the winning
-option's `travel_before` and `travel_after` entries with `effect: convert_travel`,
-then `delete_hold` every other live hold, including the winning meeting hold.
-Conversion targets must exactly match the persisted option association, and
-the invitation's interval, location, attendees and format must match that
-selected `meeting` segment. Zoom
+For every persisted offer Pick, include `selected_option_id` and structured
+invitation intent matching the selected option's parameters and verified meeting
+details (`account`, `calendar`, `start`, `end`, `timezone`, `title`,
+`description`, `format`, `location`, `attendees`, `send_updates: all`,
+`transparency: opaque`). When the persisted offer has travel holds, convert the
+winning option's `travel_before` and `travel_after` entries with `effect:
+convert_travel` (using exact conversion title `TRAVEL — <Contact> / <Firm>` or
+`TRAVEL — <Contact>`), then `delete_hold` every other live hold, including the
+winning meeting hold; for offers without travel holds, `delete_hold` every live
+sibling hold. Conversion targets must exactly match the persisted option
+association, and the invitation's interval, location, attendees and format must
+match that selected `meeting` segment. Zoom
 per-meeting link creation is a separate, prior product operation in
 `external-action`, not an effect in the monitor calendar plan. Every plan contains
 one unique `effect: delete_hold` entry for each tentative hold target that is not
