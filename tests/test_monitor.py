@@ -591,6 +591,8 @@ class MonitorTests(unittest.TestCase):
                 with self.db:
                     self.db.execute("UPDATE monitor_contact SET data=? WHERE contact_key='alex'",
                                     (monitor.canonical(saved),))
+                    self.db.execute("UPDATE monitor_contact_guard SET data=? WHERE contact_key='alex'",
+                                    (monitor.canonical(saved),))
                 with self.assertRaisesRegex(ValueError, f"contact status {status} is terminal"):
                     monitor.observe(self.db, self.new_options_observation(
                         evidence_refs=[f"gmail:blocked:{status}"],
@@ -635,7 +637,8 @@ class MonitorTests(unittest.TestCase):
         )["operation"]
         self.helper("external-action", "operations.py", "approve", "--id", str(operation["id"]))
 
-        self.write_contact("alex", status="withdrawn")
+        self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                           phone="+1 415 555 0100")
         result = self.contacts()
         self.assertFalse(any(entry["contact_key"] == "alex" for entry in result["contacts"]))
         draft_error = self.helper("external-action", "drafts.py", "claim-send",
@@ -645,11 +648,46 @@ class MonitorTests(unittest.TestCase):
                                       "--id", str(operation["id"]), ok=False)
         self.assertIn("contact status withdrawn is terminal", operation_error)
 
+    def test_noncanonical_pipeline_identity_is_kept_in_guard_before_eligibility_filter(self):
+        self.write_contact("unverified", status="still figuring it out",
+                           email="unverified@example.com")
+        result = self.contacts()
+        self.assertNotIn("unverified", [entry["contact_key"] for entry in result["contacts"]])
+        row = self.db.execute(
+            "SELECT data FROM monitor_contact_guard WHERE contact_key='unverified'"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(json.loads(row["data"])["handles"], ["unverified@example.com"])
+        error = self.helper(
+            "external-action", "drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "unverified-contact", "--recipient", "unverified@example.com",
+            "--body", "Do not prepare", ok=False,
+        )
+        self.assertIn("noncanonical", error)
+
+    def test_explicit_draft_contact_key_requires_recipient_known_handle(self):
+        error = self.helper(
+            "external-action", "drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "wrong-contact-handle", "--recipient", "outsider@example.com",
+            "--body", "Do not prepare", "--contact-key", "alex", ok=False,
+        )
+        self.assertIn("recipient matching a known handle", error)
+
+    def test_phone_matching_preserves_country_code_digits(self):
+        self.write_contact("alex", email="", phone="(415) 555-0100")
+        self.contacts()
+        error = self.helper(
+            "external-action", "drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "country-code-mismatch", "--recipient", "+1 415 555 0100",
+            "--body", "Do not prepare", "--contact-key", "alex", ok=False,
+        )
+        self.assertIn("recipient matching a known handle", error)
+
     def test_formatted_phone_resolves_direct_contacts_at_prepare_approve_and_claim(self):
         variants = (
             ("+1 415 555 0100", "+14155550100"),
-            ("(415) 555-0100", "+1.415.555.0100"),
-            ("+14155550100", "(415) 555 0100"),
+            ("(415) 555-0100", "415.555.0100"),
+            ("+14155550100", "+1 (415) 555 0100"),
         )
         for index, (contact_phone, recipient) in enumerate(variants):
             with self.subTest(contact_phone=contact_phone, recipient=recipient):
@@ -710,8 +748,8 @@ class MonitorTests(unittest.TestCase):
     def test_formatted_phone_in_operation_intent_resolves_direct_contact_gates(self):
         variants = (
             ("+1 415 555 0100", "+14155550100"),
-            ("(415) 555-0100", "+1.415.555.0100"),
-            ("+14155550100", "(415) 555 0100"),
+            ("(415) 555-0100", "415.555.0100"),
+            ("+14155550100", "+1 (415) 555 0100"),
         )
         for index, (contact_phone, intent_phone) in enumerate(variants):
             with self.subTest(contact_phone=contact_phone, intent_phone=intent_phone):
