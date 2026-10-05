@@ -32,7 +32,7 @@ noncanonical, or unlinked contacts are blocked.
 
 For any direct draft or operation tied to a pipeline contact, refresh the
 pipeline immediately before `prepare` and again immediately before each
-`approve` or `claim`: repeat the pipeline listing/copy/`sync_contacts` flow, or
+`approve` or `claim`: repeat the pipeline listing/copy/`contacts --listing <file>` flow, or
 verify the current Markdown page and its person handles directly through the
 wiki. If a direct page check finds a changed, terminal, noncanonical, or unclear
 state, stop and refresh the synchronized snapshot before retrying; terminal
