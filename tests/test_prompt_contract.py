@@ -37,7 +37,7 @@ class PromptContractTests(unittest.TestCase):
         action = " ".join((ROOT / "skills/external-action/SKILL.md").read_text().split())
         pick = scheduling.split("## Pick", 1)[1].split("## Sweep", 1)[0]
 
-        for token in ("video_provider", "zoom_link_mode", "zoom_personal_room_url",
+        for token in ("preferences.video", "provider", "link_mode", "personal_room_url",
                       "set-video-preference", "never infer Google Meet"):
             self.assertIn(token, context)
         self.assertIn("meeting-specific choice takes immediate precedence", pick)
@@ -47,7 +47,7 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn("`--with-meet`", pick)
         self.assertIn("Read back the event by returned ID", pick)
         self.assertIn("verify its generated Meet URL", pick)
-        self.assertIn("persisted HTTPS `zoom_personal_room_url`", pick)
+        self.assertIn("`video.personal_room_url`, the persisted HTTPS Zoom room", pick)
         self.assertIn("**without** `--with-meet`", pick)
         self.assertIn("calendar plan starts with the real invitation (`effect: invitation`)", pick)
         self.assertIn("not an effect in the monitor calendar plan", pick)

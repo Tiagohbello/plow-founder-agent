@@ -53,8 +53,11 @@ credential changes, destructive production deletion, and destructive
 operations still block it. An unconfigured operation defaults to `approval`.
 
 Use `external-action` before every allowed mutation and pass the configured
-access name to `operations.py prepare --access-name`. A concrete founder request
-approves that exact prepared item but does not create a lasting policy.
+access name to `operations.py prepare --access-name`. The ledger stores that
+exact access name and rechecks that it remains active and available when the
+operation is claimed; inactive, blocked, or missing accesses cannot be claimed.
+A concrete founder request approves that exact prepared item but does not create
+a lasting policy.
 An `autonomous` policy permits the operation without another Founder Agent
 question. Latch may still show its own approval prompt.
 

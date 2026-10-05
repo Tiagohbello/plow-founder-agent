@@ -101,30 +101,24 @@ def zoom_personal_room_url(value: str | None) -> str:
 def set_video_preference(connection: sqlite3.Connection, provider: str,
                          mode: str | None, room_url: str | None, timestamp: str) -> None:
     """Replace the complete video configuration in one SQLite transaction."""
-    if provider not in VIDEO_PROVIDERS:
-        raise ValueError("video_provider must be google_meet or zoom")
-    values = {"video_provider": provider}
+    video = {"provider": provider}
     if provider == "google_meet":
         if mode is not None or room_url is not None:
             raise ValueError("Google Meet does not use Zoom link settings")
     else:
         if mode not in ZOOM_LINK_MODES:
             raise ValueError("zoom_link_mode must be personal_room or per_meeting for Zoom")
-        values["zoom_link_mode"] = mode
+        video["link_mode"] = mode
         if mode == "personal_room":
-            values["zoom_personal_room_url"] = zoom_personal_room_url(room_url)
+            video["personal_room_url"] = zoom_personal_room_url(room_url)
         elif room_url is not None:
             raise ValueError("per_meeting must not include a personal-room URL")
 
-    for key, value in values.items():
-        connection.execute(
-            """INSERT INTO founder_preference(key,value,updated_at) VALUES (?,?,?)
-               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
-            (key, json.dumps(value), timestamp),
-        )
-    for key in ("zoom_link_mode", "zoom_personal_room_url"):
-        if key not in values:
-            connection.execute("DELETE FROM founder_preference WHERE key=?", (key,))
+    connection.execute(
+        """INSERT INTO founder_preference(key,value,updated_at) VALUES ('video',?,?)
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
+        (json.dumps(video, ensure_ascii=False, sort_keys=True), timestamp),
+    )
 
 
 def migrate_legacy(connection: sqlite3.Connection, path: Path) -> None:

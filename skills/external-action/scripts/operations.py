@@ -70,6 +70,26 @@ def migrate_legacy(connection: sqlite3.Connection, path: Path) -> None:
     )
 
 
+def add_access_name_column(connection: sqlite3.Connection) -> None:
+    connection.commit()
+    with connection:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS founder_agent_migration "
+            "(component TEXT PRIMARY KEY, migrated_at TEXT NOT NULL)"
+        )
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(external_operation)")
+        }
+        if "access_name" not in columns:
+            connection.execute("ALTER TABLE external_operation ADD COLUMN access_name TEXT")
+        connection.execute(
+            """INSERT OR IGNORE INTO founder_agent_migration(component,migrated_at)
+               VALUES ('operations-access-name-v2',?)""",
+            (now(),),
+        )
+
+
 def database_path() -> Path:
     configured = os.environ.get("FOUNDER_OPERATIONS_DB")
     if configured:
@@ -96,6 +116,7 @@ def connect(path: Path) -> sqlite3.Connection:
             target TEXT NOT NULL,
             operation TEXT NOT NULL,
             intent TEXT NOT NULL,
+            access_name TEXT,
             policy TEXT NOT NULL CHECK (policy IN ('autonomous','approval','forbidden')),
             status TEXT NOT NULL CHECK (status IN
                 ('pending','approved','executing','completed','uncertain','cancelled')),
@@ -110,6 +131,7 @@ def connect(path: Path) -> sqlite3.Connection:
         """
     )
     migrate_legacy(connection, path)
+    add_access_name_column(connection)
     add_monitor_column(connection, "external_operation")
     add_pipeline_contact_key_column(connection, "external_operation")
     # Keep the shared compatibility version at 1 so the previous image can use
@@ -139,7 +161,8 @@ def derive_key(scope: str, target: str, operation: str, intent: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def resolve_policy(connection: sqlite3.Connection, scope: str, operation: str, access_name: str | None) -> str:
+def resolve_policy(connection: sqlite3.Connection, scope: str, operation: str,
+                   access_name: str | None) -> str:
     normalized_operation = operation.strip().casefold().replace("-", "_").replace(" ", "_")
     if normalized_operation in PERMANENTLY_FORBIDDEN:
         return "forbidden"
@@ -153,9 +176,21 @@ def resolve_policy(connection: sqlite3.Connection, scope: str, operation: str, a
             "SELECT policy FROM permission WHERE capability='calendar_manage'"
         ).fetchone()
         return row["policy"] if row else "approval"
-    if scope == "product" and access_name and {
-        "product_access", "product_access_policy"
-    }.issubset(tables):
+    if scope == "product":
+        if not access_name:
+            raise ValueError("product operations require a configured --access-name")
+        if not {"product_access", "product_access_policy"}.issubset(tables):
+            raise ValueError("product access profile is not configured")
+        access = connection.execute(
+            "SELECT active,status FROM product_access WHERE name=?",
+            (access_name.strip(),),
+        ).fetchone()
+        if access is None:
+            raise ValueError("configured product access not found")
+        if not access["active"]:
+            raise ValueError("configured product access is inactive")
+        if access["status"] != "available":
+            raise ValueError(f"configured product access is {access['status']}")
         row = connection.execute(
             """SELECT p.policy FROM product_access_policy p
                JOIN product_access a ON a.id=p.access_id
@@ -183,7 +218,12 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
         contact_key = resolve_direct_contact_key(
             connection, supplied_contact_key, (target,), (intent,)
         )
-    policy = resolve_policy(connection, args.scope, operation, args.access_name)
+    access_name = (
+        required(args.access_name, "access_name")
+        if args.scope == "product"
+        else (args.access_name or "").strip() or None
+    )
+    policy = resolve_policy(connection, args.scope, operation, access_name)
     if policy == "forbidden":
         raise ValueError("operation is forbidden by Founder Profile or global policy")
     if args.scope == "calendar":
@@ -201,10 +241,12 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
     status = "approved" if policy == "autonomous" else "pending"
     timestamp = now()
     cursor = connection.execute(
-        """INSERT INTO external_operation(scope,target,operation,intent,policy,status,idempotency_key,
-                                            created_at,updated_at,monitor_suggestion_id,pipeline_contact_key)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-        (args.scope, target, operation, intent, policy, status, key, timestamp, timestamp, monitor_id, contact_key),
+        """INSERT INTO external_operation(scope,target,operation,intent,access_name,policy,status,
+                                            idempotency_key,created_at,updated_at,monitor_suggestion_id,
+                                            pipeline_contact_key)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (args.scope, target, operation, intent, access_name, policy, status, key, timestamp,
+         timestamp, monitor_id, contact_key),
     )
     connection.commit()
     return {"created": True, "duplicate": False, "approval_required": status == "pending",
@@ -242,8 +284,14 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
         if row["status"] in {"executing", "uncertain"}:
             connection.rollback()
             return {"claimed": False, "reconciliation_required": True, "operation": as_dict(row)}
-        if resolve_policy(connection, row["scope"], row["operation"], None) == "forbidden":
+        current_policy = resolve_policy(
+            connection, row["scope"], row["operation"], row["access_name"]
+        )
+        if current_policy == "forbidden":
             raise ValueError("operation is forbidden by Founder Profile or global policy")
+        if row["scope"] == "product" and row["policy"] == "autonomous" \
+                and current_policy != "autonomous":
+            raise ValueError("product operation now requires founder approval under current policy")
         if row["status"] != "approved":
             connection.rollback()
             raise ValueError("operation must be approved before execution")
