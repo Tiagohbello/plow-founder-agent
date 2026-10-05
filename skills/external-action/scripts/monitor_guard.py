@@ -198,67 +198,64 @@ def require_proposal_draft(connection, row):
         raise ValueError("automatic holds require a verified saved Gmail draft")
 
 
-def parse_hold_intent(intent, target, *, title_prefix="HOLD — "):
+def _parse_private_calendar_block(intent, *, attendees_error, title_check):
     try:
-        hold = json.loads(intent)
+        data = json.loads(intent)
     except (TypeError, json.JSONDecodeError) as error:
-        raise ValueError("automatic hold intent must be structured JSON") from error
-    if not isinstance(hold, dict) or set(hold) != set(HOLD_FIELDS):
-        raise ValueError("automatic hold requires exact structured calendar parameters")
-    if (hold["attendees"] != [] or hold["send_updates"] != "none"
-            or hold["transparency"] != "opaque" or hold["visibility"] != "private"):
-        raise ValueError("automatic holds must be private, busy, attendee-free, with notifications off")
-    if hold["description"] != "Tentative — no invitation sent":
-        raise ValueError("automatic hold description must be Tentative — no invitation sent")
-    if any(not isinstance(hold[key], str) or not hold[key].strip()
+        raise ValueError("calendar block intent must be structured JSON") from error
+    if not isinstance(data, dict) or set(data) != set(HOLD_FIELDS):
+        raise ValueError("calendar block requires exact structured calendar parameters")
+    if (data["attendees"] != [] or data["send_updates"] != "none"
+            or data["transparency"] != "opaque" or data["visibility"] != "private"):
+        raise ValueError(attendees_error)
+    if any(not isinstance(data[key], str) or not data[key].strip()
            for key in HOLD_FIELDS if key != "attendees"):
-        raise ValueError("automatic hold fields must be nonblank strings")
+        raise ValueError("calendar block fields must be nonblank strings")
     try:
-        zone = ZoneInfo(hold["timezone"])
-        start = datetime.fromisoformat(hold["start"].replace("Z", "+00:00"))
-        end = datetime.fromisoformat(hold["end"].replace("Z", "+00:00"))
+        zone = ZoneInfo(data["timezone"])
+        start = datetime.fromisoformat(data["start"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(data["end"].replace("Z", "+00:00"))
     except (KeyError, ValueError) as error:
-        raise ValueError("automatic hold times must use valid ISO timestamps and timezone") from error
+        raise ValueError("calendar block times must use valid ISO timestamps and timezone") from error
     if start.tzinfo is None or end.tzinfo is None:
-        raise ValueError("automatic hold times must include a timezone")
+        raise ValueError("calendar block times must include a timezone")
     if start >= end or any(moment.utcoffset() != moment.astimezone(zone).utcoffset()
                            for moment in (start, end)):
-        raise ValueError("automatic hold times must be ordered and match their timezone")
-    if not hold["title"].startswith(title_prefix):
-        raise ValueError("automatic hold title must identify the correct hold segment")
+        raise ValueError("calendar block times must be ordered and match their timezone")
+    title_check(data["title"])
+    return {key: data[key] for key in HOLD_FIELDS}
+
+
+def parse_hold_intent(intent, target, *, title_prefix="HOLD — "):
+    def check_title(title):
+        if not title.startswith(title_prefix):
+            raise ValueError("automatic hold title must identify the correct hold segment")
+
+    hold = _parse_private_calendar_block(
+        intent,
+        attendees_error="automatic holds must be private, busy, attendee-free, with notifications off",
+        title_check=check_title,
+    )
+    if hold["description"] != "Tentative — no invitation sent":
+        raise ValueError("automatic hold description must be Tentative — no invitation sent")
     if target != f"{hold['account']}/{hold['calendar']}/new":
         raise ValueError("automatic hold target must match its account and calendar")
-    return {key: hold[key] for key in HOLD_FIELDS}
+    return hold
 
 
 def parse_travel_conversion(intent, target):
-    try:
-        event = json.loads(intent)
-    except (TypeError, json.JSONDecodeError) as error:
-        raise ValueError("travel conversion intent must be structured JSON") from error
-    if not isinstance(event, dict) or set(event) != set(HOLD_FIELDS):
-        raise ValueError("travel conversion requires exact structured calendar parameters")
-    if (event["attendees"] != [] or event["send_updates"] != "none"
-            or event["transparency"] != "opaque" or event["visibility"] != "private"):
-        raise ValueError("travel blocks must remain private, busy and attendee-free")
-    if any(not isinstance(event[key], str) or not event[key].strip()
-           for key in HOLD_FIELDS if key not in {"attendees"}):
-        raise ValueError("travel conversion fields must be nonblank strings")
-    try:
-        zone = ZoneInfo(event["timezone"])
-        start = datetime.fromisoformat(event["start"].replace("Z", "+00:00"))
-        end = datetime.fromisoformat(event["end"].replace("Z", "+00:00"))
-    except (ValueError, TypeError, KeyError) as error:
-        raise ValueError("travel conversion times must use valid ISO timestamps and timezone") from error
-    if start.tzinfo is None or end.tzinfo is None:
-        raise ValueError("travel conversion times must include a timezone")
-    if start >= end or start.astimezone(zone).utcoffset() != start.utcoffset() or end.astimezone(zone).utcoffset() != end.utcoffset():
-        raise ValueError("travel conversion times must be ordered and match their timezone")
-    if not event["title"].startswith("TRAVEL — "):
-        raise ValueError("converted travel event title must identify travel")
+    def check_title(title):
+        if not title.startswith("TRAVEL — "):
+            raise ValueError("converted travel event title must identify travel")
+
+    event = _parse_private_calendar_block(
+        intent,
+        attendees_error="travel blocks must remain private, busy and attendee-free",
+        title_check=check_title,
+    )
     if target.rsplit("/", 1)[-1] in {"", "new"}:
         raise ValueError("travel conversion target must identify an existing provider event")
-    return {key: event[key] for key in HOLD_FIELDS}
+    return event
 
 
 def validate_movable_block(connection, scope, target, operation, intent, *,

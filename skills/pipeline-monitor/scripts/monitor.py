@@ -790,13 +790,15 @@ def normalize_meeting_details(value):
     return MEETING_SCHEMA.normalize_meeting_details(value)
 
 
-def _verified_offered_options(db, contact_key, live_targets, conversation_ref):
+def _scan_offered_options_and_travel(db, contact_key, live_targets, conversation_ref):
     if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_operation'").fetchone():
-        return None
+        return None, False
     rows = db.execute(
         "SELECT id,payload FROM monitor_suggestion WHERE contact_key=? ORDER BY id DESC",
         (contact_key,),
     ).fetchall()
+    offered = None
+    has_live_travel = False
     for row in rows:
         payload = json.loads(row["payload"])
         if (payload.get("action") != "new_options"
@@ -817,40 +819,15 @@ def _verified_offered_options(db, contact_key, live_targets, conversation_ref):
                 complete = False
                 break
             target = f"{entry['target'].rsplit('/', 1)[0]}/{operation['external_ref']}"
+            if entry.get("effect") == "travel_hold" and target in live_targets:
+                has_live_travel = True
             option_targets.setdefault(entry["option_id"], {})[entry["segment"]] = target
             option_entries.setdefault(entry["option_id"], {})[entry["segment"]] = entry
         targets = {target for segments in option_targets.values() for target in segments.values()}
-        if complete and option_targets and targets <= live_targets:
-            return {"suggestion_id": row["id"], "targets": option_targets,
-                    "entries": option_entries, "meeting_details": payload.get("meeting_details")}
-    return None
-
-
-def _has_live_travel_offer(db, contact_key, live_targets, conversation_ref):
-    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='external_operation'").fetchone():
-        return False
-    rows = db.execute(
-        "SELECT id,payload FROM monitor_suggestion WHERE contact_key=? ORDER BY id DESC",
-        (contact_key,),
-    ).fetchall()
-    for row in rows:
-        payload = json.loads(row["payload"])
-        if payload.get("action") != "new_options" or payload.get("conversation_ref") != conversation_ref:
-            continue
-        for entry in payload.get("calendar_plan", []):
-            if entry.get("effect") != "travel_hold" or not entry.get("option_id"):
-                continue
-            operation = db.execute(
-                """SELECT external_ref FROM external_operation
-                   WHERE monitor_suggestion_id=? AND target=? AND operation=? AND intent=?
-                     AND status='completed'""",
-                (row["id"], entry["target"], entry["operation"], entry["intent"]),
-            ).fetchone()
-            if operation and operation["external_ref"]:
-                target = f"{entry['target'].rsplit('/', 1)[0]}/{operation['external_ref']}"
-                if target in live_targets:
-                    return True
-    return False
+        if complete and option_targets and targets <= live_targets and offered is None:
+            offered = {"suggestion_id": row["id"], "targets": option_targets,
+                       "entries": option_entries, "meeting_details": payload.get("meeting_details")}
+    return offered, has_live_travel
 
 
 def normalize_calendar_plan(action, plan, draft, contact, *, meeting_details=None,
@@ -962,10 +939,10 @@ def normalize_calendar_plan(action, plan, draft, contact, *, meeting_details=Non
             live_targets = set(hold_targets(fields.get("holds", "")))
         except ValueError:
             raise ValueError("accepted requires each hold to be a canonical provider event target") from None
-        offered = (_verified_offered_options(db, contact_key, live_targets, conversation_ref)
-                   if db is not None else None)
-        live_travel_state = (_has_live_travel_offer(db, contact_key, live_targets, conversation_ref)
-                             if db is not None else False)
+        if db is not None:
+            offered, live_travel_state = _scan_offered_options_and_travel(db, contact_key, live_targets, conversation_ref)
+        else:
+            offered, live_travel_state = None, False
         if live_travel_state and offered is None:
             raise ValueError("live travel holds need a complete verified option association before Pick")
         if selected_option_id is not None and offered is None:
