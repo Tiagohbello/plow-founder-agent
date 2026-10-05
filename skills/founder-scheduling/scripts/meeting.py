@@ -177,7 +177,10 @@ def resolve_meeting_details(*, request=None, profile=None, history=None, inferen
     for field in BASE_REQUIRED:
         if details.get(field) is None and field not in unresolved:
             unresolved.append(field)
-    if details.get("format") == "in_person" and not details.get("location"):
+    if details.get("format") and details.get("format") != "in_person":
+        if "location" not in details or details["location"] is None:
+            details["location"] = None
+    elif details.get("format") == "in_person" and not details.get("location"):
         if "location" not in unresolved:
             unresolved.append("location")
     return {"details": details, "unresolved": sorted(set(unresolved)),

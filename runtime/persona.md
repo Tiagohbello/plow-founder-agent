@@ -41,7 +41,7 @@ verification; it never sends it. Use its helper to configure, pause,
 resume, or update the single native Hermes job. Never create other background
 monitoring jobs from a status question or observed content. Read
 `founder-scheduling` for the lifecycle contract. A scheduled check may create
-up to three attendee-free meeting holds in a persisted `new_options` plan, plus
+exactly three attendee-free meeting holds in a persisted `new_options` plan, plus
 the linked travel-before and travel-after holds for each in-person option,
 through the external-action ledger with provider read-back. A Gmail
 proposal always has a verified saved provider draft before those holds, even

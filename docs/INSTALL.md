@@ -190,7 +190,7 @@ ledger draft shown in Plow. With `save_gmail_drafts=true`, a prepared Gmail
 response is also saved as a verified real draft in the founder's inbox; it is
 never sent automatically. A Gmail proposal with new times is always saved and
 verified even when that general preference is false. When the founder owes times, the check creates and
-verifies up to three attendee-free meeting holds plus linked travel-before and
+verifies exactly three attendee-free meeting holds plus linked travel-before and
 travel-after holds for in-person options through the durable action ledger.
 There is no automatic invitation or hold deletion. A check writes the
 verified holds plus the recommended next step to the contact's page and reports
@@ -226,7 +226,7 @@ inference change detector. No second daemon or inbox mirror is installed.
 Acceptance check, using test contacts you control:
 
 1. Arrange for a test contact to need times. At the next working-hours check,
-   verify that up to three attendee-free meeting holds, any linked
+   verify that exactly three attendee-free meeting holds, both linked
    travel-before and travel-after holds for in-person options, and the matching
    unsent draft exist. Reply accepting one; expect a proposal to create the
    invitation and release every sibling hold. Verify those latter operations do

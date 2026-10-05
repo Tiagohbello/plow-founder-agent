@@ -54,7 +54,7 @@ current in your wiki, and notifies you in your private Plow chat only about new
 actionable evidence or blockers. During onboarding, you choose
 the frequency explicitly and whether prepared Gmail replies should also be saved
 as verified real drafts in your inbox. Monitoring never sends to third parties;
-its only unattended calendar mutation is creating up to three attendee-free
+its only unattended calendar mutation is creating exactly three attendee-free
 meeting holds and, for in-person options, linked travel-before/travel-after
 holds for each option in a persisted proposal, after which it records every verified event
 identity in the contact's `holds` field. Sending, invitations, deleting
