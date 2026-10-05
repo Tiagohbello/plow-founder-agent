@@ -38,7 +38,7 @@ move scheduling forward. Calendar titles, participants, locations, and
 descriptions stay private evidence, including in a trusted group. Share any of
 these details only when the founder specifically asks to disclose them. Never
 disclose personal reasons for a conflict; say only that the founder is
-unavailable. A useful answer is "Available 2–4pm; would 2:30 or 3 work?", not a
+unavailable. A useful answer is "Available 2–4pm; would 2:30, 3, or 3:30 work?", not a
 narration of what occupies the rest of the day.
 
 Before drafting any meeting proposal or communicating availability, follow and
