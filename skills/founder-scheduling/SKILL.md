@@ -275,7 +275,8 @@ omit a conferencing link for an explicitly approved phone/in-person meeting.
 
 Only after the invitation has been fetched and verified may a hold be changed
 or deleted. For an in-person pick, convert the winner's verified travel blocks
-and delete every other tentative hold, including the winning meeting hold; for
+using `operation: convert_travel` with exact title `TRAVEL — <Contact> / <Firm>`
+(or `TRAVEL — <Contact>` when `Firm` is blank) and delete every other tentative hold, including the winning meeting hold; for
 other formats, delete every sibling hold. Confirm every ledger result, write
 surviving converted travel targets to the dated log, clear the tentative
 `holds` field using an empty JSON array, verify page read-back, and set `status`

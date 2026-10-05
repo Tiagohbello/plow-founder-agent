@@ -390,7 +390,7 @@ location, verified attendees, `format: in_person`, `send_updates: all`, and
 `transparency: opaque`. It then deletes every live hold target except the two
 converted travel segments. If the accepted offer has
 travel segments, include its exact `selected_option_id`, convert only that
-option's two travel targets via `convert_travel`, then delete every other live
+option's two travel targets via `convert_travel` (using exact conversion title `TRAVEL — <Contact> / <Firm>` or `TRAVEL — <Contact>`), then delete every other live
 target (including the winning meeting hold); a conversion keeps the same
 account, calendar, interval, busy visibility and no attendees. The complete
 conversion/deletion target sets are validated against the completed persisted
