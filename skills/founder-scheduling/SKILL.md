@@ -179,8 +179,13 @@ for a video meeting, first honor the format and provider approved for this
 specific meeting (for example, “Zoom nesta reunião” or a Zoom link supplied by
 the guest). That meeting-specific choice takes immediate precedence over the
 global Founder Profile video preference: do not use the default provider for
-this invitation. Use an agreed guest-supplied link directly; do not create a
-second conference link. Only if no meeting-specific format or link is established,
+this invitation. Before putting any guest-supplied Zoom link in an official
+invitation, parse and validate it: require HTTPS, a hostname exactly `zoom.us`
+or ending in `.zoom.us`, no userinfo (for example, `user:pass@`), and no
+non-default port (HTTPS default 443 is allowed). Reject malformed links or links that fail
+any check; do not include them or silently create a replacement link. Use a
+validated, agreed guest-supplied link directly; do not create a second
+conference link. Only if no meeting-specific format or link is established,
 read Founder Profile `show.preferences.video` and dispatch by its `provider` and
 `link_mode` fields as below. If the format is unknown, the provider preference is
 absent, or
@@ -203,7 +208,9 @@ omit a conferencing link for an explicitly approved phone/in-person meeting.
   `--with-meet`, and read it back by ID. Verify the stored Zoom URL, attendees,
   and time; do not create a separate Zoom meeting or generate a Meet link.
 - **Zoom per meeting (`video.provider=zoom`,
-  `video.link_mode=per_meeting`):** Obtain the conference link before finalizing
+  `video.link_mode=per_meeting`, only when a new link is needed):** Run this
+  flow only when no guest-supplied Zoom link has already been provided,
+  validated, and agreed. Obtain the new conference link before finalizing
   the monitor calendar plan. Prepare, approve, and claim a standalone
   `external-action` product operation for the Zoom meeting (`--scope product
   --access-name <configured-Zoom-access> --contact-key <page-slug>`); do not

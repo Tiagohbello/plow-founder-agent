@@ -78,8 +78,13 @@ cleanup protocol; save permission never grants deletion permission. Obtain
 specific approval in an authority-bearing turn and claim the exact unchanged draft before deleting,
 then verify absence. Provider failure never restores the cancelled approval.
 
-For a Zoom per-meeting invitation, keep two independently claimed and verified
-ledger operations in order: a standalone product operation for `zoom_meeting`
+Use a valid, agreed guest-supplied Zoom link directly in the calendar invitation
+and skip the `zoom_meeting` product operation. Only when a new Zoom conference
+link must be created under
+`video.provider=zoom` and `video.link_mode=per_meeting` — never when a valid,
+agreed guest-supplied Zoom link already exists — keep two independently claimed
+and verified ledger operations in order: a standalone product operation for
+`zoom_meeting`
 with `--contact-key` and no `--suggestion-id` (provider ID and `join_url`
 read-back, with Zoom's own invitations disabled), then a monitor-linked calendar
 operation for `invitation` containing that verified URL. The persisted monitor
