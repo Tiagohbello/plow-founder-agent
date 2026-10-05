@@ -1004,16 +1004,11 @@ def normalize_calendar_plan(action, plan, draft, contact, *, meeting_details=Non
                     raise ValueError("Pick must remove every losing option and the winning meeting hold")
                 if [item["effect"] for item in normalized] != ["invitation"] + ["convert_travel"] * len(travel_entries) + ["delete_hold"] * len(delete_entries):
                     raise ValueError("Pick must verify invitation, convert winning travel holds, then clean sibling holds")
-            else:
-                if any(item["effect"] != "delete_hold" for item in normalized[1:]):
-                    raise ValueError("accepted requires invitation first, followed only by sibling hold deletions")
-                if {item["target"] for item in delete_entries} != live_targets:
-                    raise ValueError("accepted deletions must match every live sibling hold")
-        else:
-            if any(item["effect"] != "delete_hold" for item in normalized[1:]):
-                raise ValueError("accepted requires invitation first, followed only by sibling hold deletions")
-            if {item["target"] for item in delete_entries} != live_targets:
-                raise ValueError("accepted deletions must match every live sibling hold")
+                return normalized
+        if any(item["effect"] != "delete_hold" for item in normalized[1:]):
+            raise ValueError("accepted requires invitation first, followed only by sibling hold deletions")
+        if {item["target"] for item in delete_entries} != live_targets:
+            raise ValueError("accepted deletions must match every live sibling hold")
     return normalized
 
 

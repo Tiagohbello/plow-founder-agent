@@ -200,6 +200,25 @@ class MonitorTests(unittest.TestCase):
             "notice_id": notice["notice_id"],
             "approval_ref": "founder:approve:1", "validation_ref": "fresh:thread-and-calendars:1"})
 
+    def materialize_calendar_plan(self, item, event_prefix):
+        plan = item["payload"]["calendar_plan"]
+        live_targets = []
+        for index, entry in enumerate(plan, start=1):
+            operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
+                                    "--suggestion-id", str(item["id"]))["operation"]
+            self.assertEqual(operation["target"], entry["target"])
+            self.helper("external-action", "operations.py", "claim", "--id", str(operation["id"]))
+            event_id = f"{event_prefix}-{index}"
+            self.helper("external-action", "operations.py", "finish", "--id", str(operation["id"]),
+                        "--outcome", "completed", "--external-ref", event_id,
+                        "--evidence", f"calendar:verified:{event_id}")
+            target = f"work@example.com/primary/{event_id}"
+            live_targets.append(target)
+            self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
+                               status="held", holds="; ".join(live_targets))
+            self.contacts()
+        return live_targets
+
     def test_opt_in_reconfigure_pause_restart_and_recover_creation(self):
         self.assertFalse(monitor.show(self.db)["enabled"])
         self.assertEqual(self.scheduler.jobs, [])
@@ -943,21 +962,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual([entry["segment"] for entry in plan[:3]],
                          ["travel_before", "meeting", "travel_after"])
 
-        live_targets = []
-        for index, entry in enumerate(plan, start=1):
-            operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
-                                    "--suggestion-id", str(item["id"]))["operation"]
-            self.assertEqual(operation["target"], entry["target"])
-            self.helper("external-action", "operations.py", "claim", "--id", str(operation["id"]))
-            event_id = f"travel-option-event-{index}"
-            self.helper("external-action", "operations.py", "finish", "--id", str(operation["id"]),
-                        "--outcome", "completed", "--external-ref", event_id,
-                        "--evidence", f"calendar:verified:{event_id}")
-            target = f"work@example.com/primary/{event_id}"
-            live_targets.append(target)
-            self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
-                               status="held", holds="; ".join(live_targets))
-            self.contacts()
+        live_targets = self.materialize_calendar_plan(item, "travel-option-event")
 
         winner = "option-2"
         winning = {entry["segment"]: entry for entry in plan if entry.get("option_id") == winner}
@@ -1020,20 +1025,7 @@ class MonitorTests(unittest.TestCase):
         })
         item = monitor.observe(self.db, proposal)["suggestion"]
         plan = item["payload"]["calendar_plan"]
-        live_targets = []
-        for index, entry in enumerate(plan, start=1):
-            operation = self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
-                                    "--suggestion-id", str(item["id"]))["operation"]
-            self.helper("external-action", "operations.py", "claim", "--id", str(operation["id"]))
-            event_id = f"video-option-event-{index}"
-            self.helper("external-action", "operations.py", "finish", "--id", str(operation["id"]),
-                        "--outcome", "completed", "--external-ref", event_id,
-                        "--evidence", f"calendar:verified:{event_id}")
-            target = f"work@example.com/primary/{event_id}"
-            live_targets.append(target)
-            self.write_contact("alex", email="alex@example.com", phone="+1 415 555 0100",
-                               status="held", holds="; ".join(live_targets))
-            self.contacts()
+        live_targets = self.materialize_calendar_plan(item, "video-option-event")
 
         winner = "option-2"
         winning = [entry for entry in plan if entry.get("option_id") == winner][0]

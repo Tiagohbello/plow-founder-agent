@@ -327,17 +327,28 @@ chat, so write them to the founder -- "you replied", "your calendar", never thei
   "evidence_at": "2026-09-17T14:00:00Z",
   "evidence_summary": "Alex answered your Scheduling email: Thursday at 11:00; include a usable source link when available.",
   "action": "accepted",
+  "selected_option_id": "option-1",
   "summary": "Alex accepted your Tuesday 14:00 PT slot.",
   "next_step": "Create the video invitation. Approve?",
   "calendar_plan": [
     {
       "effect": "invitation",
       "target": "founder@example.com/primary/new",
-      "intent": "Scheduling with Alex; 2026-09-22 14:00–14:30 America/Los_Angeles; guest alex@example.com; video; send invitation"
+      "intent": "{\"account\":\"founder@example.com\",\"calendar\":\"primary\",\"start\":\"2026-09-22T14:00:00-07:00\",\"end\":\"2026-09-22T14:30:00-07:00\",\"timezone\":\"America/Los_Angeles\",\"title\":\"Meeting with Alex\",\"description\":\"Confirmed video meeting\",\"format\":\"video\",\"location\":null,\"attendees\":[\"alex@example.com\"],\"send_updates\":\"all\",\"transparency\":\"opaque\"}"
     },
     {
       "effect": "delete_hold",
       "target": "founder@example.com/primary/hold-1",
+      "intent": "Delete verified sibling hold after invitation verification"
+    },
+    {
+      "effect": "delete_hold",
+      "target": "founder@example.com/primary/hold-2",
+      "intent": "Delete verified sibling hold after invitation verification"
+    },
+    {
+      "effect": "delete_hold",
+      "target": "founder@example.com/primary/hold-3",
       "intent": "Delete verified sibling hold after invitation verification"
     }
   ],
