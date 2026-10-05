@@ -266,11 +266,24 @@ def validate_movable_block(connection, scope, target, operation, intent):
     if scope != "calendar":
         return
     if normalized != "move_block":
+        creates_new_event = normalized == "create" and target.rsplit("/", 1)[-1] == "new"
+        if creates_new_event:
+            return
         try:
             candidate = json.loads(intent)
         except (TypeError, json.JSONDecodeError):
             return
-        if isinstance(candidate, dict) and {"new_start", "new_end"} & set(candidate):
+
+        def contains_interval_fields(value):
+            if isinstance(value, dict):
+                return bool({"start", "end", "new_start", "new_end"} & set(value)) or any(
+                    contains_interval_fields(item) for item in value.values()
+                )
+            if isinstance(value, list):
+                return any(contains_interval_fields(item) for item in value)
+            return False
+
+        if contains_interval_fields(candidate):
             raise ValueError("calendar time moves must use the guarded move_block operation")
         return
     try:

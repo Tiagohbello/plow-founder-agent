@@ -37,7 +37,8 @@ class MeetingInferenceTests(unittest.TestCase):
             request={"duration_minutes": 60, "format": "phone"},
             profile={"duration_minutes": 30, "format": "video", "timezone": "America/Recife"},
             history=[{"identity_verified": True, "details": {
-                "duration_minutes": 30, "format": "video", "participants": ["alex@example.com"]}}],
+                "duration_minutes": 30, "format": "video", "participants": ["alex@example.com"]},
+                "evidence_refs": ["calendar:prior-meeting:1"]}],
         )
         self.assertEqual(result["details"]["duration_minutes"], 60)
         self.assertEqual(result["details"]["format"], "phone")
@@ -51,15 +52,19 @@ class MeetingInferenceTests(unittest.TestCase):
         self.assertFalse(ignored["ready"])
         self.assertIn("participants", ignored["unresolved"])
         consistent = meeting.resolve_meeting_details(history=[
-            {"identity_verified": True, "details": base},
-            {"identity_verified": True, "details": {**base, "participants": ["ALEX@example.com"]}},
+            {"identity_verified": True, "details": base,
+             "evidence_refs": ["calendar:prior-meeting:1"]},
+            {"identity_verified": True, "details": {**base, "participants": ["ALEX@example.com"]},
+             "evidence_refs": ["calendar:prior-meeting:2"]},
         ])
         self.assertTrue(consistent["ready"])
 
     def test_conflicting_verified_history_blocks_lower_precedence_inference(self):
         history = [
-            {"identity_verified": True, "details": {"duration_minutes": 30}},
-            {"identity_verified": True, "details": {"duration_minutes": 45}},
+            {"identity_verified": True, "details": {"duration_minutes": 30},
+             "evidence_refs": ["calendar:prior-meeting:1"]},
+            {"identity_verified": True, "details": {"duration_minutes": 45},
+             "evidence_refs": ["calendar:prior-meeting:2"]},
         ]
         result = meeting.resolve_meeting_details(
             history=history,
@@ -75,6 +80,18 @@ class MeetingInferenceTests(unittest.TestCase):
         result = meeting.resolve_meeting_details()
         self.assertFalse(result["ready"])
         self.assertEqual(result["details"], {})
+
+    def test_unreferenced_history_fact_cannot_be_made_ready_by_unrelated_context_ref(self):
+        result = meeting.resolve_meeting_details(
+            request={"duration_minutes": 30, "format": "video", "timezone": "America/Recife"},
+            history=[{"identity_verified": True,
+                      "details": {"participants": ["alex@example.com"]},
+                      "evidence_refs": []}],
+            context_refs=["gmail:unrelated-context"],
+        )
+        self.assertFalse(result["ready"])
+        self.assertIn("participants", result["unresolved"])
+        self.assertNotIn("participants", result["details"])
 
     def test_in_person_location_and_real_participants_are_required(self):
         result = meeting.resolve_meeting_details(

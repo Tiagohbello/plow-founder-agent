@@ -391,6 +391,12 @@ class FounderAgentStateTests(unittest.TestCase):
             "--intent", json.dumps({"new_start": base["new_start"], "new_end": base["new_end"]}), ok=False,
         )
         self.assertIn("must use the guarded move_block", bypass.stderr)
+        interval_bypass = self.run_helper(
+            "skills/external-action/scripts/operations.py", "prepare", "--scope", "calendar",
+            "--target", "founder@example.com/primary/event-1", "--operation", "update",
+            "--intent", json.dumps({"start": base["start"], "end": base["end"]}), ok=False,
+        )
+        self.assertIn("must use the guarded move_block", interval_bypass.stderr)
         prepared = self.run_helper(
             "skills/external-action/scripts/operations.py", "prepare", "--scope", "calendar",
             "--target", "founder@example.com/primary/event-1", "--operation", "move_block",

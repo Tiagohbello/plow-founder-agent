@@ -86,18 +86,23 @@ def resolve_meeting_details(*, request=None, profile=None, history=None, inferen
                 refs = record.get("evidence_refs", [])
                 if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
                     raise ValueError("verified history requires valid evidence_refs")
-                evidence_refs.extend(ref.strip() for ref in refs)
                 candidate = record["details"].get(field)
                 if candidate is not None:
+                    # Context-level refs cannot establish provenance for this fact.
+                    # Ignore history facts without their own source citations.
+                    if not refs:
+                        continue
                     _validate(field, candidate)
-                    candidates.append(candidate)
-        unique = {_key(candidate) for candidate in candidates}
+                    candidates.append((candidate, [ref.strip() for ref in refs]))
+        unique = {_key(candidate) for candidate, _ in candidates}
         if len(unique) > 1:
             ambiguous.append(field)
             unresolved.append(field)
             continue
         if candidates:
-            details[field] = candidates[0]
+            details[field] = candidates[0][0]
+            for _, refs in candidates:
+                evidence_refs.extend(refs)
             continue
         candidate = inference.get(field)
         if candidate is not None:

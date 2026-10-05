@@ -67,8 +67,9 @@ precedence per fact: explicit current request → persisted profile preference �
 consistent history for the verified identity → evidence-backed inference. Use
 `skills/founder-scheduling/scripts/meeting.py` to resolve structured facts; pass
 source refs for the request, profile, verified history and every inference, and
-carry the result's refs into the persisted plan. An inference must carry source
-`evidence_refs`. Conflicting history, missing required
+carry the result's refs into the persisted plan. Each selected history fact and
+inference must carry its own source `evidence_refs`; unrelated context refs do
+not establish provenance. Conflicting history, missing required
 details, or unverified identity is unresolved: ask the founder privately in
 `PLOW_HOME_CHANNEL` before suggesting times. Never invent participants,
 locations, or times. In-person options require a verified location and travel
