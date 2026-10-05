@@ -153,7 +153,7 @@ any automatic hold; this scheduling invariant is narrower than the general
 `save_gmail_drafts` preference. For an existing SMS/iMessage or Plow
 conversation, prepare the exact text/Plow draft and ask permission to send;
 never use the founder's Mac Messages identity or substitute email. The proposal
-is not ready when either its draft or any of its three holds is missing.
+is not ready when either its draft or any required meeting or travel hold is missing.
 
 ## Send
 
