@@ -604,6 +604,27 @@ class MonitorTests(unittest.TestCase):
             "SELECT 1 FROM monitor_contact WHERE contact_key='unsynced'"
         ).fetchone())
 
+    def test_direct_proposed_update_requires_current_status_and_preserves_withdrawn_offer(self):
+        with self.assertRaisesRegex(ValueError, "current page facts are required"):
+            monitor.page_update(self.db, contact_key="unsynced", facts={"proposed": ""})
+
+        with self.assertRaisesRegex(ValueError, "current page status is required"):
+            monitor.validate_page_facts({"proposed": ""}, {})
+
+        withdrawn = {
+            "status": "withdrawn",
+            "holds": "",
+            "proposed": "Offer: Tuesday at 11:30",
+        }
+        with self.assertRaisesRegex(ValueError, "withdrawn status requires nonblank proposed offer"):
+            monitor.page_update(self.db, contact_key="unsynced", facts={"proposed": ""},
+                                current_facts=withdrawn)
+
+        sent = {"status": "sent", "holds": "", "proposed": "Offer: Tuesday at 11:30"}
+        update = monitor.page_update(self.db, contact_key="unsynced", facts={"proposed": ""},
+                                     current_facts=sent)
+        self.assertEqual(update["changes"], {"proposed": ""})
+
     def test_terminal_statuses_block_contacts_observe_and_prepare(self):
         for status in ("do_not_contact", "passed", "withdrawn"):
             with self.subTest(status=status):

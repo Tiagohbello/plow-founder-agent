@@ -48,11 +48,6 @@ def contact_snapshot(connection, contact_key):
     return None
 
 
-def contact_fields(connection, contact_key):
-    snapshot = contact_snapshot(connection, contact_key)
-    return snapshot.get("fields", {}) if snapshot else None
-
-
 def snapshot_mapped_status(snapshot):
     if "mapped_status" in snapshot:
         return snapshot["mapped_status"]
