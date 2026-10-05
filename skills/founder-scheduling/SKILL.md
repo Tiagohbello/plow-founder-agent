@@ -42,9 +42,25 @@ Classify each conflict: hard (anything in Founder Profile `preferences`,
 travel, medical, school logistics, or otherwise marked do-not-overbook) or
 soft (internal standups, household services, optional blocks). Apply the
 request's own rules — blackout days, deadlines, duration — and offer exactly
-three options in the counterparty's timezone, none overlapping another contact's
-live holds in the pipeline root. Read the contact's page for them. Explain a soft overlap to
-the founder privately; never name it in outgoing text.
+three options, each a specific time slot in the counterparty's timezone, none overlapping another contact's
+live holds in the pipeline root. Read the contact's page for them. Explain any overlap
+(hard or soft) to the founder privately; never expose the reason in outgoing text.
+
+## Outgoing scheduling messages
+
+- **Voice:** Write external messages strictly as the founder's assistant (for
+  example, “Hi, I'm <Founder>'s assistant”). Never impersonate the founder or
+  write in first person as the founder.
+- **Proposals:** Offer exactly three options, each a specific time slot in the
+  contact's timezone. Never ask open-ended questions such as “What days work for you?”.
+- **Context check:** Before asking the contact for any information, always search
+  existing conversations in Gmail, Plow, and Messages through Latch for email
+  addresses and phone numbers. Confirm known details rather than asking from scratch.
+- **Privacy and questions:** Never disclose the personal reason for the founder's
+  unavailability (medical, family, or otherwise); simply state that the founder is
+  unavailable. Route internal ambiguity that cannot be inferred from context
+  (for example, virtual versus in-person) privately to the founder in
+  `PLOW_HOME_CHANNEL`; never ask the external contact.
 
 ## Hold
 

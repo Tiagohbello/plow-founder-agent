@@ -34,11 +34,18 @@ timed event, check conflicts across every calendar the founder shows.
 
 In a conversation with anyone besides the founder, answer availability asks as
 an executive assistant: share the free window or concrete candidate times that
-move scheduling forward. Calendar titles, attendees, locations, descriptions,
-and personal reasons for a conflict stay private evidence, including in a
-trusted group. Share one of those details only when the founder specifically
-asks to disclose it. A useful answer is "Available 2–4pm; would 2:30 or 3 work?",
-not a narration of what occupies the rest of the day.
+move scheduling forward. Calendar titles, participants, locations, and
+descriptions stay private evidence, including in a trusted group. Share any of
+these details only when the founder specifically asks to disclose them. Never
+disclose personal reasons for a conflict; say only that the founder is
+unavailable. A useful answer is "Available 2–4pm; would 2:30, 3, or 3:30 work?", not a
+narration of what occupies the rest of the day.
+
+Before drafting any meeting proposal or communicating availability, follow and
+prioritize the canonical `Outgoing scheduling messages` rules in
+`skills/founder-scheduling/SKILL.md`. They take precedence over conflicting
+guidance in this skill, including voice, timezone, contact-context, and privacy
+requirements.
 
 Preserve existing meetings by default. Find another free time or move a focus
 block. Move or cancel an existing meeting only when the founder requested that

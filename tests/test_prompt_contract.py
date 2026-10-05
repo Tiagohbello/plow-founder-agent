@@ -30,6 +30,42 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn("PLOW_HOME_CHANNEL", pipeline)
         self.assertNotIn("authority-bearing approval message", pipeline)
 
+    def test_scheduling_outgoing_messages_contract(self) -> None:
+        documents = {
+            "scheduling": " ".join((ROOT / "skills/founder-scheduling/SKILL.md").read_text().split()),
+            "calendar": " ".join((ROOT / "skills/founder-calendar/SKILL.md").read_text().split()),
+            "persona": " ".join((ROOT / "runtime/persona.md").read_text().split()),
+            "gmail": " ".join((ROOT / "skills/gmail/SKILL.md").read_text().split()),
+        }
+        requirements = {
+            "scheduling": """
+                ## Outgoing scheduling messages
+                Explain any overlap (hard or soft) to the founder privately; never expose the reason in outgoing text.
+                Write external messages strictly as the founder's assistant (for example, “Hi, I'm <Founder>'s assistant”). Never impersonate the founder
+                Offer exactly three options, each a specific time slot in the contact's timezone. Never ask open-ended questions such as “What days work for you?”
+                always search existing conversations in Gmail, Plow, and Messages through Latch for email addresses and phone numbers. Confirm known details rather than asking from scratch.
+                Never disclose the personal reason for the founder's unavailability (medical, family, or otherwise); simply state that the founder is unavailable.
+                Route internal ambiguity that cannot be inferred from context (for example, virtual versus in-person) privately to the founder in `PLOW_HOME_CHANNEL`; never ask the external contact.
+            """,
+            "calendar": """
+                Calendar titles, participants, locations, and descriptions stay private evidence, including in a trusted group. Share any of these details only when the founder specifically asks to disclose them. Never disclose personal reasons for a conflict; say only that the founder is unavailable.
+                A useful answer is "Available 2–4pm; would 2:30, 3, or 3:30 work?"
+                canonical `Outgoing scheduling messages` rules
+                They take precedence over conflicting guidance
+            """,
+            "persona": """
+                Never disclose personal reasons for being unavailable, even when asked; simply state that the founder is unavailable.
+                agent must strictly obey the canonical `Outgoing scheduling messages` rules
+            """,
+            "gmail": """
+                follow and prioritize the canonical `Outgoing scheduling messages` rules in `skills/founder-scheduling/SKILL.md`. They take precedence over conflicting guidance
+            """,
+        }
+        for source, fragments in requirements.items():
+            for fragment in fragments.splitlines():
+                with self.subTest(source=source, fragment=fragment.strip()):
+                    self.assertIn(fragment.strip(), documents[source])
+
 
 if __name__ == "__main__":
     unittest.main()
