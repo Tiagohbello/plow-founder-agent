@@ -697,11 +697,11 @@ def validate_page_facts(data, current=None):
         raise ValueError("current page facts must be an object")
     current = current or {}
     final_status = result.get("status", current.get("status"))
-    if set(data) & {"status", "holds"}:
+    if set(data) & {"status", "holds", "proposed"}:
         if final_status is None:
-            raise ValueError("current page status is required to determine the resulting status before changing status or holds")
-        if final_status is not None:
-            validate_pipeline_status(final_status)
+            raise ValueError("current page status is required to determine the resulting status before changing status, holds or proposed")
+        validate_pipeline_status(final_status)
+    if set(data) & {"status", "holds"}:
         if "holds" in result:
             final_holds = result["holds"]
         elif "holds" in current:
@@ -763,8 +763,8 @@ def page_update(db, suggestion_id=None, contact_key=None, facts=None, current_fa
     if (facts is not None and not isinstance(facts, dict)):
         # Let the validator return its stable object-specific error below.
         changes = validate_page_facts(facts, current)
-    elif facts is not None and current is None and set(facts) & {"status", "holds"}:
-        raise ValueError("current page status and holds are required for a direct unsynchronized update")
+    elif facts is not None and current is None and set(facts) & {"status", "holds", "proposed"}:
+        raise ValueError("current page facts are required for a direct unsynchronized update")
     else:
         changes = validate_page_facts(facts, current) if facts is not None else {}
     result["changes"].update(changes)
