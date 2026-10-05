@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -469,6 +470,17 @@ class FounderAgentStateTests(unittest.TestCase):
         self.assertEqual(1, connection.execute("SELECT COUNT(*) FROM draft").fetchone()[0])
         self.assertEqual(1, connection.execute("SELECT COUNT(*) FROM external_operation").fetchone()[0])
         connection.close()
+
+        revised_draft = json.loads(self.run_helper(
+            "skills/external-action/scripts/drafts.py", "revise",
+            "--id", str(legacy_draft["id"]), "--body", "Revised pipeline draft",
+        ).stdout)["draft"]
+        expected_revised_key = hashlib.sha256(
+            "\x1f".join(("gmail", "legacy-pipeline-thread", "alex@example.test", "",
+                         "Revised pipeline draft")).encode()
+        ).hexdigest()
+        self.assertEqual(revised_draft["idempotency_key"], expected_revised_key)
+        self.assertEqual(revised_draft["pipeline_contact_key"], "alex")
 
 
 if __name__ == "__main__":
