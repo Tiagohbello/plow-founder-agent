@@ -57,10 +57,41 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn("Latch/browser/API", pick)
         self.assertIn("`join_url`", pick)
         self.assertIn("read back the Zoom meeting by provider ID", pick)
-        self.assertIn("Only after the invitation has been fetched and verified may any hold be deleted", pick)
+        self.assertIn("Only after the invitation has been fetched and verified may a hold be changed or deleted", pick)
         self.assertIn("Use `--with-meet` only for Google Meet", calendar)
         self.assertIn("two independently claimed and verified ledger operations", action)
         self.assertIn("it never contains `effect: zoom_meeting`", action)
+
+    def test_scheduling_inference_travel_and_movable_block_contract(self) -> None:
+        scheduling = " ".join((ROOT / "skills/founder-scheduling/SKILL.md").read_text().split())
+        calendar = " ".join((ROOT / "skills/founder-calendar/SKILL.md").read_text().split())
+        pipeline = " ".join((ROOT / "skills/pipeline-monitor/SKILL.md").read_text().split())
+        context = " ".join((ROOT / "skills/founder-context/SKILL.md").read_text().split())
+        action = " ".join((ROOT / "skills/external-action/SKILL.md").read_text().split())
+        for fragment in (
+            "explicit current request → persisted profile preference → consistent history for the verified identity → evidence-backed inference",
+            "identity-verified prior meeting history",
+            "entities/people",
+            "ask the founder privately in `PLOW_HOME_CHANNEL`",
+            "Never invent participants, locations, or times",
+            "travel_before", "travel_after", "selected_option_id", "convert_travel",
+            "movable_block_patterns", "`move_block` ledger",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, scheduling)
+        for fragment in (
+            "meeting_details", "nonempty `evidence_refs`", "participant identity must be verified",
+            "mutually non-overlapping", "both travel segments", "completed persisted offer",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, pipeline)
+        self.assertIn("patterns match personal event titles case-insensitively", context)
+        for fragment in ("non-recurring", "third-party", "move_block"):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, calendar)
+                self.assertIn(fragment, action)
+        self.assertIn("attendee-free", calendar)
+        self.assertIn("attendees are empty", action)
 
     def test_scheduling_outgoing_messages_contract(self) -> None:
         documents = {
@@ -72,7 +103,7 @@ class PromptContractTests(unittest.TestCase):
         requirements = {
             "scheduling": """
                 ## Outgoing scheduling messages
-                Explain any overlap (hard or soft) to the founder privately; never expose the reason in outgoing text.
+                Explain hard or soft overlaps privately; never expose the reason in outgoing text.
                 Write external messages strictly as the founder's assistant (for example, “Hi, I'm <Founder>'s assistant”). Never impersonate the founder
                 Offer exactly three options, each a specific time slot in the contact's timezone. Never ask open-ended questions such as “What days work for you?”
                 always search existing conversations in Gmail, Plow, and Messages through Latch for email addresses and phone numbers. Confirm known details rather than asking from scratch.

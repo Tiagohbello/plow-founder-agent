@@ -332,6 +332,77 @@ class FounderAgentStateTests(unittest.TestCase):
         ).stdout)
         self.assertEqual("approved", approved["operation"]["status"])
 
+    def test_typed_meeting_and_movable_block_preferences(self) -> None:
+        preferences = self.video_preference("show")["preferences"]
+        self.assertEqual(["Foco", "Hold"], preferences["movable_block_patterns"])
+        preferences = self.video_preference(
+            "set-movable-block-patterns", "--pattern", "Deep Work", "--pattern", "Hold",
+            "--pattern", "hold",
+        )["preferences"]
+        self.assertEqual(["Deep Work", "Hold"], preferences["movable_block_patterns"])
+        preferences = self.video_preference(
+            "set-meeting-preferences", "--duration-minutes", "45", "--format", "in_person",
+            "--location", "Office", "--participant", "founder@example.com",
+            "--timezone", "America/Recife",
+        )["preferences"]
+        self.assertEqual({"duration_minutes": 45, "format": "in_person", "location": "Office",
+                          "participants": ["founder@example.com"], "timezone": "America/Recife"},
+                         preferences["meeting"])
+        invalid = self.video_preference(
+            "set-meeting-preferences", "--duration-minutes", "0", ok=False
+        )
+        self.assertEqual(2, invalid.returncode)
+        invalid_timezone = self.video_preference(
+            "set-meeting-preferences", "--timezone", "Not/A_Zone", ok=False
+        )
+        self.assertEqual(2, invalid_timezone.returncode)
+        self.assertEqual(preferences, self.video_preference("show")["preferences"])
+
+    def test_movable_block_ledger_rejects_guests_recurring_third_party_and_unapproved_titles(self) -> None:
+        self.video_preference(
+            "set-calendar", "--account", "founder@example.com", "--calendar-id", "primary",
+            "--default-calendar", "primary", "--timezone", "America/Recife", "--status", "available",
+            "--evidence", "calendar:verified", "--is-default",
+        )
+        base = {"owner_account": "founder@example.com", "calendar": "primary", "event_id": "event-1",
+                "title": "Foco: arquitetura", "organizer": "founder@example.com", "attendees": [],
+                "recurring": False, "start": "2026-10-06T09:00:00-03:00",
+                "end": "2026-10-06T10:00:00-03:00", "new_start": "2026-10-06T10:00:00-03:00",
+                "new_end": "2026-10-06T11:00:00-03:00", "timezone": "America/Recife"}
+
+        def prepare(event):
+            return self.run_helper(
+                "skills/external-action/scripts/operations.py", "prepare", "--scope", "calendar",
+                "--target", "founder@example.com/primary/event-1", "--operation", "move_block",
+                "--intent", json.dumps(event), ok=False,
+            )
+
+        for changes, message in (
+            ({"attendees": ["guest@example.com"]}, "external participants"),
+            ({"recurring": True}, "recurring"),
+            ({"organizer": "third-party@example.com"}, "third parties"),
+            ({"title": "Team meeting"}, "authorized movable_block_pattern"),
+        ):
+            result = prepare({**base, **changes})
+            self.assertIn(message, result.stderr)
+        bypass = self.run_helper(
+            "skills/external-action/scripts/operations.py", "prepare", "--scope", "calendar",
+            "--target", "founder@example.com/primary/event-1", "--operation", "update",
+            "--intent", json.dumps({"new_start": base["new_start"], "new_end": base["new_end"]}), ok=False,
+        )
+        self.assertIn("must use the guarded move_block", bypass.stderr)
+        prepared = self.run_helper(
+            "skills/external-action/scripts/operations.py", "prepare", "--scope", "calendar",
+            "--target", "founder@example.com/primary/event-1", "--operation", "move_block",
+            "--intent", json.dumps(base),
+        )
+        operation = json.loads(prepared.stdout)["operation"]
+        self.video_preference("set-movable-block-patterns", "--pattern", "Deep Work")
+        rejected = self.run_helper(
+            "skills/external-action/scripts/operations.py", "approve", "--id", str(operation["id"]), ok=False,
+        )
+        self.assertIn("authorized movable_block_pattern", rejected.stderr)
+
     def test_video_preference_is_one_typed_json_value(self) -> None:
         preferences = self.video_preference("show")["preferences"]
         self.assertNotIn("video", preferences)
@@ -343,7 +414,8 @@ class FounderAgentStateTests(unittest.TestCase):
         preferences = self.video_preference(
             "set-video-preference", "--provider", "google_meet"
         )["preferences"]
-        self.assertEqual({"video": {"provider": "google_meet"}}, preferences)
+        self.assertEqual({"video": {"provider": "google_meet"},
+                          "movable_block_patterns": ["Foco", "Hold"]}, preferences)
         self.assertEqual(preferences, self.video_preference("show")["preferences"])
 
     def test_video_preference_zoom_modes_replace_complete_json_value(self) -> None:
@@ -354,14 +426,15 @@ class FounderAgentStateTests(unittest.TestCase):
         )["preferences"]
         self.assertEqual(
             {"video": {"provider": "zoom", "link_mode": "personal_room",
-                        "personal_room_url": room}},
+                        "personal_room_url": room}, "movable_block_patterns": ["Foco", "Hold"]},
             preferences,
         )
         preferences = self.video_preference(
             "set-video-preference", "--provider", "zoom", "--zoom-link-mode", "per_meeting"
         )["preferences"]
         self.assertEqual(
-            {"video": {"provider": "zoom", "link_mode": "per_meeting"}}, preferences
+            {"video": {"provider": "zoom", "link_mode": "per_meeting"},
+             "movable_block_patterns": ["Foco", "Hold"]}, preferences
         )
         self.assertEqual(preferences, self.video_preference("show")["preferences"])
 

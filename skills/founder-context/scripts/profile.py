@@ -11,6 +11,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 SOURCE_KINDS = ("gmail", "github", "sentry")
@@ -29,6 +30,8 @@ DEFAULT_POLICIES = {
     "destructive_operation": "forbidden",
 }
 PREFERENCE_KEYS = ("save_gmail_drafts",)
+DEFAULT_MOVABLE_BLOCK_PATTERNS = ("Foco", "Hold")
+MEETING_FORMATS = ("video", "phone", "in_person")
 VIDEO_PROVIDERS = ("google_meet", "zoom")
 ZOOM_LINK_MODES = ("personal_room", "per_meeting")
 PERMANENTLY_FORBIDDEN = {
@@ -71,6 +74,62 @@ def preference_value(value: str) -> str:
     if value not in ("true", "false"):
         raise ValueError("preference value must be true or false")
     return value
+
+
+def movable_block_patterns(values) -> list[str]:
+    if not isinstance(values, (list, tuple)):
+        raise ValueError("movable_block_patterns must be a list of title patterns")
+    normalized = []
+    seen = set()
+    for value in values:
+        pattern = text(value, "movable block pattern")
+        if len(pattern) > 100:
+            raise ValueError("movable block patterns must be at most 100 characters")
+        key = pattern.casefold()
+        if key not in seen:
+            normalized.append(pattern)
+            seen.add(key)
+    return normalized
+
+
+def meeting_preferences(values: dict) -> dict:
+    if not isinstance(values, dict):
+        raise ValueError("meeting preferences must be a JSON object")
+    allowed = {"duration_minutes", "format", "location", "participants", "timezone", "city"}
+    if set(values) - allowed:
+        raise ValueError("unsupported meeting preference")
+    result = {}
+    if "duration_minutes" in values:
+        duration = values["duration_minutes"]
+        if type(duration) is not int or not 1 <= duration <= 1440:
+            raise ValueError("duration_minutes must be an integer from 1 to 1440")
+        result["duration_minutes"] = duration
+    if "format" in values:
+        if values["format"] not in MEETING_FORMATS:
+            raise ValueError("format must be video, phone or in_person")
+        result["format"] = values["format"]
+    if "location" in values:
+        result["location"] = text(values["location"], "location")
+    if "participants" in values:
+        participants = values["participants"]
+        if not isinstance(participants, list) or not participants:
+            raise ValueError("participants must be a nonempty list")
+        normalized = [text(item, "participant") for item in participants]
+        if len({item.casefold() for item in normalized}) != len(normalized):
+            raise ValueError("participants must be unique")
+        result["participants"] = normalized
+    if "city" in values:
+        result["city"] = text(values["city"], "city")
+    if "timezone" in values:
+        timezone = text(values["timezone"], "timezone")
+        try:
+            ZoneInfo(timezone)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("timezone must be an IANA timezone") from error
+        result["timezone"] = timezone
+    if not result:
+        raise ValueError("provide at least one meeting preference")
+    return result
 
 
 def web_url(value: str | None) -> str:
@@ -313,6 +372,7 @@ def show(connection: sqlite3.Connection) -> dict:
         row["key"]: json.loads(row["value"])
         for row in connection.execute("SELECT key,value FROM founder_preference ORDER BY key")
     }
+    preferences.setdefault("movable_block_patterns", list(DEFAULT_MOVABLE_BLOCK_PATTERNS))
     return {
         "configured": company is not None,
         "company": row_dict(company),
@@ -386,6 +446,34 @@ def run(args: argparse.Namespace) -> dict:
         elif args.operation == "set-video-preference":
             set_video_preference(connection, args.provider, args.zoom_link_mode,
                                  args.zoom_personal_room_url, timestamp)
+        elif args.operation == "set-movable-block-patterns":
+            patterns = movable_block_patterns(args.pattern or [])
+            connection.execute(
+                """INSERT INTO founder_preference(key,value,updated_at) VALUES ('movable_block_patterns',?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
+                (json.dumps(patterns, ensure_ascii=False), timestamp),
+            )
+        elif args.operation == "set-meeting-preferences":
+            current = connection.execute(
+                "SELECT value FROM founder_preference WHERE key='meeting'"
+            ).fetchone()
+            values = json.loads(current["value"]) if current else {}
+            supplied = {
+                "duration_minutes": args.duration_minutes,
+                "format": args.format,
+                "location": args.location,
+                "timezone": args.timezone,
+                "city": args.city,
+            }
+            values.update({key: value for key, value in supplied.items() if value is not None})
+            if args.participant is not None:
+                values["participants"] = args.participant
+            validated = meeting_preferences(values)
+            connection.execute(
+                """INSERT INTO founder_preference(key,value,updated_at) VALUES ('meeting',?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
+                (json.dumps(validated, ensure_ascii=False, sort_keys=True), timestamp),
+            )
         elif args.operation == "set-access":
             existing = connection.execute(
                 "SELECT credential_item_ref FROM product_access WHERE name=?",
@@ -487,6 +575,15 @@ def parser() -> argparse.ArgumentParser:
     video.add_argument("--provider", required=True, choices=VIDEO_PROVIDERS)
     video.add_argument("--zoom-link-mode", choices=ZOOM_LINK_MODES)
     video.add_argument("--zoom-personal-room-url")
+    movable = commands.add_parser("set-movable-block-patterns")
+    movable.add_argument("--pattern", action="append", default=[])
+    meeting = commands.add_parser("set-meeting-preferences")
+    meeting.add_argument("--duration-minutes", type=int)
+    meeting.add_argument("--format", choices=MEETING_FORMATS)
+    meeting.add_argument("--location")
+    meeting.add_argument("--participant", action="append")
+    meeting.add_argument("--timezone")
+    meeting.add_argument("--city")
     access = commands.add_parser("set-access")
     access.add_argument("--name", required=True); access.add_argument("--kind", required=True, choices=ACCESS_KINDS)
     access.add_argument("--url", required=True); access.add_argument("--environment", required=True)

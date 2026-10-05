@@ -14,7 +14,7 @@ from pathlib import Path
 from monitor_guard import (
     add_column, add_monitor_column, add_pipeline_contact_key_column,
     bind_pipeline_contact, monitor_operation, require_direct_contact,
-    resolve_direct_contact_key,
+    resolve_direct_contact_key, validate_movable_block,
 )
 
 
@@ -224,6 +224,7 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
         contact_key = resolve_direct_contact_key(
             connection, supplied_contact_key, (target,), (intent,)
         )
+    validate_movable_block(connection, args.scope, target, operation, intent)
     access_name = (
         required(args.access_name, "access_name")
         if args.scope == "product"
@@ -263,6 +264,7 @@ def prepare(connection: sqlite3.Connection, args: argparse.Namespace) -> dict:
 
 def approve(connection: sqlite3.Connection, operation_id: int) -> dict:
     row = resolve(connection, operation_id)
+    validate_movable_block(connection, row["scope"], row["target"], row["operation"], row["intent"])
     monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
                       row["operation"], row["intent"], approved=True)
     if row["monitor_suggestion_id"] is None:
@@ -291,6 +293,7 @@ def claim(connection: sqlite3.Connection, operation_id: int) -> dict:
         if row["status"] == "completed":
             connection.rollback()
             return {"claimed": False, "already_completed": True, "operation": as_dict(row)}
+        validate_movable_block(connection, row["scope"], row["target"], row["operation"], row["intent"])
         monitor_operation(connection, row["monitor_suggestion_id"], row["scope"], row["target"],
                           row["operation"], row["intent"], approved=True)
         if row["monitor_suggestion_id"] is None:

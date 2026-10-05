@@ -51,6 +51,21 @@ Preserve existing meetings by default. Find another free time or move a focus
 block. Move or cancel an existing meeting only when the founder requested that
 specific change or Founder Profile contains an autonomous rule for it. A
 conflict is not permission to override a booking.
+For an in-person scheduling option, treat travel-before + meeting +
+travel-after as one conflict interval across every shown calendar. Reserve
+private-visibility, busy, attendee-free travel blocks on the founder's own
+calendar, linked to that option; create and verify them through the same `external-action` ledger as meeting holds. At Pick,
+convert only the winner's travel blocks after the invitation verifies, then
+remove losing-option blocks through their exact ledger entries.
+
+A soft block is movable only if its title contains a configured
+`movable_block_patterns` entry (case-insensitive), it is a founder-owned,
+non-recurring personal event, and it has no attendees. Never move a third-party
+organized event, a recurring protected event, or an event with participants.
+Prepare every allowed move as `operation: move_block` in `external-action` with
+verified event identity, organizer, attendee/recurrence state, old interval and
+new interval. The ledger revalidates those facts and profile patterns at prepare,
+approval and claim; no move bypasses the ledger.
 
 For a recurring event, establish whether the request targets one occurrence,
 this and following occurrences, or the complete series. If the request does
@@ -61,7 +76,7 @@ not determine the scope, ask one short question before preparing the operation.
 Use `external-action` for every create, update, move, response, settings change,
 or deletion. `operations.py` resolves `calendar_manage` from Founder Profile;
 `forbidden` always stops execution and unlinked calendar work requires approval.
-Only a validated pipeline-monitor `new_options` hold may execute automatically.
+Only validated pipeline-monitor `new_options` meeting and travel holds may execute automatically.
 The stable target is `<account>/<calendar>/<event>`
 or `<account>/<calendar>/new` and the intent includes times, recurrence scope,
 attendees, notification choice, and requested change.
