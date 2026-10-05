@@ -242,10 +242,15 @@ class FounderAgentStateTests(unittest.TestCase):
                 migrated_at TEXT NOT NULL
             );
             INSERT INTO founder_agent_migration VALUES ('operations', '2026-09-01T00:00:00+00:00');
-            INSERT INTO external_operation VALUES (
-                1, 'product', 'contact:legacy', 'update_record', 'legacy-update',
-                'approval', 'pending', 'legacy-key', '', '', '2026-09-01', '2026-09-01'
-            );
+            INSERT INTO external_operation VALUES
+                (1, 'product', 'contact:legacy', 'update_record', 'legacy-update',
+                 'approval', 'pending', 'legacy-key', '', '', '2026-09-01', '2026-09-01'),
+                (2, 'product', 'contact:legacy-approved', 'update_record', 'legacy-approved',
+                 'approval', 'approved', 'legacy-approved-key', '', '', '2026-09-01', '2026-09-01'),
+                (3, 'product', 'contact:legacy-completed', 'update_record', 'legacy-completed',
+                 'approval', 'completed', 'legacy-completed-key', '', '', '2026-09-01', '2026-09-01'),
+                (4, 'calendar', 'primary/new', 'create_event', 'legacy-calendar',
+                 'approval', 'pending', 'legacy-calendar-key', '', '', '2026-09-01', '2026-09-01');
             PRAGMA user_version = 1;
             """
         )
@@ -255,17 +260,48 @@ class FounderAgentStateTests(unittest.TestCase):
         result = json.loads(self.run_helper(
             "skills/external-action/scripts/operations.py", "list"
         ).stdout)
-        self.assertEqual(1, result["count"])
-        self.assertIsNone(result["operations"][0]["access_name"])
+        self.assertEqual(4, result["count"])
+        operations = {operation["id"]: operation for operation in result["operations"]}
+        self.assertIsNone(operations[1]["access_name"])
+        self.assertIsNone(operations[2]["access_name"])
+        self.assertEqual("cancelled", operations[1]["status"])
+        self.assertEqual("cancelled", operations[2]["status"])
+        self.assertTrue(
+            operations[1]["idempotency_key"].startswith("cancelled:legacy-no-access:")
+        )
+        self.assertTrue(
+            operations[2]["idempotency_key"].startswith("cancelled:legacy-no-access:")
+        )
+        self.assertEqual("completed", operations[3]["status"])
+        self.assertEqual("pending", operations[4]["status"])
         connection = sqlite3.connect(database)
         columns = {row[1] for row in connection.execute("PRAGMA table_info(external_operation)")}
         marker = connection.execute(
             "SELECT 1 FROM founder_agent_migration WHERE component=?",
-            ("operations-access-name-v2",),
+            ("operations-access-name-v3",),
         ).fetchone()
         connection.close()
         self.assertIn("access_name", columns)
         self.assertIsNotNone(marker)
+
+        self.configure_product_access()
+        self.run_helper(
+            "skills/founder-context/scripts/profile.py", "set-access-policy",
+            "--name", "CRM", "--access-operation", "update_record", "--policy", "approval",
+        )
+        prepared = json.loads(self.run_helper(
+            "skills/external-action/scripts/operations.py", "prepare",
+            "--scope", "product", "--target", "contact:legacy", "--operation", "update_record",
+            "--intent", "legacy-update", "--access-name", "CRM", "--idempotency-key", "legacy-key",
+        ).stdout)
+        self.assertTrue(prepared["created"])
+        self.assertEqual("CRM", prepared["operation"]["access_name"])
+        self.assertEqual("pending", prepared["operation"]["status"])
+        approved = json.loads(self.run_helper(
+            "skills/external-action/scripts/operations.py", "approve",
+            "--id", str(prepared["operation"]["id"]),
+        ).stdout)
+        self.assertEqual("approved", approved["operation"]["status"])
 
     def test_video_preference_is_one_typed_json_value(self) -> None:
         preferences = self.video_preference("show")["preferences"]

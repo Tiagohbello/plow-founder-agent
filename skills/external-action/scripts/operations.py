@@ -12,8 +12,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from monitor_guard import (
-    add_monitor_column, add_pipeline_contact_key_column, bind_pipeline_contact, monitor_operation,
-    require_direct_contact, resolve_direct_contact_key,
+    add_column, add_monitor_column, add_pipeline_contact_key_column,
+    bind_pipeline_contact, monitor_operation, require_direct_contact,
+    resolve_direct_contact_key,
 )
 
 
@@ -78,14 +79,19 @@ def add_access_name_column(connection: sqlite3.Connection) -> None:
             "CREATE TABLE IF NOT EXISTS founder_agent_migration "
             "(component TEXT PRIMARY KEY, migrated_at TEXT NOT NULL)"
         )
-        columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(external_operation)")
-        }
-        if "access_name" not in columns:
-            connection.execute("ALTER TABLE external_operation ADD COLUMN access_name TEXT")
+        add_column(connection, "external_operation", "access_name", "TEXT")
+        connection.execute(
+            """UPDATE external_operation
+               SET status='cancelled',
+                   idempotency_key='cancelled:legacy-no-access:' || id || ':' || idempotency_key,
+                   updated_at=?
+               WHERE scope='product' AND access_name IS NULL
+                 AND status IN ('pending','approved')""",
+            (now(),),
+        )
         connection.execute(
             """INSERT OR IGNORE INTO founder_agent_migration(component,migrated_at)
-               VALUES ('operations-access-name-v2',?)""",
+               VALUES ('operations-access-name-v3',?)""",
             (now(),),
         )
 

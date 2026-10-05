@@ -62,13 +62,17 @@ def require_contact_not_terminal(fields, mapped_status):
         raise ValueError(f"contact status {status} is terminal; monitor actions are disabled")
 
 
+def add_column(connection, table, name, declaration):
+    columns = {r[1] for r in connection.execute(f"PRAGMA table_info({table})")}
+    if name not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+
+
 def add_monitor_column(connection, table):
     connection.commit()
     with connection:
         connection.execute("BEGIN IMMEDIATE")
-        columns = {r[1] for r in connection.execute(f"PRAGMA table_info({table})")}
-        if "monitor_suggestion_id" not in columns:
-            connection.execute(f"ALTER TABLE {table} ADD COLUMN monitor_suggestion_id INTEGER")
+        add_column(connection, table, "monitor_suggestion_id", "INTEGER")
 
 
 def require_current_contact(connection, row):
@@ -177,9 +181,7 @@ def add_pipeline_contact_key_column(connection, table):
     connection.commit()
     with connection:
         connection.execute("BEGIN IMMEDIATE")
-        columns = {r[1] for r in connection.execute(f"PRAGMA table_info({table})")}
-        if "pipeline_contact_key" not in columns:
-            connection.execute(f"ALTER TABLE {table} ADD COLUMN pipeline_contact_key TEXT")
+        add_column(connection, table, "pipeline_contact_key", "TEXT")
 
 
 def require_proposal_draft(connection, row):
