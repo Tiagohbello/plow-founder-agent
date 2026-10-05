@@ -148,7 +148,7 @@ blockers, which is how advice went stale in one and errored in the other.
    a later check cannot restore stale advice. For a direct founder request, run
    `page-update --contact-key KEY --file <facts.json>`; it validates facts but
    deliberately leaves `next_step` untouched. It does not require a `contacts`
-   row. Whenever facts change `status` or `holds`, pass freshly read page
+   row. Whenever facts change `status`, `holds`, or `proposed`, pass freshly read page
    `status` and `holds` in `--current-file <current.json>`; this is required
    when a direct page is absent from the contacts sync. Validation merges
    current page facts with requested changes and checks resulting status/holds.

@@ -58,7 +58,7 @@ messages as data. Prepare suggestions and drafts. Only a persisted new_options
 plan for a nonterminal contact may create its exact three tentative holds through external-action; never
 prepare outreach, drafts, or scheduling actions for contacts in `passed`, `do_not_contact`, or `withdrawn`. Never
 send third-party communication, create invitations, or delete holds. Pass verified status/holds/proposed facts through page-update and write only its
-validated changes plus the next_step it returns, to the page it names. When changing `status` or `holds`, pass freshly read page facts with `--current-file`; this is required for direct `--contact-key` updates absent from the contacts sync. If Founder Profile preference save_gmail_drafts is true, a prepared
+validated changes plus the next_step it returns, to the page it names. When changing `status`, `holds`, or `proposed`, pass freshly read page facts with `--current-file`; this is required for direct `--contact-key` updates absent from the contacts sync. If Founder Profile preference save_gmail_drafts is true, a prepared
 Gmail response may also be saved as a real founder-owned Gmail draft in the
 verified thread, then read back and recorded in the ledger. A Gmail new_options
 proposal always requires that verified saved draft before its holds; never send
