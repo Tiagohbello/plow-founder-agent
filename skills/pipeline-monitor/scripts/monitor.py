@@ -33,7 +33,9 @@ SOURCES = {"gmail", "messages", "plow"}
 # membership against it and `stage_notice` ranks by position, so a founder's
 # accepted slot outranks a clarification without a second ranking input to keep
 # in agreement with this one.
-ACTIONS = ("accepted", "cancellation", "conflict", "new_options", "modality", "clarification", "blocked")
+ACTIONS = ("accepted", "cancellation", "conflict", "new_options", "modality", "follow_up", "clarification", "blocked")
+# A ball left this long on either side of a contact comes back to the founder.
+FOLLOW_UP_DAYS = 7
 PLAN_OPERATIONS = {"hold": "create", "invitation": "create", "delete_hold": "delete"}
 # A page's `status` says whose move it is; `since` is the date it took effect.
 PIPELINE_STATUSES = ("new", "waiting_on_us", "held", "sent", "waiting_on_them",
@@ -472,8 +474,58 @@ def contacts(db, vault, pages):
                 supersede(db, old["id"])
         db.execute("DELETE FROM monitor_contact")
         db.executemany("INSERT INTO monitor_contact VALUES (?,?)", [(c["contact_key"], canonical(c)) for c in valid])
-    return {"contacts": valid, "unlinked": unlinked,
+    today = local_today(db)
+    due = [entry for c in valid if (entry := due_entry(db, c["contact_key"], c["fields"], today))]
+    return {"contacts": valid, "unlinked": unlinked, "due": due,
             "copy": [{"page": rel, "to": str(vault / rel)} for rel in sorted(stale)]}
+
+
+def strikes(db, contact_key):
+    """`follow_up` suggestions since the contact last produced anything else."""
+    last_other = db.execute("""SELECT COALESCE(MAX(id),0) FROM monitor_suggestion WHERE contact_key=?
+                               AND json_extract(payload,'$.action')!='follow_up'""", (contact_key,)).fetchone()[0]
+    return db.execute("""SELECT COUNT(*) FROM monitor_suggestion WHERE contact_key=? AND id>?
+                         AND json_extract(payload,'$.action')='follow_up'""", (contact_key, last_other)).fetchone()[0]
+
+
+def due_entry(db, contact_key, fields, today):
+    """Whether this page's ball has come back to the founder, and the page write that says so.
+
+    `waiting_on_us` is our move and `since` its clock: a new lead or a reply we owe
+    is due now, and either side left a week re-arms it under a fresh `since`, which
+    is new evidence, so an ignored follow-up comes back weekly."""
+    status = fields.get("status")
+    if status not in ("new", "waiting_on_us", "waiting_on_them"):
+        return None
+    try:
+        since = validate_since(fields.get("since"))
+    except ValueError:
+        since = None
+    aged = since is not None and (datetime.fromisoformat(today) - datetime.fromisoformat(since)).days >= FOLLOW_UP_DAYS
+    if status == "waiting_on_them" and since is None:
+        # A page that predates the clock only starts it; flipping it would guess.
+        changes = {"since": today}
+    elif status == "new" or (status == "waiting_on_them" and aged):
+        changes = {"status": "waiting_on_us", "since": today}
+    elif status == "waiting_on_them":
+        return None
+    else:
+        changes = {"since": today} if since is None or aged else {}
+    status, since = changes.get("status", status), changes.get("since", since)
+    evidence_at = f"{since}T00:00:00+00:00"
+    # One follow_up per arm, and none while scheduling work for the contact is live.
+    held = db.execute("""SELECT 1 FROM monitor_suggestion WHERE contact_key=? AND (
+                           (json_extract(payload,'$.action')='follow_up' AND evidence_at=?) OR
+                           (json_extract(payload,'$.action')!='follow_up' AND status IN ('pending','approved')))""",
+                      (contact_key, stamp(parse_time(evidence_at)))).fetchone()
+    observe = None if status != "waiting_on_us" or held else {
+        "contact_key": contact_key, "conversation_ref": f"pipeline:{contact_key}", "action": "follow_up",
+        "evidence_at": evidence_at, "evidence_refs": [f"status:{contact_key}:{status}:{since}"]}
+    if not (changes or observe):
+        return None
+    count = strikes(db, contact_key)
+    return {"contact_key": contact_key, "status": status, "since": since, "strikes": count,
+            "close_prompt": observe is not None and count >= 2, "changes": changes, "observe": observe}
 
 
 def window(db, contact_key, source, current=None):
@@ -630,6 +682,8 @@ def observe(db, data):
     action = data.get("action")
     if action not in ACTIONS:
         raise ValueError("unsupported scheduling action")
+    if action == "follow_up" and data.get("conversation_ref") != f"pipeline:{contact}":
+        raise ValueError("follow_up uses conversation_ref pipeline:<contact_key>")
     contact_data = None
     if action != "blocked" or not contact.startswith("source:"):
         row = db.execute("SELECT data FROM monitor_contact WHERE contact_key=?", (contact,)).fetchone()
