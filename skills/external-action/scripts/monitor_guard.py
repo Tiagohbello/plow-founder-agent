@@ -2,11 +2,64 @@
 
 from datetime import datetime
 import json
+import re
 from zoneinfo import ZoneInfo
 
 
 HOLD_FIELDS = ("account", "calendar", "start", "end", "timezone", "title",
                "description", "attendees", "send_updates", "transparency")
+TERMINAL_PIPELINE_STATUSES = {"passed", "do_not_contact", "withdrawn"}
+PIPELINE_STATUS_SET = {
+    "new", "waiting_on_us", "held", "sent", "waiting_on_them", "confirmed",
+    *TERMINAL_PIPELINE_STATUSES, "unverified",
+}
+PHONE_TEXT_RE = re.compile(r"(?<![A-Za-z0-9])\+?[0-9][0-9(). \t-]{5,}[0-9](?![A-Za-z0-9])")
+
+
+def normalize_phone(value):
+    """Return the phone's digits for format-independent, country-code-preserving matches."""
+    if not isinstance(value, str) or not re.fullmatch(r"\+?[0-9().\s-]+", value.strip()):
+        return None
+    digits = re.sub(r"\D", "", value)
+    return digits if len(digits) >= 7 else None
+
+
+def phones_in_text(value):
+    """Find formatted phone numbers embedded in a direct-action context string."""
+    for match in PHONE_TEXT_RE.finditer(value):
+        normalized = normalize_phone(match.group(0))
+        if normalized:
+            yield normalized
+
+
+def contact_snapshot(connection, contact_key):
+    # Guard table is the complete latest wiki snapshot, including ineligible rows.
+    for table in ("monitor_contact_guard", "monitor_contact"):
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if not exists:
+            continue
+        row = connection.execute(
+            f"SELECT data FROM {table} WHERE contact_key=?", (contact_key,)
+        ).fetchone()
+        if row:
+            return json.loads(row["data"])
+    return None
+
+
+def snapshot_mapped_status(snapshot):
+    if "mapped_status" in snapshot:
+        return snapshot["mapped_status"]
+    # Older and eligible-contact rows store only the canonical page status.
+    status = snapshot.get("fields", {}).get("status")
+    return status if status in PIPELINE_STATUS_SET else None
+
+
+def require_contact_not_terminal(fields, mapped_status):
+    if mapped_status in TERMINAL_PIPELINE_STATUSES:
+        status = fields.get("status") if fields else None
+        raise ValueError(f"contact status {status} is terminal; monitor actions are disabled")
 
 
 def add_monitor_column(connection, table):
@@ -19,9 +72,114 @@ def add_monitor_column(connection, table):
 
 
 def require_current_contact(connection, row):
-    if not row["contact_key"].startswith("source:") and not connection.execute(
-            "SELECT 1 FROM monitor_contact WHERE contact_key=?", (row["contact_key"],)).fetchone():
-        raise ValueError("contact is not in the latest verified pipeline read; re-read it first")
+    if row["contact_key"].startswith("source:"):
+        return
+    snapshot = contact_snapshot(connection, row["contact_key"])
+    if snapshot is None:
+        raise ValueError("contact is not in the latest verified pipeline read/snapshot; refresh it first")
+    fields = snapshot.get("fields", {})
+    require_contact_not_terminal(fields, snapshot_mapped_status(snapshot))
+    if fields.get("status") not in PIPELINE_STATUS_SET:
+        raise ValueError("contact pipeline status is noncanonical; reconcile it before monitor actions")
+
+
+def bind_pipeline_contact(connection, table, row, contact_key):
+    """Attach guard metadata to a stable idempotency match from an older image."""
+    if contact_key is None:
+        return row
+    if table not in {"draft", "external_operation"}:
+        raise ValueError("unsupported pipeline contact ledger")
+    existing_key = row["pipeline_contact_key"]
+    if existing_key not in (None, "", contact_key):
+        raise ValueError("idempotent record is already linked to a different pipeline contact")
+    if existing_key in (None, ""):
+        connection.execute(
+            f"UPDATE {table} SET pipeline_contact_key=? WHERE id=?",
+            (contact_key, row["id"]),
+        )
+        return connection.execute(f"SELECT * FROM {table} WHERE id=?", (row["id"],)).fetchone()
+    return row
+
+
+def resolve_direct_contact_key(connection, contact_key=None, identifiers=(), context_text=(),
+                               require_handle_match=False):
+    """Resolve explicit or handle-linked direct context and enforce current status."""
+    matched = set()
+    handle_matched = set()
+    normalized_identifiers = {str(value).strip().casefold() for value in identifiers
+                              if isinstance(value, str) and value.strip()}
+    normalized_context = [value.casefold() for value in context_text
+                          if isinstance(value, str) and value.strip()]
+    normalized_phones = {phone for value in identifiers
+                         if (phone := normalize_phone(value)) is not None}
+    normalized_phones.update(phone for value in context_text
+                             if isinstance(value, str) for phone in phones_in_text(value))
+    if normalized_identifiers:
+        seen = set()
+        for table in ("monitor_contact_guard", "monitor_contact"):
+            if not connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                continue
+            for row in connection.execute(f"SELECT contact_key,data FROM {table}"):
+                if row["contact_key"] in seen:
+                    continue
+                seen.add(row["contact_key"])
+                data = json.loads(row["data"])
+                handles = {str(value).strip().casefold() for value in data.get("handles", [])
+                           if isinstance(value, str) and value.strip()}
+                handle_phones = {phone for value in data.get("handles", [])
+                                 if (phone := normalize_phone(value)) is not None}
+                if handles & normalized_identifiers or handle_phones & normalized_phones:
+                    handle_matched.add(row["contact_key"])
+                candidates = handles | {row["contact_key"].casefold()}
+                name = data.get("name")
+                if isinstance(name, str) and name.strip():
+                    candidates.add(name.strip().casefold())
+                exact_match = bool(candidates & normalized_identifiers)
+                mentioned = any(
+                    re.search(rf"(?<![A-Za-z0-9]){re.escape(candidate)}(?![A-Za-z0-9])",
+                              text, flags=re.IGNORECASE)
+                    for candidate in candidates if len(candidate) >= 3
+                    for text in normalized_context
+                )
+                phone_match = bool(handle_phones & normalized_phones)
+                if exact_match or mentioned or phone_match:
+                    matched.add(row["contact_key"])
+    if len(matched) > 1:
+        raise ValueError("direct action recipient matches multiple pipeline contacts; provide an exact --contact-key")
+    if contact_key is not None:
+        if (not isinstance(contact_key, str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", contact_key)
+                or contact_key in {"index", ".", ".."}):
+            raise ValueError("contact_key must be one pipeline page slug")
+        require_current_contact(connection, {"contact_key": contact_key})
+        if require_handle_match and contact_key not in handle_matched:
+            if matched and contact_key not in matched:
+                raise ValueError("--contact-key differs from the pipeline contact matched by recipient")
+            raise ValueError("--contact-key requires a recipient matching a known handle for that contact")
+        if matched and contact_key not in matched:
+            raise ValueError("--contact-key differs from the pipeline contact matched by recipient")
+        resolved = contact_key
+    else:
+        resolved = next(iter(matched), None)
+    if resolved is not None and contact_key is None:
+        require_current_contact(connection, {"contact_key": resolved})
+    return resolved
+
+
+def require_direct_contact(connection, contact_key, identifiers=(), context_text=(),
+                           require_handle_match=False):
+    return resolve_direct_contact_key(connection, contact_key, identifiers, context_text,
+                                      require_handle_match=require_handle_match)
+
+
+def add_pipeline_contact_key_column(connection, table):
+    connection.commit()
+    with connection:
+        connection.execute("BEGIN IMMEDIATE")
+        columns = {r[1] for r in connection.execute(f"PRAGMA table_info({table})")}
+        if "pipeline_contact_key" not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN pipeline_contact_key TEXT")
 
 
 def require_proposal_draft(connection, row):
@@ -110,6 +268,10 @@ def monitor_item(connection, suggestion_id, approved=False):
     row = connection.execute("SELECT * FROM monitor_suggestion WHERE id=?", (suggestion_id,)).fetchone() if exists else None
     if row is None or row["status"] not in ("pending", "approved", "executing"):
         raise ValueError("monitor suggestion is missing, obsolete, or requires reconciliation")
+    if not row["contact_key"].startswith("source:"):
+        snapshot = contact_snapshot(connection, row["contact_key"])
+        if snapshot is not None:
+            require_contact_not_terminal(snapshot.get("fields", {}), snapshot_mapped_status(snapshot))
     if approved:
         if row["status"] not in ("approved", "executing") or not row["approval_ref"] or not row["validation_ref"]:
             raise ValueError("monitor action requires specific founder approval and fresh source/calendar validation")
@@ -127,6 +289,7 @@ def monitor_operation(connection, suggestion_id, scope, target=None, operation=N
     row = monitor_item(connection, suggestion_id)
     if row is None:
         return
+    require_current_contact(connection, row)
     payload = json.loads(row["payload"])
     plan = payload.get("calendar_plan", [])
     if scope != "calendar" or not isinstance(plan, list):

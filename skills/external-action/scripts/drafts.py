@@ -16,7 +16,10 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from monitor_guard import add_monitor_column, monitor_item
+from monitor_guard import (
+    add_monitor_column, add_pipeline_contact_key_column, bind_pipeline_contact, monitor_item,
+    require_direct_contact, resolve_direct_contact_key,
+)
 
 
 ACTIVE_CHANNELS = ("gmail", "text", "plow")
@@ -181,6 +184,7 @@ def connect(path: Path) -> sqlite3.Connection:
     ensure_external_draft_column(connection)
     migrate_legacy(connection, path)
     add_monitor_column(connection, "draft")
+    add_pipeline_contact_key_column(connection, "draft")
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     connection.commit()
     try:
@@ -208,21 +212,33 @@ def prepare_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> d
     subject = (args.subject or "").strip()
     body = required_text(args.body, "body")
     monitor_id = getattr(args, "suggestion_id", None)
-    monitor_item(connection, monitor_id)
+    supplied_contact_key = getattr(args, "contact_key", None)
+    if monitor_id is not None and supplied_contact_key is not None:
+        raise ValueError("--contact-key cannot be combined with --suggestion-id")
+    if monitor_id is not None:
+        monitor_item(connection, monitor_id)
+        contact_key = None
+    else:
+        contact_key = resolve_direct_contact_key(
+            connection, supplied_contact_key, (recipient,), (recipient,),
+            require_handle_match=supplied_contact_key is not None,
+        )
     key = args.idempotency_key or derive_idempotency_key(channel, thread_id, recipient, subject, body)
     if monitor_id is not None:
         key = f"monitor:{monitor_id}:{key}"
     existing = connection.execute("SELECT * FROM draft WHERE idempotency_key = ?", (key,)).fetchone()
     if existing is not None:
+        existing = bind_pipeline_contact(connection, "draft", existing, contact_key)
+        connection.commit()
         return {"created": False, "duplicate": True, "draft": as_dict(existing)}
     timestamp = now()
     cursor = connection.execute(
         """
         INSERT INTO draft(channel, thread_id, recipient, subject, body, idempotency_key,
-                          created_at, updated_at, monitor_suggestion_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          created_at, updated_at, monitor_suggestion_id, pipeline_contact_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (channel, thread_id, recipient, subject, body, key, timestamp, timestamp, monitor_id),
+        (channel, thread_id, recipient, subject, body, key, timestamp, timestamp, monitor_id, contact_key),
     )
     connection.commit()
     row = connection.execute("SELECT * FROM draft WHERE id = ?", (cursor.lastrowid,)).fetchone()
@@ -236,6 +252,16 @@ def revise_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> di
         old = resolve(connection, args.id)
         if old["monitor_suggestion_id"] is not None:
             raise ValueError("revise the monitor suggestion instead; its exact draft approval must not carry over")
+        supplied_contact_key = getattr(args, "contact_key", None)
+        if supplied_contact_key is None:
+            supplied_contact_key = old["pipeline_contact_key"]
+        contact_key = resolve_direct_contact_key(
+            connection,
+            supplied_contact_key,
+            (args.recipient if args.recipient is not None else old["recipient"],),
+            (args.recipient if args.recipient is not None else old["recipient"],),
+            require_handle_match=supplied_contact_key is not None,
+        )
         if old["channel"] not in ACTIVE_CHANNELS:
             raise ValueError(f"channel {old['channel']} is read-only")
         if old["status"] in {"sending", "sent", "uncertain", "cancelled"}:
@@ -269,12 +295,15 @@ def revise_draft(connection: sqlite3.Connection, args: argparse.Namespace) -> di
                 f"{base_key}\x1f{secrets.token_urlsafe(12)}".encode()
             ).hexdigest()
             existing = None
+        elif existing is not None:
+            existing = bind_pipeline_contact(connection, "draft", existing, contact_key)
         timestamp = now()
         if existing is None:
             cursor = connection.execute(
-                """INSERT INTO draft(channel,thread_id,recipient,subject,body,idempotency_key,created_at,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (old["channel"], thread_id, recipient, subject, body, key, timestamp, timestamp),
+                """INSERT INTO draft(channel,thread_id,recipient,subject,body,idempotency_key,created_at,updated_at,
+                                      pipeline_contact_key)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (old["channel"], thread_id, recipient, subject, body, key, timestamp, timestamp, contact_key),
             )
             new_id = cursor.lastrowid
         else:
@@ -310,12 +339,20 @@ def require_active_channel(row: sqlite3.Row) -> None:
         raise ValueError(f"channel {row['channel']} is read-only")
 
 
+def require_draft_contact(connection: sqlite3.Connection, row: sqlite3.Row) -> None:
+    if row["monitor_suggestion_id"] is None:
+        require_direct_contact(connection, row["pipeline_contact_key"],
+                               (row["recipient"],), (row["recipient"],),
+                               require_handle_match=row["pipeline_contact_key"] is not None)
+
+
 def approve_draft(connection: sqlite3.Connection, draft_id: int, approval_ref: str) -> dict[str, object]:
     approval_ref = required_text(approval_ref, "approval_ref")
     connection.execute("BEGIN IMMEDIATE")
     try:
         row = resolve(connection, draft_id)
         monitor_item(connection, row["monitor_suggestion_id"], approved=True)
+        require_draft_contact(connection, row)
         require_active_channel(row)
         if row["status"] == "approved":
             connection.rollback()
@@ -346,6 +383,7 @@ def claim_send(connection: sqlite3.Connection, draft_id: int) -> dict[str, objec
     try:
         row = resolve(connection, draft_id)
         monitor_item(connection, row["monitor_suggestion_id"], approved=True)
+        require_draft_contact(connection, row)
         if row["channel"] not in ACTIVE_CHANNELS:
             connection.rollback()
             raise ValueError(f"channel {row['channel']} is read-only")
@@ -512,6 +550,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--body", required=True)
     prepare.add_argument("--idempotency-key")
     prepare.add_argument("--suggestion-id", type=int)
+    prepare.add_argument("--contact-key", help="Pipeline contact context for direct drafts")
 
     approve = subparsers.add_parser("approve")
     approve.add_argument("--id", required=True, type=int)
@@ -524,6 +563,7 @@ def build_parser() -> argparse.ArgumentParser:
     revise.add_argument("--subject")
     revise.add_argument("--body")
     revise.add_argument("--idempotency-key")
+    revise.add_argument("--contact-key", help="Pipeline contact context for direct drafts")
 
     claim = subparsers.add_parser("claim-send")
     claim.add_argument("--id", required=True, type=int)

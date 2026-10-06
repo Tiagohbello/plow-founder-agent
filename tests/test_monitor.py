@@ -71,7 +71,7 @@ class MonitorTests(unittest.TestCase):
                                   "work@example.com/primary/hold-2"))
         self.contact = self.contacts()["contacts"][0]
 
-    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent", holds=""):
+    def write_contact(self, slug, *, email="", phone="", person=True, status="sent", holds=""):
         """One pipeline entry and, unless suppressed, the person page it points at."""
         entry = self.vault / monitor.PIPELINE_ROOT / f"{slug}.md"
         entry.parent.mkdir(parents=True, exist_ok=True)
@@ -415,6 +415,444 @@ class MonitorTests(unittest.TestCase):
         path.write_text(listed + "\n\n")
         found = self.helper("pipeline-monitor", "monitor.py", "contacts", "--listing", str(path))
         self.assertEqual((found["copy"], [c["contact_key"] for c in found["contacts"]]), ([], ["alex"]))
+
+    def test_pipeline_status_is_a_closed_canonical_enum(self):
+        valid = (
+            "new", "waiting_on_us", "held", "sent", "waiting_on_them",
+            "confirmed", "passed", "do_not_contact", "unverified", "withdrawn",
+        )
+        self.assertEqual(monitor.PIPELINE_STATUSES, valid)
+        for status in valid:
+            with self.subTest(status=status):
+                self.assertEqual(monitor.validate_pipeline_status(status), status)
+        for status in ("Times sent", "You replied on Tuesday", "in progress", "sent ", "unknown", None):
+            with self.subTest(status=status), self.assertRaisesRegex(ValueError, "status must be one of"):
+                monitor.validate_page_facts({"status": status})
+
+    def test_reconcile_pages_maps_known_prose_and_reports_unsafe_states(self):
+        target = "work@example.com/primary/hold-existing"
+        self.write_contact("prose-sent", status="Times sent")
+        self.write_contact("prose-waiting", status="Awaiting response")
+        self.write_contact("held-without-proof", status="Held")
+        self.write_contact("confirmed-with-hold", status="Meeting confirmed", holds=target)
+        self.write_contact("ambiguous", status="You replied on Tuesday")
+
+        first = monitor.reconcile_pipeline_pages(self.vault)
+        second = monitor.reconcile_pipeline_pages(self.vault)
+        self.assertEqual(first, second)
+        self.assertEqual(self.helper("pipeline-monitor", "monitor.py", "reconcile-pages"), first)
+        self.assertEqual({item["path"]: item["changes"] for item in first["updates"]}, {
+            f"{monitor.PIPELINE_ROOT}/prose-sent.md": {"status": "sent"},
+            f"{monitor.PIPELINE_ROOT}/prose-waiting.md": {"status": "waiting_on_them"},
+        })
+        manual = {item["path"]: item["reason"] for item in first["manual_review"]}
+        self.assertIn("no verified live hold targets", manual[f"{monitor.PIPELINE_ROOT}/held-without-proof.md"])
+        self.assertIn("verify cleanup manually", manual[f"{monitor.PIPELINE_ROOT}/confirmed-with-hold.md"])
+        self.assertIn("not a recognized", manual[f"{monitor.PIPELINE_ROOT}/ambiguous.md"])
+        self.assertTrue(all("holds" not in item["changes"] for item in first["updates"]))
+
+    def test_holds_are_validated_deduplicated_and_formatted(self):
+        targets = [
+            "work@example.com/primary/hold-1",
+            "work@example.com/primary/hold-2",
+        ]
+        self.assertEqual(monitor.validate_page_facts({"holds": targets}, {"status": "sent"}),
+                         {"holds": "; ".join(targets)})
+        self.assertEqual(monitor.validate_page_facts({"holds": ";".join(targets)}, {"status": "sent"}),
+                         {"holds": "; ".join(targets)})
+        self.assertEqual(monitor.validate_page_facts({"holds": []}, {"status": "sent"}), {"holds": ""})
+        self.assertEqual(monitor.validate_page_facts({"holds": ""}, {"status": "sent"}), {"holds": ""})
+        self.assertEqual(monitor.validate_page_facts({"status": "confirmed", "holds": []}),
+                         {"status": "confirmed", "holds": ""})
+        with self.assertRaisesRegex(ValueError, "status held requires"):
+            monitor.validate_page_facts({"status": "held"})
+        with self.assertRaisesRegex(ValueError, "status confirmed requires"):
+            monitor.validate_page_facts({"status": "confirmed"})
+        for invalid in (
+            [targets[0], targets[0]],
+            targets[0] + "; " + targets[0],
+            ["work@example.com/primary"],
+            ["work@example.com/primary/hold-1/extra"],
+            ["work@example.com//hold-1"],
+            ["work@example.com/primary/new"],
+            ["work account/primary/hold-1"],
+            ["work@example.com/primary/hold-1", ""],
+            "not-a-target",
+        ):
+            with self.subTest(holds=invalid), self.assertRaises(ValueError):
+                monitor.validate_page_facts({"holds": invalid}, {"status": "sent"})
+
+    def test_page_update_validates_json_facts_for_direct_and_suggested_pages(self):
+        facts_path = self.home / "page-facts.json"
+        facts = {
+            "status": "held",
+            "holds": ["work@example.com/primary/hold-1"],
+            "proposed": "",
+        }
+        facts_path.write_text(json.dumps(facts))
+        direct = self.helper("pipeline-monitor", "monitor.py", "page-update",
+                             "--contact-key", "alex", "--file", str(facts_path))
+        self.assertEqual(direct["path"], f"{monitor.PIPELINE_ROOT}/alex.md")
+        self.assertEqual(direct["changes"], {
+            "status": "held", "holds": "work@example.com/primary/hold-1", "proposed": "",
+        })
+        self.assertNotIn("next_step", direct["changes"])
+
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        suggested = monitor.page_update(self.db, item["id"], facts=facts)
+        self.assertEqual(suggested["changes"]["next_step"], self.observation()["next_step"])
+        self.assertEqual(suggested["changes"]["status"], "held")
+        self.assertEqual(suggested["changes"]["holds"], "work@example.com/primary/hold-1")
+        with self.assertRaisesRegex(ValueError, "only status, holds and proposed"):
+            monitor.page_update(self.db, contact_key="alex", facts={"next_step": "invented"})
+
+    def test_withdrawn_status_preserves_current_proposed_offer(self):
+        current = {
+            "status": "sent",
+            "holds": "",
+            "proposed": "Offer: Tuesday at 11:30",
+        }
+        self.assertEqual(
+            monitor.validate_page_facts({"status": "withdrawn"}, current),
+            {"status": "withdrawn"},
+        )
+        self.assertEqual(
+            monitor.validate_page_facts(
+                {"status": "withdrawn", "proposed": current["proposed"]}, current
+            ),
+            {"status": "withdrawn", "proposed": current["proposed"]},
+        )
+        with self.assertRaisesRegex(ValueError, "current proposed offer text"):
+            monitor.validate_page_facts(
+                {"status": "withdrawn", "proposed": "New offer"},
+                {"status": "sent", "holds": ""},
+            )
+        with self.assertRaisesRegex(ValueError, "nonblank proposed offer"):
+            monitor.validate_page_facts(
+                {"status": "withdrawn", "proposed": ""}, current
+            )
+        with self.assertRaisesRegex(ValueError, "preserve current proposed"):
+            monitor.validate_page_facts(
+                {"status": "withdrawn", "proposed": "Different offer"}, current
+            )
+        with self.assertRaisesRegex(ValueError, "nonblank proposed offer"):
+            monitor.validate_page_facts(
+                {"proposed": ""},
+                {"status": "withdrawn", "holds": "", "proposed": current["proposed"]},
+            )
+
+    def test_page_update_checks_resulting_state_against_current_page(self):
+        target = "work@example.com/primary/live"
+        self.write_contact("alex", status="held", holds=target)
+        self.contacts()
+        with self.assertRaisesRegex(ValueError, "status held requires"):
+            monitor.page_update(self.db, contact_key="alex", facts={"holds": []})
+
+        self.write_contact("alex", status="confirmed", holds="")
+        self.contacts()
+        with self.assertRaisesRegex(ValueError, "status confirmed requires"):
+            monitor.page_update(self.db, contact_key="alex", facts={"holds": [target]})
+        update = monitor.page_update(self.db, contact_key="alex", facts={"status": "confirmed"})
+        self.assertEqual(update["changes"], {"status": "confirmed"})
+
+        # A fresh page read supplied by Latch takes precedence over a stale sync.
+        fresh = monitor.page_update(self.db, contact_key="alex", facts={"holds": [target]},
+                                    current_facts={"status": "held", "holds": target})
+        self.assertEqual(fresh["changes"], {"holds": target})
+        with self.assertRaisesRegex(ValueError, "status held requires"):
+            monitor.page_update(self.db, contact_key="alex", facts={"holds": []},
+                                current_facts={"status": "held", "holds": target})
+
+        with self.assertRaisesRegex(ValueError, "current page status is required"):
+            monitor.page_update(self.db, contact_key="alex", facts={"holds": [target]},
+                                current_facts={})
+        known = monitor.page_update(self.db, contact_key="alex",
+                                    facts={"status": "held", "holds": [target]},
+                                    current_facts={})
+        self.assertEqual(known["changes"], {"status": "held", "holds": target})
+        facts_path = self.home / "holds-only.json"
+        current_path = self.home / "empty-current.json"
+        facts_path.write_text(json.dumps({"holds": [target]}))
+        current_path.write_text("{}")
+        error = self.helper(
+            "pipeline-monitor", "monitor.py", "page-update", "--contact-key", "alex",
+            "--file", str(facts_path), "--current-file", str(current_path), ok=False,
+        )
+        self.assertIn("current page status is required", error)
+
+    def test_direct_contact_key_page_update_works_without_contact_row(self):
+        # The actual wiki page has been read through Latch, but no contacts sync
+        # has copied it into this database's mirror.
+        self.assertFalse((self.vault / monitor.PIPELINE_ROOT / "unsynced.md").exists())
+        self.assertIsNone(self.db.execute(
+            "SELECT 1 FROM monitor_contact WHERE contact_key='unsynced'"
+        ).fetchone())
+        facts_path = self.home / "unsynced-facts.json"
+        current_path = self.home / "unsynced-current.json"
+        facts_path.write_text(json.dumps({
+            "status": "held", "holds": ["work@example.com/primary/new-hold"],
+        }))
+        current_path.write_text(json.dumps({"status": "sent", "holds": ""}))
+        update = self.helper("pipeline-monitor", "monitor.py", "page-update",
+                             "--contact-key", "unsynced", "--file", str(facts_path),
+                             "--current-file", str(current_path))
+        self.assertEqual(update["path"], f"{monitor.PIPELINE_ROOT}/unsynced.md")
+        self.assertEqual(update["changes"], {
+            "status": "held", "holds": "work@example.com/primary/new-hold",
+        })
+        self.assertIsNone(self.db.execute(
+            "SELECT 1 FROM monitor_contact WHERE contact_key='unsynced'"
+        ).fetchone())
+
+    def test_direct_proposed_update_requires_current_status_and_preserves_withdrawn_offer(self):
+        with self.assertRaisesRegex(ValueError, "current page facts are required"):
+            monitor.page_update(self.db, contact_key="unsynced", facts={"proposed": ""})
+
+        with self.assertRaisesRegex(ValueError, "current page status is required"):
+            monitor.validate_page_facts({"proposed": ""}, {})
+
+        withdrawn = {
+            "status": "withdrawn",
+            "holds": "",
+            "proposed": "Offer: Tuesday at 11:30",
+        }
+        with self.assertRaisesRegex(ValueError, "withdrawn status requires nonblank proposed offer"):
+            monitor.page_update(self.db, contact_key="unsynced", facts={"proposed": ""},
+                                current_facts=withdrawn)
+
+        sent = {"status": "sent", "holds": "", "proposed": "Offer: Tuesday at 11:30"}
+        update = monitor.page_update(self.db, contact_key="unsynced", facts={"proposed": ""},
+                                     current_facts=sent)
+        self.assertEqual(update["changes"], {"proposed": ""})
+
+    def test_terminal_statuses_block_contacts_observe_and_prepare(self):
+        for status in ("do_not_contact", "passed", "withdrawn"):
+            with self.subTest(status=status):
+                self.write_contact("alex", status="sent",
+                                   email="alex@example.com", phone="+1 415 555 0100",
+                                   holds="work@example.com/primary/hold-1; work@example.com/primary/hold-2")
+                self.contacts()
+                observed = monitor.observe(self.db, self.new_options_observation(
+                    evidence_refs=[f"gmail:{status}"], conversation_ref=f"gmail:{status}"
+                ))["suggestion"]
+
+                self.write_contact("alex", status=status,
+                                   email="alex@example.com", phone="+1 415 555 0100",
+                                   holds="work@example.com/primary/hold-1; work@example.com/primary/hold-2")
+                # Model a just-read terminal status before the next contacts sweep.
+                saved = json.loads(self.db.execute(
+                    "SELECT data FROM monitor_contact WHERE contact_key='alex'"
+                ).fetchone()[0])
+                saved["fields"] = monitor.page(self.vault, monitor.PIPELINE_ROOT, "alex")
+                with self.db:
+                    self.db.execute("UPDATE monitor_contact SET data=? WHERE contact_key='alex'",
+                                    (monitor.canonical(saved),))
+                    self.db.execute("UPDATE monitor_contact_guard SET data=? WHERE contact_key='alex'",
+                                    (monitor.canonical(saved),))
+                with self.assertRaisesRegex(ValueError, f"contact status {status} is terminal"):
+                    monitor.observe(self.db, self.new_options_observation(
+                        evidence_refs=[f"gmail:blocked:{status}"],
+                        conversation_ref=f"gmail:blocked:{status}"
+                    ))
+                self.helper("external-action", "operations.py", "prepare", "--scope", "calendar",
+                            "--suggestion-id", str(observed["id"]), ok=False)
+                self.helper("external-action", "drafts.py", "prepare", "--channel", "text",
+                            "--thread-id", "terminal-thread", "--recipient", "+14155550100",
+                            "--body", "Do not send", "--suggestion-id", str(observed["id"]), ok=False)
+                result = self.contacts()
+                self.assertNotIn("alex", [entry["contact_key"] for entry in result["contacts"]])
+                self.assertTrue(any("terminal pipeline status" in entry["reason"]
+                                    for entry in result["unlinked"]))
+                self.assertEqual(monitor.suggestion(self.db, observed["id"])["status"], "superseded")
+                draft_error = self.helper(
+                    "external-action", "drafts.py", "prepare", "--channel", "text",
+                    "--thread-id", f"terminal-direct-{status}", "--recipient", "alex@example.com",
+                    "--body", "Do not prepare", ok=False,
+                )
+                self.assertIn("terminal", draft_error)
+                operation_error = self.helper(
+                    "external-action", "operations.py", "prepare", "--scope", "calendar",
+                    "--target", "work@example.com/primary/new", "--operation", "create",
+                    "--intent", f"Schedule with alex@example.com ({status})",
+                    ok=False,
+                )
+                self.assertIn("terminal", operation_error)
+
+    def test_direct_contact_status_is_rechecked_before_draft_send_and_calendar_claim(self):
+        draft = self.helper(
+            "external-action", "drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "direct-alex", "--recipient", "alex@example.com",
+            "--body", "Tuesday works", "--contact-key", "alex",
+        )["draft"]
+        self.helper("external-action", "drafts.py", "approve", "--id", str(draft["id"]),
+                    "--approval-ref", "founder:approve:direct")
+        operation = self.helper(
+            "external-action", "operations.py", "prepare", "--scope", "calendar",
+            "--target", "work@example.com/primary/new", "--operation", "create",
+            "--intent", "Schedule with Alex", "--contact-key", "alex",
+        )["operation"]
+        self.helper("external-action", "operations.py", "approve", "--id", str(operation["id"]))
+
+        self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                           phone="+1 415 555 0100")
+        result = self.contacts()
+        self.assertFalse(any(entry["contact_key"] == "alex" for entry in result["contacts"]))
+        draft_error = self.helper("external-action", "drafts.py", "claim-send",
+                                  "--id", str(draft["id"]), ok=False)
+        self.assertIn("contact status withdrawn is terminal", draft_error)
+        operation_error = self.helper("external-action", "operations.py", "claim",
+                                      "--id", str(operation["id"]), ok=False)
+        self.assertIn("contact status withdrawn is terminal", operation_error)
+
+    def test_noncanonical_and_terminal_aliases_stay_raw_in_guard(self):
+        cases = (
+            ("unverified", "Awaiting reply", "waiting_on_them", "noncanonical"),
+            ("declined", "Declined", "passed", "is terminal"),
+        )
+        for contact_key, raw_status, mapped_status, expected_error in cases:
+            with self.subTest(status=raw_status):
+                email = f"{contact_key}@example.com"
+                self.write_contact(contact_key, status=raw_status, email=email)
+                result = self.contacts()
+                self.assertNotIn(contact_key, [entry["contact_key"] for entry in result["contacts"]])
+                row = self.db.execute(
+                    "SELECT data FROM monitor_contact_guard WHERE contact_key=?", (contact_key,)
+                ).fetchone()
+                self.assertIsNotNone(row)
+                snapshot = json.loads(row["data"])
+                self.assertEqual(snapshot["handles"], [email])
+                self.assertEqual(snapshot["fields"]["status"], raw_status)
+                self.assertEqual(snapshot["mapped_status"], mapped_status)
+                error = self.helper(
+                    "external-action", "drafts.py", "prepare", "--channel", "text",
+                    "--thread-id", f"{contact_key}-contact", "--recipient", email,
+                    "--body", "Do not prepare", ok=False,
+                )
+                self.assertIn(expected_error, error)
+
+    def test_explicit_draft_contact_key_requires_recipient_known_handle(self):
+        error = self.helper(
+            "external-action", "drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "wrong-contact-handle", "--recipient", "outsider@example.com",
+            "--body", "Do not prepare", "--contact-key", "alex", ok=False,
+        )
+        self.assertIn("recipient matching a known handle", error)
+
+    def test_phone_matching_preserves_country_code_digits(self):
+        self.write_contact("alex", email="", phone="(415) 555-0100")
+        self.contacts()
+        error = self.helper(
+            "external-action", "drafts.py", "prepare", "--channel", "text",
+            "--thread-id", "country-code-mismatch", "--recipient", "+1 415 555 0100",
+            "--body", "Do not prepare", "--contact-key", "alex", ok=False,
+        )
+        self.assertIn("recipient matching a known handle", error)
+
+    def test_formatted_phone_resolves_direct_contacts_at_prepare_approve_and_claim(self):
+        variants = (
+            ("+1 415 555 0100", "+14155550100"),
+            ("(415) 555-0100", "415.555.0100"),
+            ("+14155550100", "+1 (415) 555 0100"),
+        )
+        for index, (contact_phone, recipient) in enumerate(variants):
+            with self.subTest(contact_phone=contact_phone, recipient=recipient):
+                # A terminal contact must be recognized during direct SMS preparation,
+                # including when the person page and recipient use different formats.
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                prepare_error = self.helper(
+                    "external-action", "drafts.py", "prepare", "--channel", "text",
+                    "--thread-id", f"phone-prepare-{index}", "--recipient", recipient,
+                    "--body", "Do not send", ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", prepare_error)
+
+                # Approval gate must resolve the stored recipient again, not trust
+                # only the preparation-time contact status.
+                self.write_contact("alex", status="sent", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                pending = self.helper(
+                    "external-action", "drafts.py", "prepare", "--channel", "text",
+                    "--thread-id", f"phone-approve-{index}", "--recipient", recipient,
+                    "--body", "Tuesday works",
+                )["draft"]
+                self.assertEqual(pending["pipeline_contact_key"], "alex")
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                approval_error = self.helper(
+                    "external-action", "drafts.py", "approve", "--id", str(pending["id"]),
+                    "--approval-ref", f"founder:phone-approve:{index}", ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", approval_error)
+
+                # Claim gate must enforce the same match after a valid approval.
+                self.write_contact("alex", status="sent", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                approved = self.helper(
+                    "external-action", "drafts.py", "prepare", "--channel", "text",
+                    "--thread-id", f"phone-claim-{index}", "--recipient", recipient,
+                    "--body", "Tuesday works",
+                )["draft"]
+                self.helper(
+                    "external-action", "drafts.py", "approve", "--id", str(approved["id"]),
+                    "--approval-ref", f"founder:phone-claim:{index}",
+                )
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                claim_error = self.helper(
+                    "external-action", "drafts.py", "claim-send", "--id", str(approved["id"]),
+                    ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", claim_error)
+
+    def test_formatted_phone_in_operation_intent_resolves_direct_contact_gates(self):
+        variants = (
+            ("+1 415 555 0100", "+14155550100"),
+            ("(415) 555-0100", "415.555.0100"),
+            ("+14155550100", "+1 (415) 555 0100"),
+        )
+        for index, (contact_phone, intent_phone) in enumerate(variants):
+            with self.subTest(contact_phone=contact_phone, intent_phone=intent_phone):
+                self.write_contact("alex", status="sent", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                operation = self.helper(
+                    "external-action", "operations.py", "prepare", "--scope", "calendar",
+                    "--target", "work@example.com/primary/new", "--operation", "create",
+                    "--intent", f"Schedule with {intent_phone}",
+                )["operation"]
+                self.assertEqual(operation["pipeline_contact_key"], "alex")
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                approval_error = self.helper(
+                    "external-action", "operations.py", "approve", "--id", str(operation["id"]),
+                    ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", approval_error)
+
+                self.write_contact("alex", status="sent", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                operation = self.helper(
+                    "external-action", "operations.py", "prepare", "--scope", "calendar",
+                    "--target", "work@example.com/primary/new", "--operation", "create",
+                    "--intent", f"Schedule with {intent_phone} again",
+                )["operation"]
+                self.helper("external-action", "operations.py", "approve", "--id", str(operation["id"]))
+                self.write_contact("alex", status="withdrawn", email="alex@example.com",
+                                   phone=contact_phone)
+                self.contacts()
+                claim_error = self.helper(
+                    "external-action", "operations.py", "claim", "--id", str(operation["id"]),
+                    ok=False,
+                )
+                self.assertIn("contact status withdrawn is terminal", claim_error)
 
     def test_a_check_may_write_the_advice_and_nothing_else(self):
         item = monitor.observe(self.db, self.observation())["suggestion"]

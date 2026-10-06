@@ -23,6 +23,22 @@ Calendar operations without a validated pipeline-monitor link are
 approval-required even when Founder Profile carries a broader autonomous
 calendar policy. The only automatic calendar authorization is an exact validated
 `new_options` hold; `forbidden` is rechecked immediately before every claim.
+For direct drafts or calendar operations whose recipient, target, or context is a
+pipeline contact, pass `--contact-key <page-slug>`. Direct drafts also resolve an
+exact recipient handle; direct operations resolve a page slug or verified
+contact identity mentioned in their target/intent. The ledger stores that contact
+context and rechecks its current status before approval and claim; terminal,
+noncanonical, or unlinked contacts are blocked.
+
+For any direct draft or operation tied to a pipeline contact, refresh the
+pipeline immediately before `prepare` and again immediately before each
+`approve` or `claim`: repeat the pipeline listing/copy/`contacts --listing <file>` flow, or
+verify the current Markdown page and its person handles directly through the
+wiki. If a direct page check finds a changed, terminal, noncanonical, or unclear
+state, stop and refresh the synchronized snapshot before retrying; terminal
+contacts stay blocked. Never treat an older cached row as proof of current
+eligibility. The ledger's contact guard operates on the latest refreshed
+pipeline snapshot as a defense-in-depth check.
 
 All action records share `$HERMES_HOME/founder-agent/founder-agent.db`.
 
@@ -72,7 +88,8 @@ possible:
 2. Run
    `python3 "$HERMES_HOME/skills/external-action/scripts/drafts.py" prepare ...`
    with channel `gmail`, `text`, or `plow`, the stable conversation id as
-   `--thread-id`, and canonical external participant identifiers in
+   `--thread-id`, `--contact-key <page-slug>` when the recipient is a pipeline
+   contact, and canonical external participant identifiers in
    deterministic order as `--recipient`. Omit `--subject` for text and Plow.
 3. Inspect the command result. Only a successful result containing the draft
    id/key and status may be described as “prepared”. If the command fails,
