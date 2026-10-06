@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import json
@@ -71,12 +71,12 @@ class MonitorTests(unittest.TestCase):
                                   "work@example.com/primary/hold-2"))
         self.contact = self.contacts()["contacts"][0]
 
-    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent", holds=""):
+    def write_contact(self, slug, *, email="", phone="", person=True, status="sent", holds="", since=""):
         """One pipeline entry and, unless suppressed, the person page it points at."""
         entry = self.vault / monitor.PIPELINE_ROOT / f"{slug}.md"
         entry.parent.mkdir(parents=True, exist_ok=True)
         entry.write_text(f'---\ntype: "PipelineEntry"\nperson: "{slug}"\nstatus: "{status}"\n'
-                         f'holds: "{holds}"\nnext_step: ""\n---\n\nNotes about {slug}.\n')
+                         f'holds: "{holds}"\nsince: "{since}"\nnext_step: ""\n---\n\nNotes about {slug}.\n')
         if person:
             page = self.vault / monitor.PEOPLE_ROOT / f"{slug}.md"
             page.parent.mkdir(parents=True, exist_ok=True)
@@ -340,6 +340,121 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual([c["contact_key"] for c in found["contacts"]], ["dana"])
         self.assertFalse((self.vault / entry).exists(), "the mirror keeps only what the wiki still has")
         self.assertEqual(monitor.suggestion(self.db, 1)["status"], "superseded")
+
+    def test_only_an_open_canonical_status_is_monitored(self):
+        monitor.observe(self.db, self.observation())
+        for status, reason in (("waiting_on_them", None), ("Times sent", "pipeline status is noncanonical"),
+                               ("", "noncanonical or missing"), ("passed", None)):
+            with self.subTest(status):
+                self.write_contact("alex", email="alex@example.com", status=status)
+                found = self.contacts()
+                self.assertEqual([c["contact_key"] for c in found["contacts"]],
+                                 [] if reason or status == "passed" else ["alex"])
+                # A closed page is skipped silently; only a garbled one asks for attention.
+                self.assertEqual([reason in u["reason"] for u in found["unlinked"]], [True] if reason else [])
+                # A closed status is a decision: its live work goes; a garbled one keeps it.
+                self.assertEqual(monitor.suggestion(self.db, 1)["status"],
+                                 "superseded" if status == "passed" else "pending")
+        # A closed page is still the founder's to reopen.
+        reopened = monitor.page_update(self.db, facts={"status": "waiting_on_us"}, contact_key="alex")["changes"]
+        self.assertEqual(reopened, {"status": "waiting_on_us", "since": monitor.local_today(self.db)})
+
+    def test_a_status_change_restarts_the_clock(self):
+        late_evening_in_la = datetime(2026, 10, 7, 3, 0, tzinfo=timezone.utc)
+        self.assertEqual(monitor.local_today(self.db, late_evening_in_la), "2026-10-06")
+        today = monitor.local_today(self.db)
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        moved = monitor.page_update(self.db, item["id"], {"status": "waiting_on_them"})["changes"]
+        self.assertEqual(moved, {"next_step": self.observation()["next_step"],
+                                 "status": "waiting_on_them", "since": today})
+        explicit = {"status": "waiting_on_them", "since": "2026-09-30"}
+        facts = self.home / "facts.json"
+        facts.write_text(json.dumps(explicit))
+        direct = self.helper("pipeline-monitor", "monitor.py", "page-update", "--contact-key", "alex", "--file", str(facts))
+        self.assertEqual(direct, {"path": f"{monitor.PIPELINE_ROOT}/alex.md", "changes": explicit})
+        self.assertEqual(monitor.page_update(self.db, facts={"status": "sent"}, contact_key="alex")["changes"],
+                         {"status": "sent"})
+        for bad in ({"since": "yesterday"}, {"since": "2026-02-30"}, {"status": "Times sent"},
+                    {"next_step": "invented"}):
+            with self.subTest(bad), self.assertRaises(ValueError):
+                monitor.page_update(self.db, facts=bad, contact_key="alex")
+        with self.assertRaisesRegex(ValueError, "one pipeline page slug"):
+            monitor.page_update(self.db, facts={"status": "sent"}, contact_key="../../escape")
+
+    def days_ago(self, days):
+        return (datetime.fromisoformat(monitor.local_today(self.db)) - timedelta(days=days)).date().isoformat()
+
+    def follow_up(self, contact_key, since, *extra_refs):
+        return {"contact_key": contact_key, "conversation_ref": f"pipeline:{contact_key}", "action": "follow_up",
+                "evidence_refs": [f"status:{contact_key}:waiting_on_us:{since}", *extra_refs],
+                "evidence_at": f"{since}T00:00:00Z", "conversation_context": f"Gmail · {contact_key.title()}",
+                "summary": f"{contact_key.title()} has gone quiet.", "next_step": "Send the drafted nudge?",
+                "evidence_summary": "No reply for a week."}
+
+    def test_a_ball_left_a_week_comes_back_as_one_follow_up(self):
+        today, week_ago, six_days = self.days_ago(0), self.days_ago(7), self.days_ago(6)
+        rows = [  # slug, status, since, due now?, page changes (None: no entry expected)
+            ("fresh", "new", "", True, {"status": "waiting_on_us", "since": today}),
+            ("owed", "waiting_on_us", six_days, True, {}),
+            ("stale", "waiting_on_us", week_ago, True, {"since": today}),
+            ("quiet", "waiting_on_them", week_ago, True, {"status": "waiting_on_us", "since": today}),
+            ("recent", "waiting_on_them", six_days, False, None),
+            ("unclocked", "waiting_on_them", "", False, {"since": today}),
+            ("garbled", "waiting_on_them", "last tuesday", False, {"since": today}),
+            ("done", "confirmed", week_ago, False, None),
+        ]
+        for slug, status, since, *_ in rows:
+            self.write_contact(slug, email=f"{slug}@example.com", status=status, since=since)
+        due = {d["contact_key"]: d for d in self.contacts()["due"]}
+        for slug, _, _, expected, changes in rows:
+            with self.subTest(slug):
+                entry = due.get(slug)
+                self.assertEqual(bool(entry and entry["observe"]), expected)
+                self.assertEqual(entry and entry["changes"], changes)
+        self.assertEqual(due["quiet"]["observe"], {
+            "contact_key": "quiet", "conversation_ref": "pipeline:quiet", "action": "follow_up",
+            "evidence_at": f"{today}T00:00:00+00:00", "evidence_refs": [f"status:quiet:waiting_on_us:{today}"]})
+
+    def test_follow_up_respects_active_work_and_its_own_arm(self):
+        self.write_contact("owed", email="owed@example.com", status="waiting_on_us", since=self.days_ago(1))
+        entry = next(d for d in self.contacts()["due"] if d["contact_key"] == "owed")
+        observation = {**self.follow_up("owed", self.days_ago(1), "gmail:m-9"), **{
+            k: v for k, v in entry["observe"].items() if k != "evidence_refs"}}
+        monitor.observe(self.db, observation)
+        # Same arm: already surfaced, whatever its status.
+        self.assertNotIn("owed", [d["contact_key"] for d in self.contacts()["due"]])
+        # Delivered and ignored for a week, it comes back as a new suggestion and a new notice.
+        shown = monitor.notice(self.db)
+        monitor.receipt(self.db, shown["notice_id"], "delivered", "plow:readback", shown["body"])
+        self.write_contact("owed", email="owed@example.com", status="waiting_on_us", since=self.days_ago(7))
+        rearmed = next(d for d in self.contacts()["due"] if d["contact_key"] == "owed")
+        again = monitor.observe(self.db, {**self.follow_up("owed", rearmed["since"]), **rearmed["observe"]})
+        self.assertTrue(again["created"])
+        self.assertIn("Owed has gone quiet", monitor.notice(self.db)["body"])
+        with self.assertRaisesRegex(ValueError, "pipeline:<contact_key>"):
+            monitor.observe(self.db, {**observation, "conversation_ref": "gmail:thread-9"})
+        # Active scheduling work for the contact suppresses a follow_up.
+        monitor.observe(self.db, self.new_options_observation())
+        alex = self.vault / monitor.PIPELINE_ROOT / "alex.md"
+        alex.write_text(alex.read_text().replace('status: "sent"', 'status: "waiting_on_us"')
+                        .replace('since: ""', f'since: "{self.days_ago(8)}"'))
+        # Nor does it silently re-arm the clock behind that work.
+        self.assertNotIn("alex", [d["contact_key"] for d in self.contacts()["due"]])
+
+    def test_two_unanswered_follow_ups_ask_to_close(self):
+        for n, since in enumerate(("2026-09-01", "2026-09-08", "2026-09-15")):
+            monitor.observe(self.db, self.follow_up("alex", since))
+            self.assertEqual(monitor.strikes(self.db, "alex"), n + 1)
+        monitor.observe(self.db, self.observation(evidence_at="2026-09-20T00:00:00Z"))  # Alex wrote back
+        self.assertEqual(monitor.strikes(self.db, "alex"), 0)
+        # ...on another thread, which still retires the nudge for their silence.
+        self.assertEqual(monitor.suggestion(self.db, 3)["status"], "superseded")
+        self.write_contact("quiet", email="quiet@example.com", status="waiting_on_us", since=self.days_ago(7))
+        self.contacts()
+        for since in ("2026-09-01", "2026-09-08"):
+            monitor.observe(self.db, self.follow_up("quiet", since))
+        quiet = next(d for d in self.contacts()["due"] if d["contact_key"] == "quiet")
+        self.assertEqual((quiet["strikes"], quiet["close_prompt"]), (2, True))
 
     def test_a_person_page_deleted_on_the_mac_stops_supplying_handles(self):
         person = f"{monitor.PEOPLE_ROOT}/alex.md"
@@ -1008,7 +1123,11 @@ class MonitorTests(unittest.TestCase):
         clarification = self.observation(conversation_ref="gmail:third-thread", evidence_refs=["gmail:ambiguous"],
             action="clarification", draft=None, summary="Alex named a day with no time.",
             next_step="Ask which hour they meant. Approve?")
-        for item in (clarification, modality, accepted):   # least urgent observed first
+        self.assertLess(monitor.ACTIONS.index("modality"), monitor.ACTIONS.index("follow_up"))
+        self.assertLess(monitor.ACTIONS.index("follow_up"), monitor.ACTIONS.index("clarification"))
+        self.write_contact("dana", email="dana@example.com", status="waiting_on_us")
+        self.contacts()
+        for item in (clarification, self.follow_up("dana", "2026-09-01"), modality, accepted):  # least urgent first
             monitor.observe(self.db, item)
         result = monitor.notice(self.db)
         self.assertIn("two sibling holds", result["body"])
@@ -1016,7 +1135,8 @@ class MonitorTests(unittest.TestCase):
         self.assertLess(result["body"].index("two sibling holds"), result["body"].index("prefer video"))
         self.assertNotIn("named a day with no time", result["body"])
         monitor.receipt(self.db, result["notice_id"], "delivered", "plow:verified-message-1", result["body"])
-        self.assertIn("named a day with no time", monitor.notice(self.db)["body"])
+        second = monitor.notice(self.db)["body"]
+        self.assertLess(second.index("Dana has gone quiet"), second.index("named a day with no time"))
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM draft WHERE status='draft'").fetchone()[0], 1)
         self.assertFalse(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='external_operation'").fetchone())
 

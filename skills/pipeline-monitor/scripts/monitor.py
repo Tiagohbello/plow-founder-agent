@@ -33,8 +33,14 @@ SOURCES = {"gmail", "messages", "plow"}
 # membership against it and `stage_notice` ranks by position, so a founder's
 # accepted slot outranks a clarification without a second ranking input to keep
 # in agreement with this one.
-ACTIONS = ("accepted", "cancellation", "conflict", "new_options", "modality", "clarification", "blocked")
+ACTIONS = ("accepted", "cancellation", "conflict", "new_options", "modality", "follow_up", "clarification", "blocked")
+# A ball left this long on either side of a contact comes back to the founder.
+FOLLOW_UP_DAYS = 7
 PLAN_OPERATIONS = {"hold": "create", "invitation": "create", "delete_hold": "delete"}
+# A page's `status` says whose move it is; `since` is the date it took effect.
+PIPELINE_STATUSES = ("new", "waiting_on_us", "held", "sent", "waiting_on_them",
+                     "confirmed", "passed", "do_not_contact", "unverified", "withdrawn")
+TERMINAL_PIPELINE_STATUSES = frozenset({"passed", "do_not_contact", "withdrawn"})
 # One check surfaces the few things worth doing now; the rest stay pending and
 # are reconsidered next run. Strict tiers, so a clarification waits behind any
 # steady stream of accepted slots -- intended at one founder's volume, where a
@@ -55,7 +61,8 @@ it names. If Founder Profile preference save_gmail_drafts is true, a prepared
 Gmail response may also be saved as a real founder-owned Gmail draft in the
 verified thread, then read back and recorded in the ledger. A Gmail new_options
 proposal always requires that verified saved draft before its holds; never send
-it. Finish all draft reconciliations and cleanup before running monitor.py
+it. Surface every `due` entry `contacts` returns as its `follow_up`; a founder's own
+message updates the page, never a notice. Finish all draft reconciliations and cleanup before running monitor.py
 notice. Once monitor.py notice runs, take no further steps: return its body
 verbatim as your final response, with no model narration or prefix. If the gate
 is closed or nothing needs delivery, return exactly [SILENT]."""
@@ -67,6 +74,18 @@ def utcnow():
 
 def stamp(value=None):
     return (value or utcnow()).astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+def local_today(db, current=None):
+    zone = ZoneInfo(show(db)["config"]["timezone"])
+    return (current or utcnow()).astimezone(zone).date().isoformat()
+
+
+def validate_since(value):
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ValueError("since must be a YYYY-MM-DD date")
+    datetime.strptime(value, "%Y-%m-%d")
+    return value
 
 
 def parse_time(value):
@@ -407,7 +426,7 @@ def contacts(db, vault, pages):
                 mirrored.unlink()
     stale = {rel for rel, sha in pages.items() if not (vault / rel).is_file()
              or hashlib.sha256((vault / rel).read_bytes()).hexdigest() != sha}
-    valid, unlinked = [], []
+    valid, unlinked, terminal = [], [], set()
     for slug in slugs:
         if slug.startswith("source:"):
             # `source:` is this database's namespace for blockers that belong to a
@@ -422,6 +441,13 @@ def contacts(db, vault, pages):
         fields = page(vault, PIPELINE_ROOT, slug)
         if isinstance(fields, str):
             unlinked.append({"contact_key": slug, "reason": fields})
+            continue
+        if fields.get("status") in TERMINAL_PIPELINE_STATUSES:
+            terminal.add(slug)
+            continue
+        if fields.get("status") not in PIPELINE_STATUSES:
+            unlinked.append({"contact_key": slug, "reason": "pipeline status is noncanonical or missing; set it "
+                             "to one of " + ", ".join(PIPELINE_STATUSES)})
             continue
         person = page(vault, PEOPLE_ROOT, slug)
         if person is None:
@@ -440,15 +466,70 @@ def contacts(db, vault, pages):
         # Superseding is one-way -- `observe` returns the existing row for identical
         # evidence whatever its status -- so only an entry that has actually left the
         # root earns it. One that merely would not parse this run is still in the
-        # pipeline, and says so again next run.
+        # pipeline, and says so again next run. A closed status is a decision, so it earns it too.
         present = {c["contact_key"] for c in valid} | {u["contact_key"] for u in unlinked}
         for old in db.execute("SELECT id,contact_key FROM monitor_suggestion WHERE status IN ('pending','approved')").fetchall():
-            if old["contact_key"] not in present and not old["contact_key"].startswith("source:"):
+            if old["contact_key"] in terminal or (old["contact_key"] not in present
+                                                  and not old["contact_key"].startswith("source:")):
                 supersede(db, old["id"])
         db.execute("DELETE FROM monitor_contact")
         db.executemany("INSERT INTO monitor_contact VALUES (?,?)", [(c["contact_key"], canonical(c)) for c in valid])
-    return {"contacts": valid, "unlinked": unlinked,
+    today = local_today(db)
+    due = [entry for c in valid if (entry := due_entry(db, c["contact_key"], c["fields"], today))]
+    return {"contacts": valid, "unlinked": unlinked, "due": due,
             "copy": [{"page": rel, "to": str(vault / rel)} for rel in sorted(stale)]}
+
+
+def strikes(db, contact_key):
+    """`follow_up` suggestions since the contact last produced anything else."""
+    last_other = db.execute("""SELECT COALESCE(MAX(id),0) FROM monitor_suggestion WHERE contact_key=?
+                               AND json_extract(payload,'$.action')!='follow_up'""", (contact_key,)).fetchone()[0]
+    return db.execute("""SELECT COUNT(*) FROM monitor_suggestion WHERE contact_key=? AND id>?
+                         AND json_extract(payload,'$.action')='follow_up'""", (contact_key, last_other)).fetchone()[0]
+
+
+def due_entry(db, contact_key, fields, today):
+    """Whether this page's ball has come back to the founder, and the page write that says so.
+
+    `waiting_on_us` is our move and `since` its clock: a new lead or a reply we owe
+    is due now, and either side left a week re-arms it under a fresh `since`, which
+    is new evidence, so an ignored follow-up comes back weekly."""
+    status = fields.get("status")
+    if status not in ("new", "waiting_on_us", "waiting_on_them"):
+        return None
+    try:
+        since = validate_since(fields.get("since"))
+    except ValueError:
+        since = None
+    aged = since is not None and (datetime.fromisoformat(today) - datetime.fromisoformat(since)).days >= FOLLOW_UP_DAYS
+    # Live scheduling work owns the move, so the clock waits for it rather than re-arming unseen.
+    active = db.execute("""SELECT 1 FROM monitor_suggestion WHERE contact_key=? AND status IN ('pending','approved')
+                           AND json_extract(payload,'$.action')!='follow_up'""", (contact_key,)).fetchone()
+    if active:
+        return None
+    if since is None and status == "waiting_on_them":
+        # A page that predates the clock only starts it; flipping it would guess.
+        changes = {"since": today}
+    elif status == "new" or (status == "waiting_on_them" and aged):
+        changes = {"status": "waiting_on_us", "since": today}
+    elif status == "waiting_on_them":
+        return None
+    else:
+        changes = {"since": today} if since is None or aged else {}
+    status, since = changes.get("status", status), changes.get("since", since)
+    evidence_at = f"{since}T00:00:00+00:00"
+    # One follow_up per arm, whatever became of it.
+    armed = db.execute("""SELECT 1 FROM monitor_suggestion WHERE contact_key=? AND evidence_at=?
+                          AND json_extract(payload,'$.action')='follow_up'""",
+                       (contact_key, stamp(parse_time(evidence_at)))).fetchone()
+    observe = None if status != "waiting_on_us" or armed else {
+        "contact_key": contact_key, "conversation_ref": f"pipeline:{contact_key}", "action": "follow_up",
+        "evidence_at": evidence_at, "evidence_refs": [f"status:{contact_key}:{status}:{since}"]}
+    if not (changes or observe):
+        return None
+    count = strikes(db, contact_key)
+    return {"contact_key": contact_key, "status": status, "since": since, "strikes": count,
+            "close_prompt": observe is not None and count >= 2, "changes": changes, "observe": observe}
 
 
 def window(db, contact_key, source, current=None):
@@ -508,8 +589,8 @@ def current_advice(db, contact_key):
     return {"path": f"{PIPELINE_ROOT}/{contact_key}.md", "changes": {"next_step": advice}}
 
 
-def page_update(db, suggestion_id):
-    """What this suggestion's contact page should say now.
+def page_update(db, suggestion_id=None, facts=None, contact_key=None):
+    """What this suggestion's contact page should say now, plus validated facts.
 
     Answers for the contact, not for the suggestion named: the newest active
     advice by evidence, or empty when nothing is outstanding. So it is correct
@@ -518,15 +599,35 @@ def page_update(db, suggestion_id):
     earlier -- a scheduled check writing between the two would otherwise be erased
     by a snapshot older than the page.
 
-    The field set and the destination both come from rows this database holds. A
-    caller supplies an id and nothing else, so it cannot widen the write or steer
-    it out of the root."""
-    item = suggestion(db, suggestion_id)
-    if item["contact_key"].startswith("source:"):
-        # No page rather than an error: both callers ask unconditionally, and a
-        # blocker that belongs to a feed simply has nothing to write.
-        return None
-    return current_advice(db, item["contact_key"])
+    Facts are limited to `status` and `since`. A direct update names a page slug
+    instead of a suggestion -- a closed or legacy page included, so it can be set
+    right -- and leaves `next_step` alone; the slug pattern keeps it in the root."""
+    if suggestion_id is not None:
+        contact_key = suggestion(db, suggestion_id)["contact_key"]
+        if contact_key.startswith("source:"):
+            # No page rather than an error: both callers ask unconditionally, and a
+            # blocker that belongs to a feed simply has nothing to write.
+            return None
+        result = current_advice(db, contact_key)
+    elif re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", contact_key or ""):
+        result = {"path": f"{PIPELINE_ROOT}/{contact_key}.md", "changes": {}}
+    else:
+        raise ValueError("contact_key must be one pipeline page slug")
+    row = db.execute("SELECT data FROM monitor_contact WHERE contact_key=?", (contact_key,)).fetchone()
+    facts = facts or {}
+    if set(facts) - {"status", "since"}:
+        raise ValueError("page facts may contain only status and since")
+    if "status" in facts and facts["status"] not in PIPELINE_STATUSES:
+        raise ValueError("status must be one of " + ", ".join(PIPELINE_STATUSES))
+    changes = dict(facts)
+    if "since" in changes:
+        validate_since(changes["since"])
+    # `since` is the clock for a page's ball, so no status change can leave it stale.
+    current = json.loads(row["data"])["fields"].get("status") if row else None
+    if "status" in changes and changes["status"] != current and "since" not in changes:
+        changes["since"] = local_today(db)
+    result["changes"].update(changes)
+    return result
 
 
 def normalize_calendar_plan(action, plan, draft, contact):
@@ -584,6 +685,8 @@ def observe(db, data):
     action = data.get("action")
     if action not in ACTIONS:
         raise ValueError("unsupported scheduling action")
+    if action == "follow_up" and data.get("conversation_ref") != f"pipeline:{contact}":
+        raise ValueError("follow_up uses conversation_ref pipeline:<contact_key>")
     contact_data = None
     if action != "blocked" or not contact.startswith("source:"):
         row = db.execute("SELECT data FROM monitor_contact WHERE contact_key=?", (contact,)).fetchone()
@@ -626,6 +729,11 @@ def observe(db, data):
             return {"created": False, "suggestion": suggestion(db, old["id"])}
         for row in db.execute("SELECT id FROM monitor_suggestion WHERE case_key=? AND status NOT IN ('completed','dismissed','superseded')", (case_key,)).fetchall():
             supersede(db, row["id"])
+        if action != "follow_up":
+            # The contact moved, so a nudge for their silence no longer holds.
+            for row in db.execute("""SELECT id FROM monitor_suggestion WHERE contact_key=? AND status IN ('pending','approved')
+                                     AND json_extract(payload,'$.action')='follow_up'""", (contact,)).fetchall():
+                supersede(db, row["id"])
         cursor = db.execute("""INSERT INTO monitor_suggestion
             (item_key,case_key,contact_key,evidence_key,evidence_at,payload,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?)""", (item_key, case_key, contact, evidence_key, evidence_at, canonical(data), stamp(), stamp()))
@@ -752,7 +860,11 @@ def parser():
     gate_parser = commands.add_parser("gate")
     gate_parser.add_argument("--manual", action="store_true")
     commands.add_parser("contacts").add_argument("--listing", required=True, type=Path)
-    commands.add_parser("page-update").add_argument("--id", required=True, type=int)
+    page_parser = commands.add_parser("page-update")
+    target = page_parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--id", type=int)
+    target.add_argument("--contact-key")
+    page_parser.add_argument("--file", type=Path)
     window_parser = commands.add_parser("window")
     window_parser.add_argument("--contact-key", required=True)
     window_parser.add_argument("--source", required=True, choices=sorted(SOURCES))
@@ -788,7 +900,7 @@ def run(args):
         if args.command == "gate": return gate(db, manual=args.manual)
         # The mirror lives beside the database it serves.
         if args.command == "contacts": return contacts(db, path.parent / "wiki", listing(args.listing))
-        if args.command == "page-update": return page_update(db, args.id)
+        if args.command == "page-update": return page_update(db, args.id, data, args.contact_key)
         if args.command == "window": return window(db, args.contact_key, args.source)
         if args.command == "checkpoint": return checkpoint(db, data)
         if args.command == "observe": return observe(db, data)
