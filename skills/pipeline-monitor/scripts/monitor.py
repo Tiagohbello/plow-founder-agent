@@ -503,9 +503,14 @@ def due_entry(db, contact_key, fields, today):
     except ValueError:
         since = None
     aged = since is not None and (datetime.fromisoformat(today) - datetime.fromisoformat(since)).days >= FOLLOW_UP_DAYS
-    if status == "waiting_on_them" and since is None:
+    # Live scheduling work owns the move, so the clock waits for it rather than re-arming unseen.
+    active = db.execute("""SELECT 1 FROM monitor_suggestion WHERE contact_key=? AND status IN ('pending','approved')
+                           AND json_extract(payload,'$.action')!='follow_up'""", (contact_key,)).fetchone()
+    if since is None and (active or status == "waiting_on_them"):
         # A page that predates the clock only starts it; flipping it would guess.
         changes = {"since": today}
+    elif active:
+        return None
     elif status == "new" or (status == "waiting_on_them" and aged):
         changes = {"status": "waiting_on_us", "since": today}
     elif status == "waiting_on_them":
@@ -514,12 +519,11 @@ def due_entry(db, contact_key, fields, today):
         changes = {"since": today} if since is None or aged else {}
     status, since = changes.get("status", status), changes.get("since", since)
     evidence_at = f"{since}T00:00:00+00:00"
-    # One follow_up per arm, and none while scheduling work for the contact is live.
-    held = db.execute("""SELECT 1 FROM monitor_suggestion WHERE contact_key=? AND (
-                           (json_extract(payload,'$.action')='follow_up' AND evidence_at=?) OR
-                           (json_extract(payload,'$.action')!='follow_up' AND status IN ('pending','approved')))""",
-                      (contact_key, stamp(parse_time(evidence_at)))).fetchone()
-    observe = None if status != "waiting_on_us" or held else {
+    # One follow_up per arm, whatever became of it.
+    armed = db.execute("""SELECT 1 FROM monitor_suggestion WHERE contact_key=? AND evidence_at=?
+                          AND json_extract(payload,'$.action')='follow_up'""",
+                       (contact_key, stamp(parse_time(evidence_at)))).fetchone()
+    observe = None if status != "waiting_on_us" or active or armed else {
         "contact_key": contact_key, "conversation_ref": f"pipeline:{contact_key}", "action": "follow_up",
         "evidence_at": evidence_at, "evidence_refs": [f"status:{contact_key}:{status}:{since}"]}
     if not (changes or observe):
@@ -596,10 +600,9 @@ def page_update(db, suggestion_id=None, facts=None, contact_key=None):
     earlier -- a scheduled check writing between the two would otherwise be erased
     by a snapshot older than the page.
 
-    The destination comes from rows this database holds, so it cannot be steered
-    out of the root, and facts are limited to `status` and `since`. A direct update
-    names a contact from the latest read instead of a suggestion and leaves
-    `next_step` alone."""
+    Facts are limited to `status` and `since`. A direct update names a page slug
+    instead of a suggestion -- a closed or legacy page included, so it can be set
+    right -- and leaves `next_step` alone; the slug pattern keeps it in the root."""
     if suggestion_id is not None:
         contact_key = suggestion(db, suggestion_id)["contact_key"]
         if contact_key.startswith("source:"):
@@ -607,11 +610,11 @@ def page_update(db, suggestion_id=None, facts=None, contact_key=None):
             # blocker that belongs to a feed simply has nothing to write.
             return None
         result = current_advice(db, contact_key)
-    else:
+    elif re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", contact_key or ""):
         result = {"path": f"{PIPELINE_ROOT}/{contact_key}.md", "changes": {}}
+    else:
+        raise ValueError("contact_key must be one pipeline page slug")
     row = db.execute("SELECT data FROM monitor_contact WHERE contact_key=?", (contact_key,)).fetchone()
-    if row is None and suggestion_id is None:
-        raise ValueError("contact is not in the latest verified pipeline read")
     facts = facts or {}
     if set(facts) - {"status", "since"}:
         raise ValueError("page facts may contain only status and since")

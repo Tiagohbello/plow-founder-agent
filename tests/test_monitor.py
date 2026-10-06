@@ -374,7 +374,7 @@ class MonitorTests(unittest.TestCase):
                     {"next_step": "invented"}):
             with self.subTest(bad), self.assertRaises(ValueError):
                 monitor.page_update(self.db, facts=bad, contact_key="alex")
-        with self.assertRaisesRegex(ValueError, "latest verified pipeline read"):
+        with self.assertRaisesRegex(ValueError, "one pipeline page slug"):
             monitor.page_update(self.db, facts={"status": "sent"}, contact_key="../../escape")
 
     def days_ago(self, days):
@@ -424,8 +424,10 @@ class MonitorTests(unittest.TestCase):
         # Active scheduling work for the contact suppresses a follow_up.
         monitor.observe(self.db, self.new_options_observation())
         alex = self.vault / monitor.PIPELINE_ROOT / "alex.md"
-        alex.write_text(alex.read_text().replace('status: "sent"', 'status: "waiting_on_us"'))
-        self.assertFalse(any(d["contact_key"] == "alex" and d["observe"] for d in self.contacts()["due"]))
+        alex.write_text(alex.read_text().replace('status: "sent"', 'status: "waiting_on_us"')
+                        .replace('since: ""', f'since: "{self.days_ago(8)}"'))
+        # Nor does it silently re-arm the clock behind that work.
+        self.assertNotIn("alex", [d["contact_key"] for d in self.contacts()["due"]])
 
     def test_two_unanswered_follow_ups_ask_to_close(self):
         for n, since in enumerate(("2026-09-01", "2026-09-08", "2026-09-15")):
@@ -433,6 +435,12 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(monitor.strikes(self.db, "alex"), n + 1)
         monitor.observe(self.db, self.observation(evidence_at="2026-09-20T00:00:00Z"))  # Alex wrote back
         self.assertEqual(monitor.strikes(self.db, "alex"), 0)
+        self.write_contact("quiet", email="quiet@example.com", status="waiting_on_us", since=self.days_ago(7))
+        self.contacts()
+        for since in ("2026-09-01", "2026-09-08"):
+            monitor.observe(self.db, self.follow_up("quiet", since))
+        quiet = next(d for d in self.contacts()["due"] if d["contact_key"] == "quiet")
+        self.assertEqual((quiet["strikes"], quiet["close_prompt"]), (2, True))
 
     def test_a_person_page_deleted_on_the_mac_stops_supplying_handles(self):
         person = f"{monitor.PEOPLE_ROOT}/alex.md"
