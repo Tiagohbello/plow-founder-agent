@@ -66,6 +66,15 @@ class PromptContractTests(unittest.TestCase):
                 with self.subTest(source=source, fragment=fragment.strip()):
                     self.assertIn(fragment.strip(), documents[source])
 
+    def test_pipeline_follow_up_contract(self) -> None:
+        pipeline = " ".join((ROOT / "skills/pipeline-monitor/SKILL.md").read_text().split())
+        prompt = " ".join((ROOT / "skills/pipeline-monitor/scripts/monitor.py").read_text().split())
+        for fragment in ("follow_up", "pipeline:<contact_key>", "close_prompt",
+                         "A message the founder sent is a fact, never an observation"):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, pipeline)
+        self.assertIn("Surface every `due` entry", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

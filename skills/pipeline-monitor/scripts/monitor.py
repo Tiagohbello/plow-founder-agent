@@ -61,7 +61,8 @@ it names. If Founder Profile preference save_gmail_drafts is true, a prepared
 Gmail response may also be saved as a real founder-owned Gmail draft in the
 verified thread, then read back and recorded in the ledger. A Gmail new_options
 proposal always requires that verified saved draft before its holds; never send
-it. Finish all draft reconciliations and cleanup before running monitor.py
+it. Surface every `due` entry `contacts` returns as its `follow_up`; a founder's own
+message updates the page, never a notice. Finish all draft reconciliations and cleanup before running monitor.py
 notice. Once monitor.py notice runs, take no further steps: return its body
 verbatim as your final response, with no model narration or prefix. If the gate
 is closed or nothing needs delivery, return exactly [SILENT]."""

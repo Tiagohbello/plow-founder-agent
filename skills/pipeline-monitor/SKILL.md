@@ -227,7 +227,8 @@ blockers, which is how advice went stale in one and errored in the other.
    the slug is the key. What it returns as `unlinked`, a page still not copied
    included, is skipped rather than retried in a loop — prepare one clarification
    alert for those, deduplicated by the slug. No wiki write while enumerating; the
-   only write a check makes is step 6's.
+   only write a check makes is step 6's. `contacts` also returns `due`, which
+   step 6 surfaces.
 4. For each valid contact and configured source, run `window --contact-key KEY
    --source gmail|messages|plow`. Read the returned window, plus threads referenced
    by the row even when older. First read covers 30 days; subsequent reads overlap
@@ -241,6 +242,10 @@ blockers, which is how advice went stale in one and errored in the other.
    For modality requests, apply the founder's stored preference; never assume a
    phone call is acceptable when video is required. Check holds by actual event
    identity/title/start time. Do not assume the page alone proves a proposal sent.
+   A message the founder sent is a fact, never an observation: write
+   `status: waiting_on_them` and `since: <sent date>` by § Writing a contact's
+   page, then `finish --outcome dismissed` each pending suggestion for that
+   contact the message answered.
 6. Persist each actionable change with `observe --file <observation.json>`.
    Its local ledger draft is created atomically with the suggestion; only claim
    “prepared” when it returns a real `draft_id`. Then write the page by
@@ -259,6 +264,14 @@ blockers, which is how advice went stale in one and errored in the other.
    through the founder's Mac identity; if no matching supported Plow-line
    conversation exists, persist a `blocked` observation and explain the limit;
    never emit a draftless `new_options` observation.
+   For each `due` entry, write its `changes` (if any) by § Writing a contact's
+   page — skip a contact step 5 just recorded a founder-sent message for. When
+   its `observe` is set, read the contact's latest thread through the configured
+   sources, then `observe` that skeleton with the latest message ref appended to
+   `evidence_refs`, plus `conversation_context`, `summary`, `evidence_summary`,
+   `next_step` and, unless `close_prompt`, a drafted reply or nudge. With
+   `close_prompt`, `next_step` is “No movement after two nudges — mark passed?”
+   and there is no draft.
 7. After fully reading a contact/source AND persisting its actionable results,
    run `checkpoint --file <read.json>` with `contact_key`, `source`,
    `through: <read_started_at>`, `success: true`. Never checkpoint a failed,
@@ -334,7 +347,9 @@ chat, so write them to the founder -- "you replied", "your calendar", never thei
 
 `draft` is optional: accepting a slot usually only needs a calendar suggestion,
 not a separate email. `action` is one of `accepted`, `new_options`, `modality`,
-`cancellation`, `conflict`, `clarification`, `blocked`. `conversation_context`
+`cancellation`, `conflict`, `follow_up`, `clarification`, `blocked`. `follow_up`
+uses `conversation_ref: pipeline:<contact_key>` and the skeleton `contacts`
+returns in `due`. `conversation_context`
 identifies the channel, contact and conversation in readable form.
 `calendar_plan` is an ordered list of exact `{effect, target, intent}`
 entries, where `effect` is `hold`, `invitation`, or `delete_hold`;
@@ -420,6 +435,8 @@ never reuse their approval. Then follow existing `external-action`:
   verified execution, through the same read/merge/write/read-back path. If the
   page changed under you, leave the write-back pending and report it; never repeat
   an already completed calendar operation to retry a page write.
+- Approving a `close_prompt` follow-up writes `status: passed` and runs
+  `finish --outcome completed`.
 - Run `finish --id N --outcome completed|uncertain|dismissed --ref <evidence>`.
   Uncertain suggestions are not automatically re-approved. Inspect/reconcile
   their linked ledgers and obtain a new concrete owner decision in the private home conversation before any
