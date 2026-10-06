@@ -444,7 +444,6 @@ def contacts(db, vault, pages):
             continue
         if fields.get("status") in TERMINAL_PIPELINE_STATUSES:
             terminal.add(slug)
-            unlinked.append({"contact_key": slug, "reason": f"status {fields['status']} is closed"})
             continue
         if fields.get("status") not in PIPELINE_STATUSES:
             unlinked.append({"contact_key": slug, "reason": "pipeline status is noncanonical or missing; set it "
@@ -523,7 +522,7 @@ def due_entry(db, contact_key, fields, today):
     armed = db.execute("""SELECT 1 FROM monitor_suggestion WHERE contact_key=? AND evidence_at=?
                           AND json_extract(payload,'$.action')='follow_up'""",
                        (contact_key, stamp(parse_time(evidence_at)))).fetchone()
-    observe = None if status != "waiting_on_us" or active or armed else {
+    observe = None if status != "waiting_on_us" or armed else {
         "contact_key": contact_key, "conversation_ref": f"pipeline:{contact_key}", "action": "follow_up",
         "evidence_at": evidence_at, "evidence_refs": [f"status:{contact_key}:{status}:{since}"]}
     if not (changes or observe):
@@ -730,6 +729,11 @@ def observe(db, data):
             return {"created": False, "suggestion": suggestion(db, old["id"])}
         for row in db.execute("SELECT id FROM monitor_suggestion WHERE case_key=? AND status NOT IN ('completed','dismissed','superseded')", (case_key,)).fetchall():
             supersede(db, row["id"])
+        if action != "follow_up":
+            # The contact moved, so a nudge for their silence no longer holds.
+            for row in db.execute("""SELECT id FROM monitor_suggestion WHERE contact_key=? AND status IN ('pending','approved')
+                                     AND json_extract(payload,'$.action')='follow_up'""", (contact,)).fetchall():
+                supersede(db, row["id"])
         cursor = db.execute("""INSERT INTO monitor_suggestion
             (item_key,case_key,contact_key,evidence_key,evidence_at,payload,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?)""", (item_key, case_key, contact, evidence_key, evidence_at, canonical(data), stamp(), stamp()))

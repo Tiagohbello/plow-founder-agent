@@ -265,7 +265,7 @@ blockers, which is how advice went stale in one and errored in the other.
    conversation exists, persist a `blocked` observation and explain the limit;
    never emit a draftless `new_options` observation.
    For each `due` entry, write its `changes` (if any) by § Writing a contact's
-   page — skip a contact step 5 just recorded a founder-sent message for. When
+   page — skip a contact this check already recorded a message from either side for. When
    its `observe` is set, read the contact's latest thread through the configured
    sources, then `observe` that skeleton with the latest message ref appended to
    `evidence_refs`, plus `conversation_context`, `summary`, `evidence_summary`,

@@ -344,13 +344,14 @@ class MonitorTests(unittest.TestCase):
     def test_only_an_open_canonical_status_is_monitored(self):
         monitor.observe(self.db, self.observation())
         for status, reason in (("waiting_on_them", None), ("Times sent", "pipeline status is noncanonical"),
-                               ("", "noncanonical or missing"), ("passed", "status passed is closed")):
+                               ("", "noncanonical or missing"), ("passed", None)):
             with self.subTest(status):
                 self.write_contact("alex", email="alex@example.com", status=status)
                 found = self.contacts()
-                self.assertEqual([c["contact_key"] for c in found["contacts"]], [] if reason else ["alex"])
-                if reason:
-                    self.assertIn(reason, found["unlinked"][0]["reason"])
+                self.assertEqual([c["contact_key"] for c in found["contacts"]],
+                                 [] if reason or status == "passed" else ["alex"])
+                # A closed page is skipped silently; only a garbled one asks for attention.
+                self.assertEqual([reason in u["reason"] for u in found["unlinked"]], [True] if reason else [])
                 # A closed status is a decision: its live work goes; a garbled one keeps it.
                 self.assertEqual(monitor.suggestion(self.db, 1)["status"],
                                  "superseded" if status == "passed" else "pending")
@@ -422,6 +423,14 @@ class MonitorTests(unittest.TestCase):
         monitor.observe(self.db, observation)
         # Same arm: already surfaced, whatever its status.
         self.assertNotIn("owed", [d["contact_key"] for d in self.contacts()["due"]])
+        # Delivered and ignored for a week, it comes back as a new suggestion and a new notice.
+        shown = monitor.notice(self.db)
+        monitor.receipt(self.db, shown["notice_id"], "delivered", "plow:readback", shown["body"])
+        self.write_contact("owed", email="owed@example.com", status="waiting_on_us", since=self.days_ago(7))
+        rearmed = next(d for d in self.contacts()["due"] if d["contact_key"] == "owed")
+        again = monitor.observe(self.db, {**self.follow_up("owed", rearmed["since"]), **rearmed["observe"]})
+        self.assertTrue(again["created"])
+        self.assertIn("Owed has gone quiet", monitor.notice(self.db)["body"])
         with self.assertRaisesRegex(ValueError, "pipeline:<contact_key>"):
             monitor.observe(self.db, {**observation, "conversation_ref": "gmail:thread-9"})
         # Active scheduling work for the contact suppresses a follow_up.
@@ -438,6 +447,8 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(monitor.strikes(self.db, "alex"), n + 1)
         monitor.observe(self.db, self.observation(evidence_at="2026-09-20T00:00:00Z"))  # Alex wrote back
         self.assertEqual(monitor.strikes(self.db, "alex"), 0)
+        # ...on another thread, which still retires the nudge for their silence.
+        self.assertEqual(monitor.suggestion(self.db, 3)["status"], "superseded")
         self.write_contact("quiet", email="quiet@example.com", status="waiting_on_us", since=self.days_ago(7))
         self.contacts()
         for since in ("2026-09-01", "2026-09-08"):
@@ -1114,7 +1125,9 @@ class MonitorTests(unittest.TestCase):
             next_step="Ask which hour they meant. Approve?")
         self.assertLess(monitor.ACTIONS.index("modality"), monitor.ACTIONS.index("follow_up"))
         self.assertLess(monitor.ACTIONS.index("follow_up"), monitor.ACTIONS.index("clarification"))
-        for item in (clarification, self.follow_up("alex", "2026-09-01"), modality, accepted):  # least urgent first
+        self.write_contact("dana", email="dana@example.com", status="waiting_on_us")
+        self.contacts()
+        for item in (clarification, self.follow_up("dana", "2026-09-01"), modality, accepted):  # least urgent first
             monitor.observe(self.db, item)
         result = monitor.notice(self.db)
         self.assertIn("two sibling holds", result["body"])
@@ -1123,7 +1136,7 @@ class MonitorTests(unittest.TestCase):
         self.assertNotIn("named a day with no time", result["body"])
         monitor.receipt(self.db, result["notice_id"], "delivered", "plow:verified-message-1", result["body"])
         second = monitor.notice(self.db)["body"]
-        self.assertLess(second.index("Alex has gone quiet"), second.index("named a day with no time"))
+        self.assertLess(second.index("Dana has gone quiet"), second.index("named a day with no time"))
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM draft WHERE status='draft'").fetchone()[0], 1)
         self.assertFalse(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='external_operation'").fetchone())
 
