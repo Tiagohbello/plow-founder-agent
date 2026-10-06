@@ -506,11 +506,11 @@ def due_entry(db, contact_key, fields, today):
     # Live scheduling work owns the move, so the clock waits for it rather than re-arming unseen.
     active = db.execute("""SELECT 1 FROM monitor_suggestion WHERE contact_key=? AND status IN ('pending','approved')
                            AND json_extract(payload,'$.action')!='follow_up'""", (contact_key,)).fetchone()
-    if since is None and (active or status == "waiting_on_them"):
+    if active:
+        return None
+    if since is None and status == "waiting_on_them":
         # A page that predates the clock only starts it; flipping it would guess.
         changes = {"since": today}
-    elif active:
-        return None
     elif status == "new" or (status == "waiting_on_them" and aged):
         changes = {"status": "waiting_on_us", "since": today}
     elif status == "waiting_on_them":

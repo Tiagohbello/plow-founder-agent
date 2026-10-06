@@ -354,6 +354,9 @@ class MonitorTests(unittest.TestCase):
                 # A closed status is a decision: its live work goes; a garbled one keeps it.
                 self.assertEqual(monitor.suggestion(self.db, 1)["status"],
                                  "superseded" if status == "passed" else "pending")
+        # A closed page is still the founder's to reopen.
+        reopened = monitor.page_update(self.db, facts={"status": "waiting_on_us"}, contact_key="alex")["changes"]
+        self.assertEqual(reopened, {"status": "waiting_on_us", "since": monitor.local_today(self.db)})
 
     def test_a_status_change_restarts_the_clock(self):
         late_evening_in_la = datetime(2026, 10, 7, 3, 0, tzinfo=timezone.utc)
