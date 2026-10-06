@@ -35,6 +35,10 @@ SOURCES = {"gmail", "messages", "plow"}
 # in agreement with this one.
 ACTIONS = ("accepted", "cancellation", "conflict", "new_options", "modality", "clarification", "blocked")
 PLAN_OPERATIONS = {"hold": "create", "invitation": "create", "delete_hold": "delete"}
+# A page's `status` says whose move it is; `since` is the date it took effect.
+PIPELINE_STATUSES = ("new", "waiting_on_us", "held", "sent", "waiting_on_them",
+                     "confirmed", "passed", "do_not_contact", "unverified", "withdrawn")
+TERMINAL_PIPELINE_STATUSES = frozenset({"passed", "do_not_contact", "withdrawn"})
 # One check surfaces the few things worth doing now; the rest stay pending and
 # are reconsidered next run. Strict tiers, so a clarification waits behind any
 # steady stream of accepted slots -- intended at one founder's volume, where a
@@ -67,6 +71,18 @@ def utcnow():
 
 def stamp(value=None):
     return (value or utcnow()).astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+def local_today(db, current=None):
+    zone = ZoneInfo(show(db)["config"]["timezone"])
+    return (current or utcnow()).astimezone(zone).date().isoformat()
+
+
+def validate_since(value):
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ValueError("since must be a YYYY-MM-DD date")
+    datetime.strptime(value, "%Y-%m-%d")
+    return value
 
 
 def parse_time(value):
@@ -407,7 +423,7 @@ def contacts(db, vault, pages):
                 mirrored.unlink()
     stale = {rel for rel, sha in pages.items() if not (vault / rel).is_file()
              or hashlib.sha256((vault / rel).read_bytes()).hexdigest() != sha}
-    valid, unlinked = [], []
+    valid, unlinked, terminal = [], [], set()
     for slug in slugs:
         if slug.startswith("source:"):
             # `source:` is this database's namespace for blockers that belong to a
@@ -422,6 +438,14 @@ def contacts(db, vault, pages):
         fields = page(vault, PIPELINE_ROOT, slug)
         if isinstance(fields, str):
             unlinked.append({"contact_key": slug, "reason": fields})
+            continue
+        if fields.get("status") in TERMINAL_PIPELINE_STATUSES:
+            terminal.add(slug)
+            unlinked.append({"contact_key": slug, "reason": f"status {fields['status']} is closed"})
+            continue
+        if fields.get("status") not in PIPELINE_STATUSES:
+            unlinked.append({"contact_key": slug, "reason": "pipeline status is noncanonical or missing; set it "
+                             "to one of " + ", ".join(PIPELINE_STATUSES)})
             continue
         person = page(vault, PEOPLE_ROOT, slug)
         if person is None:
@@ -440,10 +464,11 @@ def contacts(db, vault, pages):
         # Superseding is one-way -- `observe` returns the existing row for identical
         # evidence whatever its status -- so only an entry that has actually left the
         # root earns it. One that merely would not parse this run is still in the
-        # pipeline, and says so again next run.
+        # pipeline, and says so again next run. A closed status is a decision, so it earns it too.
         present = {c["contact_key"] for c in valid} | {u["contact_key"] for u in unlinked}
         for old in db.execute("SELECT id,contact_key FROM monitor_suggestion WHERE status IN ('pending','approved')").fetchall():
-            if old["contact_key"] not in present and not old["contact_key"].startswith("source:"):
+            if old["contact_key"] in terminal or (old["contact_key"] not in present
+                                                  and not old["contact_key"].startswith("source:")):
                 supersede(db, old["id"])
         db.execute("DELETE FROM monitor_contact")
         db.executemany("INSERT INTO monitor_contact VALUES (?,?)", [(c["contact_key"], canonical(c)) for c in valid])
@@ -508,8 +533,8 @@ def current_advice(db, contact_key):
     return {"path": f"{PIPELINE_ROOT}/{contact_key}.md", "changes": {"next_step": advice}}
 
 
-def page_update(db, suggestion_id):
-    """What this suggestion's contact page should say now.
+def page_update(db, suggestion_id=None, facts=None, contact_key=None):
+    """What this suggestion's contact page should say now, plus validated facts.
 
     Answers for the contact, not for the suggestion named: the newest active
     advice by evidence, or empty when nothing is outstanding. So it is correct
@@ -518,15 +543,36 @@ def page_update(db, suggestion_id):
     earlier -- a scheduled check writing between the two would otherwise be erased
     by a snapshot older than the page.
 
-    The field set and the destination both come from rows this database holds. A
-    caller supplies an id and nothing else, so it cannot widen the write or steer
-    it out of the root."""
-    item = suggestion(db, suggestion_id)
-    if item["contact_key"].startswith("source:"):
-        # No page rather than an error: both callers ask unconditionally, and a
-        # blocker that belongs to a feed simply has nothing to write.
-        return None
-    return current_advice(db, item["contact_key"])
+    The destination comes from rows this database holds, so it cannot be steered
+    out of the root, and facts are limited to `status` and `since`. A direct update
+    names a contact from the latest read instead of a suggestion and leaves
+    `next_step` alone."""
+    if suggestion_id is not None:
+        contact_key = suggestion(db, suggestion_id)["contact_key"]
+        if contact_key.startswith("source:"):
+            # No page rather than an error: both callers ask unconditionally, and a
+            # blocker that belongs to a feed simply has nothing to write.
+            return None
+        result = current_advice(db, contact_key)
+    else:
+        result = {"path": f"{PIPELINE_ROOT}/{contact_key}.md", "changes": {}}
+    row = db.execute("SELECT data FROM monitor_contact WHERE contact_key=?", (contact_key,)).fetchone()
+    if row is None and suggestion_id is None:
+        raise ValueError("contact is not in the latest verified pipeline read")
+    facts = facts or {}
+    if set(facts) - {"status", "since"}:
+        raise ValueError("page facts may contain only status and since")
+    if "status" in facts and facts["status"] not in PIPELINE_STATUSES:
+        raise ValueError("status must be one of " + ", ".join(PIPELINE_STATUSES))
+    changes = dict(facts)
+    if "since" in changes:
+        validate_since(changes["since"])
+    # `since` is the clock for a page's ball, so no status change can leave it stale.
+    current = json.loads(row["data"])["fields"].get("status") if row else None
+    if "status" in changes and changes["status"] != current and "since" not in changes:
+        changes["since"] = local_today(db)
+    result["changes"].update(changes)
+    return result
 
 
 def normalize_calendar_plan(action, plan, draft, contact):
@@ -752,7 +798,11 @@ def parser():
     gate_parser = commands.add_parser("gate")
     gate_parser.add_argument("--manual", action="store_true")
     commands.add_parser("contacts").add_argument("--listing", required=True, type=Path)
-    commands.add_parser("page-update").add_argument("--id", required=True, type=int)
+    page_parser = commands.add_parser("page-update")
+    target = page_parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--id", type=int)
+    target.add_argument("--contact-key")
+    page_parser.add_argument("--file", type=Path)
     window_parser = commands.add_parser("window")
     window_parser.add_argument("--contact-key", required=True)
     window_parser.add_argument("--source", required=True, choices=sorted(SOURCES))
@@ -788,7 +838,7 @@ def run(args):
         if args.command == "gate": return gate(db, manual=args.manual)
         # The mirror lives beside the database it serves.
         if args.command == "contacts": return contacts(db, path.parent / "wiki", listing(args.listing))
-        if args.command == "page-update": return page_update(db, args.id)
+        if args.command == "page-update": return page_update(db, args.id, data, args.contact_key)
         if args.command == "window": return window(db, args.contact_key, args.source)
         if args.command == "checkpoint": return checkpoint(db, data)
         if args.command == "observe": return observe(db, data)

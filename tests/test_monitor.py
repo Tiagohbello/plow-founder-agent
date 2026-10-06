@@ -71,12 +71,12 @@ class MonitorTests(unittest.TestCase):
                                   "work@example.com/primary/hold-2"))
         self.contact = self.contacts()["contacts"][0]
 
-    def write_contact(self, slug, *, email="", phone="", person=True, status="Times sent", holds=""):
+    def write_contact(self, slug, *, email="", phone="", person=True, status="sent", holds="", since=""):
         """One pipeline entry and, unless suppressed, the person page it points at."""
         entry = self.vault / monitor.PIPELINE_ROOT / f"{slug}.md"
         entry.parent.mkdir(parents=True, exist_ok=True)
         entry.write_text(f'---\ntype: "PipelineEntry"\nperson: "{slug}"\nstatus: "{status}"\n'
-                         f'holds: "{holds}"\nnext_step: ""\n---\n\nNotes about {slug}.\n')
+                         f'holds: "{holds}"\nsince: "{since}"\nnext_step: ""\n---\n\nNotes about {slug}.\n')
         if person:
             page = self.vault / monitor.PEOPLE_ROOT / f"{slug}.md"
             page.parent.mkdir(parents=True, exist_ok=True)
@@ -340,6 +340,42 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual([c["contact_key"] for c in found["contacts"]], ["dana"])
         self.assertFalse((self.vault / entry).exists(), "the mirror keeps only what the wiki still has")
         self.assertEqual(monitor.suggestion(self.db, 1)["status"], "superseded")
+
+    def test_only_an_open_canonical_status_is_monitored(self):
+        monitor.observe(self.db, self.observation())
+        for status, reason in (("waiting_on_them", None), ("Times sent", "pipeline status is noncanonical"),
+                               ("", "noncanonical or missing"), ("passed", "status passed is closed")):
+            with self.subTest(status):
+                self.write_contact("alex", email="alex@example.com", status=status)
+                found = self.contacts()
+                self.assertEqual([c["contact_key"] for c in found["contacts"]], [] if reason else ["alex"])
+                if reason:
+                    self.assertIn(reason, found["unlinked"][0]["reason"])
+                # A closed status is a decision: its live work goes; a garbled one keeps it.
+                self.assertEqual(monitor.suggestion(self.db, 1)["status"],
+                                 "superseded" if status == "passed" else "pending")
+
+    def test_a_status_change_restarts_the_clock(self):
+        late_evening_in_la = datetime(2026, 10, 7, 3, 0, tzinfo=timezone.utc)
+        self.assertEqual(monitor.local_today(self.db, late_evening_in_la), "2026-10-06")
+        today = monitor.local_today(self.db)
+        item = monitor.observe(self.db, self.observation())["suggestion"]
+        moved = monitor.page_update(self.db, item["id"], {"status": "waiting_on_them"})["changes"]
+        self.assertEqual(moved, {"next_step": self.observation()["next_step"],
+                                 "status": "waiting_on_them", "since": today})
+        explicit = {"status": "waiting_on_them", "since": "2026-09-30"}
+        facts = self.home / "facts.json"
+        facts.write_text(json.dumps(explicit))
+        direct = self.helper("pipeline-monitor", "monitor.py", "page-update", "--contact-key", "alex", "--file", str(facts))
+        self.assertEqual(direct, {"path": f"{monitor.PIPELINE_ROOT}/alex.md", "changes": explicit})
+        self.assertEqual(monitor.page_update(self.db, facts={"status": "sent"}, contact_key="alex")["changes"],
+                         {"status": "sent"})
+        for bad in ({"since": "yesterday"}, {"since": "2026-02-30"}, {"status": "Times sent"},
+                    {"next_step": "invented"}):
+            with self.subTest(bad), self.assertRaises(ValueError):
+                monitor.page_update(self.db, facts=bad, contact_key="alex")
+        with self.assertRaisesRegex(ValueError, "latest verified pipeline read"):
+            monitor.page_update(self.db, facts={"status": "sent"}, contact_key="../../escape")
 
     def test_a_person_page_deleted_on_the_mac_stops_supplying_handles(self):
         person = f"{monitor.PEOPLE_ROOT}/alex.md"

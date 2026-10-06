@@ -125,6 +125,15 @@ person is one identity across both roots. A contact with no person page gets one
 in `entities/people/` first — that root is `shared`, so read it and fold into it rather
 than overwriting.
 
+A page's `status` is exactly one of `new`, `waiting_on_us`, `held`, `sent`,
+`waiting_on_them`, `confirmed`, `passed`, `do_not_contact`, `unverified`,
+`withdrawn` (meanings in `founder-scheduling`). `waiting_on_us` means the move is
+the founder's; `waiting_on_them` means the founder moved last. `passed`,
+`do_not_contact` and `withdrawn` close the contact: `contacts` skips it and
+supersedes its live suggestions. Any other value leaves the page unlinked until
+someone sets a canonical one. `since` (`YYYY-MM-DD`) is the clock: the date the
+current `status` took effect.
+
 Change a page with `wiki_page.merge` (`scripts/wiki_page.py`), which replaces only the
 fields named and refuses a value or key that would break out of the frontmatter block.
 Never write a page whose `generated: true`, and never hand-edit a table `wiki index`
@@ -142,14 +151,16 @@ blockers, which is how advice went stale in one and errored in the other.
    not to read a page that does not exist.
 2. Read the page through Latch. A page that will not read is reported, not
    overwritten.
-3. For monitor-originated work, run `page-update --id N`. **After the read, never
-   before** — it answers for the contact rather than for the suggestion, so
-   anything written between the two is reflected instead of erased by an older
-   answer. A direct founder request has no suggestion and so no advice to
-   derive: skip this step rather than inventing an id, and leave `next_step`
-   exactly as the page has it.
+3. For monitor-originated work, run `page-update --id N [--file <facts.json>]`.
+   **After the read, never before** — it answers for the contact rather than for
+   the suggestion, so anything written between the two is reflected instead of
+   erased by an older answer. A direct founder request or a contact with no
+   suggestion has no advice to derive: run `page-update --contact-key KEY --file
+   <facts.json>` rather than inventing an id; it leaves `next_step` exactly as
+   the page has it. Facts are a JSON object of only verified `status` and
+   `since`; a `status` change without `since` gets today.
 4. `wiki_page.merge` into the copy you read: the `changes` step 3 returned, if it
-   ran, plus the factual fields you actually verified. Nothing else — never a
+   ran, plus the other factual fields you actually verified. Nothing else — never a
    `next_step` you composed yourself, and never a factual field not established
    by a verified effect in this run.
 5. Immediately before writing, read the page again and compare it byte for byte
